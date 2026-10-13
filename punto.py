@@ -25,6 +25,14 @@ import time
 import traceback
 from datetime import datetime
 
+# Скрываем иконку приложения из дока (должно быть до импорта других модулей)
+try:
+    from AppKit import NSApplication, NSApplicationActivationPolicyProhibited
+    app = NSApplication.sharedApplication()
+    app.setActivationPolicy_(NSApplicationActivationPolicyProhibited)
+except Exception:
+    pass  # Игнорируем ошибки, если не получается скрыть
+
 import objc
 from Foundation import NSBundle
 from pynput import keyboard
@@ -152,6 +160,16 @@ RU_WORDS = load_words(
 )
 EXCEPTIONS = load_exceptions("exceptions.txt")
 
+# Короткие слова из 2 букв для особой обработки
+SHORT_EN = {"am", "an", "as", "at", "be", "by", "do", "go", "he", "hi", "if", "in",
+            "is", "it", "me", "my", "no", "of", "ok", "on", "or", "so", "to", "up",
+            "us", "we"}
+SHORT_RU = {"ам", "ах", "ба", "бы", "ва", "во", "да", "до", "ее", "ей", "ем", "ею",
+            "её", "же", "за", "из", "им", "их", "ко", "ли", "мы", "на", "не", "ни",
+            "но", "ну", "об", "ой", "он", "от", "по", "ра", "са", "се", "си", "со",
+            "та", "те", "ти", "то", "ту", "ты", "уж", "ух", "эй", "эх", "юг", "юз",
+            "як", "ям"}
+
 
 def decide(word):
     """
@@ -161,22 +179,40 @@ def decide(word):
     w = word.lower().replace("ё", "е")
     if w in EXCEPTIONS:
         return None
-    if len(w) == 2:
-        if w in SHORT_EN or w in SHORT_RU:
-            return None  # уже правильное короткое слово
-        if convert(w, "en") in SHORT_EN:
-            return "en"
-        if convert(w, "ru") in SHORT_RU:
-            return "ru"
+
+    # Определяем язык по символам в слове
+    has_cyrillic = any('Ѐ' <= c <= 'ӿ' for c in w)
+    has_latin = any('a' <= c.lower() <= 'z' for c in w)
+
+    # Если слово уже в правильном языке, не трогаем
+    if has_cyrillic and w in RU_WORDS:
         return None
-    if len(w) < 3:
+    if has_latin and w in EN_WORDS:
         return None
-    if w in EN_WORDS or w in RU_WORDS:
-        return None  # слово уже правильное
-    if convert(w, "ru").replace("ё", "е") in RU_WORDS:
-        return "ru"  # набрано в английской раскладке, должно быть русским
-    if convert(w, "en") in EN_WORDS:
-        return "en"  # набрано в русской раскладке, должно быть английским
+
+    # Для коротких слов (1-2 символа) более строгая проверка
+    if len(w) <= 2:
+        if w in SHORT_EN or w in SHORT_RU or w in EN_WORDS or w in RU_WORDS:
+            return None
+        if len(w) == 2:
+            if convert(w, "en") in SHORT_EN:
+                return "en"
+            if convert(w, "ru") in SHORT_RU:
+                return "ru"
+        return None
+
+    # Проверяем, есть ли конвертация этого слова в словаре
+    ru_variant = convert(w, "ru").replace("ё", "е")
+    en_variant = convert(w, "en")
+
+    # Если слово латинское, но его русская версия есть в словаре
+    if has_latin and not has_cyrillic and ru_variant in RU_WORDS:
+        return "ru"
+
+    # Если слово кириллическое, но его английская версия есть в словаре
+    if has_cyrillic and not has_latin and en_variant in EN_WORDS:
+        return "en"
+
     return None
 
 
