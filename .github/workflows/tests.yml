@@ -1,0 +1,59 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pynput pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-Quartz pyobjc-framework-ApplicationServices
+
+    - name: Run tests
+      run: |
+        python -m unittest test_punto -v
+
+    - name: Check code syntax
+      run: |
+        python -m py_compile punto.py
+        python -m py_compile test_punto.py
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install linting tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 pylint
+
+    - name: Lint with flake8
+      run: |
+        # Проверка синтаксиса и основных ошибок
+        flake8 punto.py test_punto.py --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Проверка стиля (с предупреждениями)
+        flake8 punto.py test_punto.py --count --max-line-length=100 --statistics || true
