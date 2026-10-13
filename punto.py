@@ -5,7 +5,7 @@ Punto-подобный переключатель раскладки для macO
 
 Горячие клавиши:
   * Двойной Shift (быстро нажать и отпустить Shift два раза) - исправить последнее слово
-  * Control + Option + Z - тоже исправить последнее слово
+  * Control + Option + L - тоже исправить последнее слово
   * Control + Option + P - включить / выключить автоматический режим
 
 Автоматика: при нажатии пробела слово, которого нет в словаре своего языка,
@@ -369,9 +369,9 @@ def on_release(key):
 # ---------------------------------------------------------------------------
 def main():
     log("=== Punto запущен ===")
-    log("Двойной Shift или Control+Option+Z - исправить слово, Control+Option+P - вкл/выкл авто")
+    log("Двойной Shift или Control+Option+L - исправить слово, Control+Option+P - вкл/выкл авто")
     hotkeys = keyboard.GlobalHotKeys({
-        "<ctrl>+<alt>+z": lambda: jobs.put(job_manual_fix),
+        "<ctrl>+<alt>+l": lambda: jobs.put(job_manual_fix),
         "<ctrl>+<alt>+p": lambda: jobs.put(toggle_auto),
     })
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
