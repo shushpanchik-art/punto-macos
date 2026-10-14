@@ -1,31 +1,14 @@
-# Python
+# Большие модели (>100MB) - загружать через Git LFS или releases
+punto_micro_model/*.gguf
+punto_smollm_micro/*.gguf
+
+# Python cache
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
+*.pyc
+*.pyo
 
 # Logs
 *.log
-*.err.log
 
-# Punto specific
-words_en.txt
-words_ru.txt
-exceptions.txt
+# Outputs
+*_output/
