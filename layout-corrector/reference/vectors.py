@@ -1,9 +1,10 @@
-import sys, json, math, hashlib; sys.path.insert(0, ".")
+"""vectors.py - generates the golden test vectors of section 20.12 from lfengine.py.
+Run:  python vectors.py > vectors_out.json   (lfengine.py in the same directory; standard library only)."""
+import sys, json, math, hashlib, struct; sys.path.insert(0, ".")
 import lfengine as L
 K = L.keys_from_text
 cal = L.example_cal(); L.check_calibration_package(cal)
 out = {}
-def fmt(x, n=3): return f"{x:.{n}f}"
 # ---- V1 render + tokens
 rows = []
 for typed, lay in [("ghbdtn","en"),("Ghbdtn","en"),("GHBDTN","en"),("[jhjij","en"),(";bpym","en"),(",jkmit","en"),("k.,k.","en"),("`","en"),("руддщ","ru"),("Руддщ,","ru")]:
@@ -27,10 +28,8 @@ out["cands"] = cands
 gs = []
 for typed, act in [("github.com","en"),("https://x.io","en"),("user@example.com","en"),("MyVariable","en"),("asdfgh","en"),("фывапр","ru"),("kubectl","en"),("ghbdtn","en")]:
     run = K(typed, act)
-    if all(True for _ in run):
-        cand = L.candidate(run, L.OTHER_LAYOUT[act])
-        g = L.shape_guard(run, act, cand.core) if cand else "no_candidate"
-        gs.append([typed, act, g])
+    cand = L.candidate(run, L.OTHER_LAYOUT[act])
+    gs.append([typed, act, L.shape_guard(run, act, cand.core) if cand else "no_candidate"])
 out["guards"] = gs
 # ---- V13 priors, V14 thresholds
 pri = []
@@ -130,7 +129,6 @@ out["ev1"] = [
 ]
 out["poisson"] = [round(L.poisson_upper(k),4) for k in range(6)]
 # ---- V10 baseline toy
-toy_rows = {0: ["hello","hell","help","hero"], 1: ["привет","привал","приказ","пригород"], 2: ["kubectl","github","asdfgh","docker"]}
 def keyrow(w, lay): return L.tokens(K(w, lay))
 # train each class on key rows of its own words (RU words typed on RU layout, EN/OTHER on EN)
 trainset = {0:[keyrow(w,"en") for w in ["hello","hell","help","hero","world","word"]],
@@ -152,7 +150,7 @@ tw = L.toy_weights(); W = L.lfw_load(tw)
 out["lfw"] = {"bytes": len(tw), "sha256_16": hashlib.sha256(tw).hexdigest()[:16],
               "logits_ghbdtn": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("ghbdtn","en")))],
               "logits_hello": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("hello","en")))],
-              "first_floats": [float(x) for x in __import__("struct").unpack_from("<4f", tw, 16+12)]}
+              "first_floats": [float(x) for x in struct.unpack_from("<4f", tw, 16+12)]}
 out["fnv"] = [[s, hex(L.fnv1a64(s.encode()))] for s in ["", "a", "foobar"]] + [["ctx_key(2,(95,61))", hex(L.ctx_key(2,(95,61)))], ["pair_key(2,(95,61),63)", hex(L.pair_key(2,(95,61),63))]]
 # ---- V12 lexicon tables and calibration package
 lexb = L.lfl_pack({"lex_en": ["Hello", "the", "World"], "lex_ru": ["привет", "мир"], "acr_en": ["SQL"], "acr_ru": ["МТС"]})
@@ -164,9 +162,12 @@ out["lfl"] = {"bytes": len(lexb), "sha256_16": hashlib.sha256(lexb).hexdigest()[
                          ["acr_en", "sql", "sql" in lt["acr_en"]]]}
 cj = L.cal_to_json(cal)
 out["cal_json"] = {"bytes": len(cj.encode("utf-8")), "sha256_16": hashlib.sha256(cj.encode("utf-8")).hexdigest()[:16]}
-json.dump(out, open("vectors.json","w"), ensure_ascii=False, indent=1, default=lambda o: list(o) if isinstance(o,(set,frozenset,tuple)) else str(o))
-for k,v in out.items():
-    print("==",k)
-    if isinstance(v, list):
-        for r in v: print(r)
-    else: print(v)
+def dumps(v):
+    return json.dumps(v, ensure_ascii=False)
+def block(v):    # valid JSON, one row per line
+    if isinstance(v, list) and v and isinstance(v[0], list):
+        return "[\n" + ",\n".join(" " + dumps(r) for r in v) + "\n]"
+    if isinstance(v, dict):
+        return "{\n" + ",\n".join(" " + dumps(k) + ": " + dumps(x) for k, x in v.items()) + "\n}"
+    return dumps(v)
+sys.stdout.write("{\n" + ",\n".join(dumps(k) + ": " + block(v) for k, v in out.items()) + "\n}\n")

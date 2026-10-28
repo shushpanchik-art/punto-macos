@@ -286,9 +286,9 @@ def decide(run: Sequence[Key], active: str, cal: dict, scorer: Callable[[List[in
            lexicon: Optional[dict] = None, kind: str = "network") -> Decision:
     """The normative decision for the run (the keys typed since the last boundary), taken at Space.
     `state` selects the wrong-layout probability w ('default', 'after_switch', 'run');
-    `run_active` enables the 2-key rule. Priority matrix, first match wins:
-      1 no candidate  2 one key  3 user exception  4 shape guard  5 acronym of the active language
-      6 word of the active language  7 two keys (allow-list and run)  8 score against the threshold."""
+    `run_active` enables the 2-key rule. Rows 5 to 12 of the priority matrix of 10.4, first match wins:
+      5 no candidate  6 one key  7 user exception  8 shape guard  9 acronym of the active language
+      10 word of the active language  11 two keys (allow-list and run)  12 score against the threshold."""
     target = OTHER_LAYOUT[active]
     lex = lexicon or {}
     direction = f"{active}2{target}"
@@ -580,6 +580,7 @@ def lfb_pack(models: Sequence[WittenBell], log_prior: Sequence[float]) -> bytes:
         for k in range(WittenBell.ORDER):
             ctxs = sorted((ctx_key(k, c), sum(d.values()), len(d)) for c, d in m.cnt[k].items())
             pairs = sorted((pair_key(k, c, w), n) for c, d in m.cnt[k].items() for w, n in d.items())
+            assert len({r[0] for r in ctxs}) == len(ctxs) and len({a for a, _ in pairs}) == len(pairs), "hash collision"
             out.append(struct.pack("<I", len(ctxs)) + b"".join(struct.pack("<QII", *r) for r in ctxs))
             out.append(struct.pack("<I", len(pairs)) + b"".join(struct.pack("<QII", a, n, 0) for a, n in pairs))
     return b"".join(out)
