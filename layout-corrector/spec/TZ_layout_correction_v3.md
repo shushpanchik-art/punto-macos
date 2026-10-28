@@ -138,9 +138,9 @@ The product is an on-device tool that notices a word typed on the wrong layout (
 
 ### 4.4 Conventions
 
-MUST, SHOULD and MAY follow RFC 2119. Requirement ids are `<area>-<n>`: `MD` model, `DT` data, `TR` training, `CA` calibration and policy, `EV` evaluation, `DP` deployment, `RT` runtime behaviour. Numbers marked *measured* come from the feasibility experiments in section 18, which used public word-frequency lists as proxy data; they justify the choices but do not replace acceptance testing on real typing data. "Word" always means a word candidate as defined in section 5.3, and "p95" means the 95th percentile of at least 10,000 warm calls.
+MUST, SHOULD and MAY follow RFC 2119. Requirement ids are `<area>-<n>`: `MD` model, `DT` data, `TR` training, `CA` calibration and policy, `EV` evaluation, `DP` deployment, `RT` runtime behaviour, AP the application layer, CT conformance of the reference code. Numbers marked *measured* come from the feasibility experiments in section 18, which used public word-frequency lists as proxy data; they justify the choices but do not replace acceptance testing on real typing data. "Word" always means a word candidate as defined in section 5.3, and "p95" means the 95th percentile of at least 10,000 warm calls.
 
-**Normative and informative text.** Normative: every requirement table (MD, DT, TR, CA, EV, DP, RT, AP), the rules stated in sections 4 to 16, and section 20 (reference code, formats and test vectors). When prose and the reference code disagree, the code and its vectors win, and the prose is a defect to be fixed. Informative: sections 1 to 3 (summary, answers, prior art), 17 (review of the drafts), 18 (experiments) and 19 (appendices). Informative material justifies the normative choices; none of its numbers is a requirement unless a normative row repeats it, and each experimental figure carries an evidence grade (18.1). An option marked optional, phase 2, deferred or ablation is not part of the first release and MUST NOT be enabled by default. Terminology: a *layer with parameters* is the embedding, each convolution or the linear head; pooling has none, so the reference network has five layers with parameters.
+**Normative and informative text.** Normative: every requirement table (MD, DT, TR, CA, EV, DP, RT, AP, CT), the rules stated in sections 4 to 16, and section 20 (reference code, formats and test vectors). When prose and the reference code disagree, the code and its vectors win, and the prose is a defect to be fixed. Informative: sections 1 to 3 (summary, answers, prior art), 17 (review of the drafts), 18 (experiments) and 19 (appendices). Informative material justifies the normative choices; none of its numbers is a requirement unless a normative row repeats it, and each experimental figure carries an evidence grade (18.1). An option marked optional, phase 2, deferred or ablation is not part of the first release and MUST NOT be enabled by default. Terminology: a *layer with parameters* is the embedding, each convolution or the linear head; pooling has none, so the reference network has five layers with parameters.
 
 ## 5. Problem formulation
 
@@ -407,6 +407,7 @@ The specification therefore sets the budget where it is useful (section 7.5, tab
 | MD-8 | The model card MUST report accuracy per key length (2, 3, 4, 5 to 6, 7 to 9, 10 and more) and per class, with seed spread. |
 | MD-9 | The latency, size and memory gates of 7.5 MUST be met on every reference device. |
 | MD-10 | The runtime SHOULD run the network at the true length of the candidate instead of the padded length of 22; the measured cost grows about linearly with length (section 18.7). |
+| MD-14 | The trainer MUST export the weights in the format LFW1 of 20.11 in addition to the ONNX file of DP-1. The native runtime and the ONNX file MUST reproduce the reference forward pass of 20.11 within 1e-5 per logit on the toy weights of 20.12 and within 1e-4 per logit on at least 100,000 key sequences of the exported network. The size of an LFW1 file MUST equal 16 + 4 × (number of convolutions) + 4 × (parameter count) bytes. |
 
 ### 7.7 The statistical baseline (stages 4 and 5)
 
@@ -429,7 +430,7 @@ The baseline can become the shipped scorer (EV-12), so it is specified end to en
 
 **What a match does.** The matrix of 10.4 is the whole rule. A word of the active language (row 10), an acronym (row 9), a user exception (row 7) and a shape guard (row 8) each end in KEEP before any score is computed. A 2-key word is decided by the allow-list alone (row 11). Every other word is scored. The lexicon of the target language is not consulted in the first release.
 
-**Order of building (D3).** (1) Read the manifest of 8.9 and verify every hash. (2) Build the rows of `S-TRAIN` with the pipeline of 8.3 and the run seed. (3) Count, per class, the contexts and the pairs of orders 0, 1 and 2. (4) Write `LFB1`. (5) Build the lexicon, acronym and allow-list tables and write `LFL1`. (6) Fit `T` and `λ` (10.1, 10.3) and write the calibration package. (7) Run the conformance tests of 20.13. Steps 1 to 5 are deterministic: the same manifest and seed give the same bytes.
+**Order of building (D3).** (1) Read the manifest of 8.9 and verify every hash. (2) Build the rows of `S-TRAIN` with the pipeline of 8.3 and the run seed. (3) Count, per class, the contexts and the pairs of orders 0, 1 and 2. (4) Write `LFB1`. (5) Build the lexicon, acronym and allow-list tables and write `LFL1`. (6) Fit `T` and `λ` (10.1, 10.3) and write the calibration package. (7) Run the conformance tests of 20.12. Steps 1 to 5 are deterministic: the same manifest and seed give the same bytes.
 
 | ID | Requirement |
 | --- | --- |
@@ -1009,7 +1010,7 @@ Rules of the gate:
 | Token shape | `://` or `www.`, an e-mail address, a dotted name with a file or domain suffix, camelCase, a key walk of four neighbours on one row. Evaluated on both readings of the keys. Digits, `_`, `-`, `/`, `\`, `@` and other non-letter keys already make the candidate ineligible (5.3). The code of section 20.4 is the normative list | KEEP, reason `shape_url`, `shape_email`, `shape_dotted`, `shape_camel` or `shape_keywalk` |
 | Ineligible keys | Dead keys, combining marks, emoji, any key outside the 47-key block, mixed scripts inside one candidate | No action |
 | User exceptions | The word (case-folded, with its direction) was undone before, or an application opt-out applies | KEEP, reason `user_exception` |
-| Cool-down | An undo just happened | No automatic correction for the next 3 decisions or 10 seconds, so the tool does not fight the user |
+| Cool-down | An undo just happened | No automatic correction until 3 word decisions have been suppressed and 10 seconds have passed, whichever is later, so the tool does not fight the user |
 
 Context breaks, which empty the buffer, are listed with the other events in 13.2.
 
@@ -1028,7 +1029,7 @@ Context breaks, which empty the buffer, are listed with the other events in 13.2
 | --- | --- |
 | Printable key of the 47-key block, no Ctrl, Cmd or Alt, gate ALLOW | Append `(key, Shift, Caps, layout id)`; more than 64 keys marks overflow (10.4, row 2) |
 | Space | Decision point: end of the word, decision on the worker thread |
-| Backspace | Remove the last key; on an empty buffer it is a context break (text before the word is being edited) |
+| Backspace | Remove the last key; on an empty buffer it is a context break (text before the word is being edited), except inside a dropped word, where it is ignored |
 | Manual layout change inside a word | The word is dropped (its keys came from two layouts); the rest of it is ignored; `after_switch` is set; `c := 0` |
 | Manual layout change between words | `after_switch` is set; `c := 0` |
 | Enter, Tab | Context break |
@@ -1062,7 +1063,7 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 
 | Situation when the chord is pressed | Effect |
 | --- | --- |
-| Within 10 seconds after an automatic correction, with no context break since | **Undo.** Restore the original keys exactly as recorded, rendered with the layout id recorded with them (nothing is re-derived from the converted text). Add the word, case-folded with its direction, to the exception list; start the cool-down (3 decisions or 10 seconds); clear the run credit |
+| Within 10 seconds after an automatic correction, with no context break since | **Undo.** Restore the original keys exactly as recorded, rendered with the layout id recorded with them (nothing is re-derived from the converted text). Add the word, case-folded with its direction, to the exception list; start the cool-down (it ends when 3 word decisions have been suppressed and 10 seconds have passed, whichever is later); clear the run credit |
 | A selection exists and the gate is ALLOW | **Manual conversion of the selection** (below) |
 | No selection and the gate is ALLOW | **Manual conversion of the last word**: the last run still in the buffer, or, if the buffer is empty, the last whitespace-delimited token before the caret, read through the text interface |
 | Immediately after a manual conversion | Converts back (toggle) and adds the word to the exception list |
@@ -1210,7 +1211,7 @@ The seven questions in the brief cover the model; the parameters below decide wh
 | --- | --- | --- |
 | Code-switching | Decision per word; prior from the active layout and the previous words of the run | Russian text with English terms and the reverse is normal for the target user. Mixed-language stress set |
 | Names, brands, acronyms | Lexicon plus a personal vocabulary learned locally from accepted words | `мтс` and `vnc` are the same keys; only context or the user's vocabulary separates them |
-| Transliteration (`privet`) | Class OTHER; never converted | The share in real typing is unknown; measure it in the realistic set and add a class only if it exceeds 0.5% of words |
+| Transliteration (`privet`) | Class OTHER. Typed on the English layout: KEEP (correct input). Typed on the Russian layout: converted to Latin like any Latin-script text (5.2) | The share in real typing is unknown; measure it in the realistic set and add a class only if it exceeds 0.5% of words |
 | Slang and new words | Lexicon refresh every quarter; retrain at least every 6 months | Vocabulary drifts; a stale lexicon raises both error rates |
 | Further language pairs (UA, BY, KZ, DE) | Out of scope; table and training data are parameters | Each pair needs its own data, thresholds and acceptance test |
 
@@ -1271,7 +1272,7 @@ A model without its data manifest, calibration tables and test evidence cannot b
 | Model parity | ONNX against PyTorch FP32; INT8 against FP32 if used | Maximum absolute logit difference ≤ 1e-3 for FP32; for INT8, the EV-1 operating point is re-measured and the gates still pass |
 | Policy | Temperature, prior shift, threshold table | Unit tests with known logits; the table reproduces the false-positive targets on validation |
 | Regression | Frozen stress sets (section 8.4) and the protected regression set | No category above 2 times the gate (EV-9); 0 corrections of protected content (EV-2) |
-| Acceptance | Locked realistic test sets (section 8.5) | EV-1 to EV-13, evaluated once per release candidate (section 11.6) |
+| Acceptance | Locked R-ACC (section 8.4) | EV-1 to EV-13, evaluated once per release candidate (section 11.6) |
 | Performance | Latency, memory, CPU share on each reference device | Section 7.5 gates; EV-14 |
 | End to end | At least 15 applications per OS, scripted bursts at three CPU load levels, undo and cool-down, secure fields | RT-1 to RT-8; 0 lost or duplicated characters in 100,000 replacements (RT-4, EV-15) |
 | Soak | 24 hours of simulated typing | Memory flat within 2%; no watchdog trips; no leaked key content in memory dumps after a word boundary |
@@ -1297,7 +1298,7 @@ The plan is ordered so that the cheapest evidence arrives first: a statistical b
 | 1. Foundations | 1–2 | Layout tables from the OS (D1); key tokeniser and segmentation; data pipeline and manifest (D2); evaluation harness with all slices of section 11.4; synthetic test sets; start recruiting users for the realistic set (section 8.5) | G1: round-trip tests pass; harness reproduces a known toy result; legal register has a licence entry for every source in use |
 | 2. Baseline and first network | 3–4 | Lexicon plus n-gram baseline (D3); key-token CNN trained and calibrated (D4, D5); EV-12 comparison on the synthetic and the first real data; final values of EV-4 and EV-5 fixed from the baseline run | G2: the baseline meets EV-1 on the synthetic set; the neural model is kept or dropped by EV-12; the latency tiers of section 7.5 are measured on both reference devices |
 | 3. Runtime and safety | 5–7 | Hook, buffer, guards, replacer, undo (D8); end-to-end suite on 15 applications per OS; early detection and the retroactive run fix evaluated as options (sections 10.5 and 14.2) | G3: RT-1 to RT-8 pass; 0 lost or duplicated characters in 100,000 replacements; secure-field tests pass |
-| 4. Opt-in dogfooding | 8–11 | At least 20 users, at least two weeks; realistic test set collected and locked; π and run lengths measured (section 11.5); priors and thresholds re-fitted on the real validation part; hard-negative mining on training sources only | G4: EV-1 to EV-13 pass on the locked realistic set; undo rate ≤ 0.5% (EV-11) |
+| 4. Opt-in dogfooding | 8–11 | At least 20 users, at least two weeks; R-CAL and R-ACC collected from disjoint users, R-ACC locked (section 8.4); π and run lengths measured (section 11.5); priors and thresholds re-fitted on R-CAL only; hard-negative mining on training sources only | G4: EV-1 to EV-13 pass once on the locked R-ACC (section 11.3); undo rate ≤ 0.5% (EV-11) |
 | 5. Release | 12–13 | Signing and notarisation; model card (D9); staged rollout and rollback demonstrated (D10); legal review of share-alike sources | G5: all gates green; one-step rollback tested; EV-18 satisfied |
 
 A failed gate has a defined response. G2 failing EV-1 on the baseline means the data, not the model, is the next lever. G4 failing means the thresholds are raised and recall is reported honestly; the product ships in manual-convert plus suggestion mode until EV-1 is met.
@@ -1877,7 +1878,7 @@ int main(int argc,char**argv){
 
 **What is not here.** The operating-system adapters (event capture, layout detection, the context gate, the replacement transaction) cannot be written as portable code. Sections 13.1, 13.2, 13.7 and 13.8 specify them, and the event machine of 20.7 is the interface they drive. Training is specified in section 9. The forward pass of the network in 20.11 is a slow reference for tests; the production runtime uses a native implementation that is checked against it.
 
-**Assembling the files.** The code blocks of 20.2 to 20.11 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them in order into one file; each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
+**Assembling the files.** The code blocks of 20.2 to 20.11 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them in order into one file; each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. The property tests of 20.13 are the third file, conformance.py; python conformance.py prints OK. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
 
 | Function or class | Part | Purpose |
 | --- | --- | --- |
@@ -1891,6 +1892,8 @@ int main(int argc,char**argv){
 | `poisson_upper`, `ev1_bound`, `ev1_pass` | 20.9 | The EV-1 pass rule of 11.3 |
 | `WittenBell`, `baseline_logits`, `lfb_pack`, `lfb_load`, `lfb_logp`, `lex_key`, `lfl_pack`, `lfl_load` | 20.10 | The baseline of 7.7 and the formats `LFB1`, `LFL1` |
 | `lfw_pack`, `lfw_load`, `lfw_forward`, `toy_weights` | 20.11 | The format `LFW1`, a reference forward pass, deterministic toy weights |
+| vectors.py (script) | 20.12 | Golden vectors for every function above, printed as one JSON document |
+| conformance.py (script) | 20.13 | Property tests and the conformance checks CT-1 to CT-6 |
 
 **Order of implementation.** (1) Key tables, tokens and rendering (20.2), checked against the first vectors. (2) Candidate and shape guards (20.3, 20.4). (3) Calibration arithmetic and the priority matrix (20.5, 20.6) with a stub scorer. (4) The event machine (20.7) against the traces of 20.12. (5) The baseline tables of 7.7 and the EV-12 harness, so the baseline works alone before any network exists. (6) Network training (section 9) and export to `LFW1`. (7) The operating-system adapters of 13.7, macOS first, driving the event machine. (8) The application layer of 13.9. (9) The end-to-end suite of 15.3 and the acceptance run of section 11.
 
@@ -2178,4 +2181,956 @@ def cal_from_json(text: str) -> dict:
     cal["two_key_allow"] = {d: set(v) for d, v in cal["two_key_allow"].items()}
     check_calibration_package(cal)
     return cal
+```
+
+### 20.6 Decision for one run (the priority matrix of 10.4)
+
+`decide` is the normative form of the priority matrix of 10.4. It takes the keys typed since the last boundary, the active layout, the calibration package and an injected scorer (a function from a token list to three logits: the network, the baseline or a stub), and returns a `Decision`. The first matching rule wins, in this order: no candidate, one key, user exception, shape guard, acronym of the active language, word of the active language, two keys, score against the threshold. Every KEEP carries a reason string; the reasons are the vocabulary of the vectors in 20.12. `margin` is the score minus the threshold, in nats, and is set only for model decisions.
+
+```python
+# ==== 20.6 Decision for one run (priority matrix) =====================================================
+@dataclass
+class Decision:
+    action: str                          # "CONVERT" or "KEEP"
+    reason: str
+    replacement: Optional[str] = None    # the whole run re-rendered on the target layout
+    margin: Optional[float] = None       # score - lambda (nats), model decisions only
+    n_keys: Optional[int] = None
+
+
+def expected_echo(run: Sequence[Key], active: str) -> str:
+    """The text the application should show for `run` as typed: used by the echo check before a replacement."""
+    return render(run, active)
+
+
+def decide(run: Sequence[Key], active: str, cal: dict, scorer: Callable[[List[int]], Sequence[float]],
+           state: str = "default", run_active: bool = False, exceptions=frozenset(),
+           lexicon: Optional[dict] = None, kind: str = "network") -> Decision:
+    """The normative decision for the run (the keys typed since the last boundary), taken at Space.
+    `state` selects the wrong-layout probability w ('default', 'after_switch', 'run');
+    `run_active` enables the 2-key rule. Rows 5 to 12 of the priority matrix of 10.4, first match wins:
+      5 no candidate  6 one key  7 user exception  8 shape guard  9 acronym of the active language
+      10 word of the active language  11 two keys (allow-list and run)  12 score against the threshold."""
+    target = OTHER_LAYOUT[active]
+    lex = lexicon or {}
+    direction = f"{active}2{target}"
+    cand = candidate(run, target)
+    if cand is None:
+        return Decision("KEEP", "no_eligible_candidate")
+    n = len(cand.core)
+    if bucket(n) is None:
+        return Decision("KEEP", "one_key", None, None, n)
+    typed = render(cand.core, active).casefold()
+    converted = render(cand.core, target).casefold()
+    if (direction, typed) in exceptions:
+        return Decision("KEEP", "user_exception", None, None, n)
+    g = shape_guard(run, active, cand.core)
+    if g:
+        return Decision("KEEP", g, None, None, n)
+    if typed in lex.get("acr_" + active, ()):
+        return Decision("KEEP", "acronym", None, None, n)
+    if typed in lex.get(active, ()):
+        return Decision("KEEP", "lexicon_active", None, None, n)
+    text = render(cand.lead + cand.core + cand.trail, target)
+    b = bucket(n)
+    if b == "2":
+        if run_active and converted in cal["two_key_allow"][direction]:
+            return Decision("CONVERT", "two_key_allow_list", text, None, n)
+        return Decision("KEEP", "two_key_rule", None, None, n)
+    s = score(scorer(tokens(cand.core, True)), active, cal, cal["w"][active][state], kind)
+    margin = s - cal["lambda_nats"][kind][direction][b]
+    if margin >= 0:
+        return Decision("CONVERT", "score_above_threshold", text, margin, n)
+    return Decision("KEEP", "abstain", None, margin, n)
+```
+
+### 20.7 Event state machine: buffer, run state, boundary
+
+The event machine is the interface that the operating-system adapters of 13.2 drive; it contains no platform code. It consumes events in arrival order and returns a `Decision` only at a Space that ends a non-empty run. Its rules, which the traces of 20.12 pin down:
+
+- **Gate.** Any gate verdict other than ALLOW (13.1) discards the buffer and the run state, and while it lasts every event is ignored: nothing is stored, counted or classified.
+- **Run.** Keys are appended with the layout id sampled at each key. Up to 64 keys are kept; a longer word is marked `overflow` and is KEEP. A key whose layout differs from the layout of the first key drops the whole word (all later keys are ignored until the next Space) and clears the run credit (5.3).
+- **Boundary.** At Space the run is taken and cleared. No decision if the word was dropped or empty. KEEP `overflow`; KEEP `layout_changed_at_boundary` if the layout at Space differs from the run's; KEEP `cooldown` while the cool-down after an undo lasts (until 3 word decisions have been suppressed and 10 s have passed); otherwise `decide`.
+- **Prior state** (10.2). `run` if the run credit is above 0, else `after_switch` if a manual layout change preceded the word, else `default`.
+- **Run credit** (feedback cap, 10.2). A CONVERT decided without the run prior sets the credit to 3; a CONVERT decided with it lowers the credit by 1, so a chain of run-assisted conversions cannot sustain itself. A KEEP for evidence (`user_exception`, `acronym`, `lexicon_active`, `abstain`) clears the credit. Undo clears it and starts the cool-down.
+- **Other events.** `backspace` removes the last key of the run (and clears the credit if the run is empty and the word was not dropped). `layout` (a manual change; the tool never changes the layout itself) drops the current word, sets the `after_switch` flag and clears the credit. `break` (click, focus change, paste, Enter, Tab, arrows, chords, input-method activity, sleep, lock) empties the buffer and clears the credit.
+
+```python
+# ==== 20.7 Event state machine: buffer, run state, boundary ==========================================
+@dataclass
+class Event:
+    kind: str                      # key | space | backspace | break | layout
+    key: Optional[Key] = None      # for kind == key
+    layout: Optional[str] = None   # layout id sampled at the event (key, space)
+    ts_ms: int = 0
+
+
+MAX_BUF = 64
+RUN_CREDIT_MAX = 3
+COOLDOWN_WORDS = 3
+COOLDOWN_MS = 10_000
+EVIDENCE_KEEP = {"user_exception", "acronym", "lexicon_active", "abstain"}   # KEEP reasons that end a run
+GATE_ALLOW, GATE_DENY, GATE_UNKNOWN = "ALLOW", "DENY", "UNKNOWN"
+
+
+class Engine:
+    """Consumes events in arrival order; returns a Decision at each Space that ends a non-empty run.
+    The event kinds: key (a printable main-block key), space (the decision point), backspace, layout (a manual
+    layout change), break (click, focus change, paste, Enter, Tab, arrows, chords, IME, sleep, lock, ...)."""
+
+    def __init__(self, cal, scorer, lexicon=None, exceptions=frozenset(), kind="network"):
+        self.cal, self.scorer, self.lexicon, self.exceptions, self.kind = cal, scorer, lexicon or {}, exceptions, kind
+        self.run: List[Key] = []
+        self.run_layout: Optional[str] = None
+        self.overflow = False
+        self.skip = False            # the rest of the current word is ignored (layout changed inside it)
+        self.gate = GATE_ALLOW       # stage 0: only ALLOW lets keys in
+        self.after_switch = False    # the next full word follows a manual layout change
+        self.credit = 0              # run credit 0..RUN_CREDIT_MAX; > 0 selects the 'run' prior
+        self.cool_words = 0
+        self.cool_until_ms = 0
+
+    def _flush(self):
+        self.run, self.run_layout, self.overflow = [], None, False
+
+    def set_gate(self, state: str):
+        """Stage 0 verdict from the runtime. Anything but ALLOW discards the buffer and the run state."""
+        self.gate = state
+        if state != GATE_ALLOW:
+            self._flush()
+            self.skip, self.credit, self.after_switch = False, 0, False
+
+    def undo(self, now_ms: int):
+        """The user undid an automatic correction: run credit is lost and the cool-down starts."""
+        self.credit = 0
+        self.cool_words = COOLDOWN_WORDS
+        self.cool_until_ms = now_ms + COOLDOWN_MS
+
+    def on_event(self, ev: Event) -> Optional[Decision]:
+        if self.gate != GATE_ALLOW:
+            return None                                   # not stored, not counted, not classified
+        if ev.kind == "key":
+            if self.skip:
+                return None
+            if self.run and ev.layout != self.run_layout:
+                self._flush()
+                self.skip, self.credit = True, 0          # a layout change inside a word drops the word
+                return None
+            if not self.run:
+                self.run_layout = ev.layout
+            if len(self.run) < MAX_BUF:
+                self.run.append(ev.key)
+            else:
+                self.overflow = True
+            return None
+        if ev.kind == "backspace":
+            if self.run:
+                self.run.pop()
+            elif not self.skip:
+                self.credit = 0                           # editing text before the word start: a break
+            return None
+        if ev.kind == "layout":                           # manual layout change (the tool never changes it)
+            if self.run:
+                self._flush()
+                self.skip = True
+            self.after_switch = True
+            self.credit = 0
+            return None
+        if ev.kind == "break":
+            self._flush()
+            self.skip, self.credit = False, 0
+            return None
+        if ev.kind == "space":
+            return self._boundary(ev)
+        raise ValueError(ev.kind)
+
+    def _boundary(self, ev: Event) -> Optional[Decision]:
+        run, layout, overflow, skip = self.run, self.run_layout, self.overflow, self.skip
+        self._flush()
+        self.skip = False
+        if skip or not run:
+            return None
+        if overflow:
+            return Decision("KEEP", "overflow")
+        if layout != ev.layout:
+            return Decision("KEEP", "layout_changed_at_boundary")
+        if self.cool_words > 0 or ev.ts_ms < self.cool_until_ms:
+            self.cool_words = max(0, self.cool_words - 1)
+            return Decision("KEEP", "cooldown")
+        state = "run" if self.credit > 0 else ("after_switch" if self.after_switch else "default")
+        d = decide(run, layout, self.cal, self.scorer, state, self.credit > 0, self.exceptions, self.lexicon, self.kind)
+        self.after_switch = False
+        if d.action == "CONVERT":
+            # Only a conversion decided WITHOUT the run prior refills the credit: a chain of run-assisted
+            # conversions can never sustain itself (feedback cap).
+            self.credit = RUN_CREDIT_MAX if state != "run" else max(self.credit - 1, 0)
+        elif d.reason in EVIDENCE_KEEP:
+            self.credit = 0
+        return d
+```
+
+### 20.8 Manual conversion (hotkey)
+
+Manual conversion (13.3) is a pure key-position mapping of the selected text: no peeling of punctuation, no model, no thresholds. The direction is decided by majority of letters: more Cyrillic letters than Latin ones means Russian to English, otherwise English to Russian; a selection with no letters at all gets no direction and is returned unchanged. Characters that are not on the source layout (emoji, accented letters, other scripts) are copied unchanged, so the length in code points never changes and the original selection can always be restored from the result.
+
+```python
+# ==== 20.8 Manual conversion (hotkey) ================================================================
+def _char_map(layout: str) -> Dict[str, Tuple[int, bool]]:
+    m: Dict[str, Tuple[int, bool]] = {}
+    for shift in (False, True):
+        for k in range(47):
+            m.setdefault(TABLE[layout][int(shift)][k], (k, shift))
+    return m
+
+
+_CHAR_MAP = {EN: _char_map(EN), RU: _char_map(RU)}
+
+
+def manual_convert(text: str) -> Tuple[Optional[str], str]:
+    """Pure key-position conversion of a selection (no punctuation peeling, no model, no thresholds).
+    Direction: more Cyrillic letters than Latin letters means RU->EN, otherwise EN->RU; no letters at all means
+    no direction and the text is returned unchanged. Characters that are not on the source layout (emoji,
+    accented letters, other scripts) are copied unchanged; the length in code points never changes."""
+    cyr = sum(1 for c in text if "а" <= c.lower() <= "я" or c in "ёЁ")
+    lat = sum(1 for c in text if c.isascii() and c.isalpha())
+    if cyr == 0 and lat == 0:
+        return None, text
+    src = RU if cyr > lat else EN
+    dst = OTHER_LAYOUT[src]
+    out = []
+    for c in text:
+        hit = _CHAR_MAP[src].get(c)
+        out.append(TABLE[dst][int(hit[1])][hit[0]] if hit else c)
+    return f"{src}2{dst}", "".join(out)
+```
+
+### 20.9 Acceptance statistics (EV-1)
+
+`ev1_bound` and `ev1_pass` are the executable form of the rule of 11.3. A cluster is one (user, document) pair; the bound is the exact Poisson 95% upper limit for the number of clusters, multiplied by the size of the largest cluster and divided by the number of correct words. The per-user and per-document caps on the share of words (8.5) are applied to the data before these functions are called.
+
+```python
+# ==== 20.9 Acceptance statistics (EV-1) ===============================================================
+def poisson_upper(k: int, conf: float = 0.95) -> float:
+    """Exact one-sided upper limit mu with P(Poisson(mu) <= k) = 1 - conf."""
+    lo, hi = 0.0, 10.0 + 10.0 * k
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        cdf = sum(math.exp(-mid + i * math.log(mid) - math.lgamma(i + 1)) for i in range(k + 1)) if mid > 0 else 1.0
+        if cdf > 1 - conf:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def ev1_bound(false_corrections: Sequence[Tuple[str, str]], n_negatives: int) -> float:
+    """Conservative 95% upper bound on the false-correction rate under clustering.
+    `false_corrections`: one (user_id, document_id) per false correction. A cluster is a distinct pair;
+    bound = poisson_upper(number of clusters) * (largest cluster size) / n_negatives."""
+    if not false_corrections:
+        return poisson_upper(0) / n_negatives
+    sizes: Dict[Tuple[str, str], int] = {}
+    for key in false_corrections:
+        sizes[key] = sizes.get(key, 0) + 1
+    return poisson_upper(len(sizes)) * max(sizes.values()) / n_negatives
+
+
+def ev1_pass(false_corrections: Sequence[Tuple[str, str]], n_negatives: int, n_users: int, n_documents: int) -> bool:
+    """EV-1: n >= 100,000 correct words, >= 20 users, >= 100 documents, point estimate <= 4.8e-5 and
+    cluster bound <= 1e-4. (The caps on per-user and per-document shares are applied before counting.)"""
+    return (n_negatives >= 100_000 and n_users >= 20 and n_documents >= 100
+            and len(false_corrections) / n_negatives <= 4.8e-5
+            and ev1_bound(false_corrections, n_negatives) <= 1e-4)
+```
+
+### 20.10 Statistical baseline (Witten-Bell over key tokens) and the table formats LFB1 and LFL1
+
+This block is the normative form of 7.7. `WittenBell.fit` counts contexts of 0, 1 and 2 tokens over the rows of `S-TRAIN` (each row is `BOS`, key tokens, `EOS` or a prefix without `EOS`; a row may carry a multiplicity). `WittenBell.logp` returns the sum of the log-probabilities of every token after `BOS`, with no length normalisation. `baseline_logits` adds the class prior and returns three logits that enter `score` (20.5) with `kind="ngram"`.
+
+`LFB1` stores, for each class and each order, the contexts (key, total, distinct) and the pairs (key, count) as sorted records of 64-bit FNV-1a hashes; a context hash is `FNV-1a-64(0xC0+k ‖ context bytes)` and a pair hash is `FNV-1a-64(0xD0+k ‖ context bytes ‖ next token)`. Two different contexts or pairs of one class and order could in theory share a 64-bit key, so lfb\_pack fails the build if they do. `LFL1` stores the stage-4 sets as sorted unique 64-bit keys per table tag. `lfb_logp` over a loaded file equals `WittenBell.logp` of the packed model to float rounding (MD-12).
+
+```python
+# ==== 20.10 Statistical baseline: Witten-Bell trigram over key tokens, table format LFB1 =============
+class WittenBell:
+    """Interpolated Witten-Bell language model of order 3 over key tokens (one instance per class)."""
+    ORDER = 3
+
+    def __init__(self, vocab: int = VOCAB, min_count: int = 1):
+        self.V, self.min_count = vocab, min_count
+        self.cnt = [dict() for _ in range(self.ORDER)]     # cnt[k][context tuple (len k)] -> {next: count}
+
+    def fit(self, rows: Sequence[Sequence[int]], weights: Optional[Sequence[int]] = None):
+        """rows: BOS + key tokens + EOS (tokens(core, True)); weights: multiplicity of each row."""
+        for r, row in enumerate(rows):
+            m = 1 if weights is None else weights[r]
+            for i in range(1, len(row)):
+                for k in range(self.ORDER):
+                    if i - k < 0:
+                        break
+                    d = self.cnt[k].setdefault(tuple(row[i - k:i]), {})
+                    d[row[i]] = d.get(row[i], 0) + m
+        if self.min_count > 1:                              # prune BEFORE the totals are derived
+            for k in range(1, self.ORDER):
+                for ctx in list(self.cnt[k]):
+                    d = {w: c for w, c in self.cnt[k][ctx].items() if c >= self.min_count}
+                    if d:
+                        self.cnt[k][ctx] = d
+                    else:
+                        del self.cnt[k][ctx]
+        return self
+
+    def logp(self, row: Sequence[int]) -> float:
+        total = 0.0
+        for i in range(1, len(row)):
+            p = 1.0 / self.V                                 # order -1: uniform
+            for k in range(self.ORDER):                       # orders 0, 1, 2: interpolate upwards
+                if i - k < 0:
+                    break
+                d = self.cnt[k].get(tuple(row[i - k:i]))
+                if d is None:                                 # unseen context: keep the lower-order estimate
+                    break
+                t, u = sum(d.values()), len(d)
+                p = (d.get(row[i], 0) + u * p) / (t + u)
+            total += math.log(p)
+        return total
+
+
+def baseline_logits(models: Sequence[WittenBell], log_prior: Sequence[float], row: Sequence[int]) -> List[float]:
+    """Unnormalised class log-posteriors: log p(row | class) + log pi_train(class). They enter the same
+    calibration path as network logits, with kind='ngram' (own temperature and own threshold table)."""
+    return [m.logp(row) + lp for m, lp in zip(models, log_prior)]
+
+
+import struct
+
+FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
+
+
+def fnv1a64(data: bytes) -> int:
+    h = FNV_OFFSET
+    for b in data:
+        h = ((h ^ b) * FNV_PRIME) & MASK64
+    return h
+
+
+def ctx_key(k: int, ctx: Sequence[int]) -> int:
+    return fnv1a64(bytes([0xC0 + k]) + bytes(ctx))
+
+
+def pair_key(k: int, ctx: Sequence[int], nxt: int) -> int:
+    return fnv1a64(bytes([0xD0 + k]) + bytes(ctx) + bytes([nxt]))
+
+
+def lfb_pack(models: Sequence[WittenBell], log_prior: Sequence[float]) -> bytes:
+    """LFB1: magic, u32 order, u32 vocab, u32 nclasses, f64 log_prior[nclasses]; then for each class and each
+    order k = 0..2: u32 n_ctx, n_ctx x (u64 key, u32 total, u32 distinct), u32 n_pair, n_pair x (u64 key,
+    u32 count, u32 0). Records are sorted by key; little endian. Runtime hash tables are built from them."""
+    out = [b"LFB1", struct.pack("<III", WittenBell.ORDER, models[0].V, len(models)),
+           struct.pack("<%dd" % len(models), *log_prior)]
+    for m in models:
+        for k in range(WittenBell.ORDER):
+            ctxs = sorted((ctx_key(k, c), sum(d.values()), len(d)) for c, d in m.cnt[k].items())
+            pairs = sorted((pair_key(k, c, w), n) for c, d in m.cnt[k].items() for w, n in d.items())
+            assert len({r[0] for r in ctxs}) == len(ctxs) and len({a for a, _ in pairs}) == len(pairs), "hash collision"
+            out.append(struct.pack("<I", len(ctxs)) + b"".join(struct.pack("<QII", *r) for r in ctxs))
+            out.append(struct.pack("<I", len(pairs)) + b"".join(struct.pack("<QII", a, n, 0) for a, n in pairs))
+    return b"".join(out)
+
+
+def lfb_load(b: bytes) -> dict:
+    assert b[:4] == b"LFB1"
+    order, vocab, ncls = struct.unpack_from("<III", b, 4)
+    log_prior = list(struct.unpack_from("<%dd" % ncls, b, 16))
+    off, classes = 16 + 8 * ncls, []
+    for _ in range(ncls):
+        per_order = []
+        for _k in range(order):
+            (nc,) = struct.unpack_from("<I", b, off); off += 4
+            ctx = {}
+            for i in range(nc):
+                key, t, u = struct.unpack_from("<QII", b, off + 16 * i)
+                ctx[key] = (t, u)
+            off += 16 * nc
+            (npair,) = struct.unpack_from("<I", b, off); off += 4
+            pair = {}
+            for i in range(npair):
+                key, n, _z = struct.unpack_from("<QII", b, off + 16 * i)
+                pair[key] = n
+            off += 16 * npair
+            per_order.append((ctx, pair))
+        classes.append(per_order)
+    assert off == len(b), "trailing bytes"
+    return {"order": order, "V": vocab, "log_prior": log_prior, "classes": classes}
+
+
+def lfb_logp(pkg: dict, cls: int, row: Sequence[int]) -> float:
+    """Same value as WittenBell.logp for the model that was packed (to float rounding)."""
+    total = 0.0
+    for i in range(1, len(row)):
+        p = 1.0 / pkg["V"]
+        for k in range(pkg["order"]):
+            if i - k < 0:
+                break
+            ctx = row[i - k:i]
+            st = pkg["classes"][cls][k][0].get(ctx_key(k, ctx))
+            if st is None:
+                break
+            t, u = st
+            c = pkg["classes"][cls][k][1].get(pair_key(k, ctx, row[i]), 0)
+            p = (c + u * p) / (t + u)
+        total += math.log(p)
+    return total
+
+
+# Lexicon tables (stage 4): sets of 64-bit hashes, file format LFL1.
+LEX_TAGS = {"lex_en": 1, "lex_ru": 2, "acr_en": 3, "acr_ru": 4, "exc_en2ru": 5, "exc_ru2en": 6}
+
+
+def lex_key(tag: int, text: str) -> int:
+    """64-bit key of a case-folded string in table `tag`: FNV-1a over one tag byte and the UTF-8 bytes."""
+    return fnv1a64(bytes([0xE0 + tag]) + text.casefold().encode("utf-8"))
+
+
+def lfl_pack(tables: Dict[str, Sequence[str]]) -> bytes:
+    """LFL1: magic, u32 ntables, then per table in tag order: u8 tag, u32 n, n x u64 sorted unique keys (LE)."""
+    out = [b"LFL1", struct.pack("<I", len(tables))]
+    for name in sorted(tables, key=lambda n: LEX_TAGS[n]):
+        tag = LEX_TAGS[name]
+        keys = sorted({lex_key(tag, w) for w in tables[name]})
+        out.append(struct.pack("<BI", tag, len(keys)) + b"".join(struct.pack("<Q", k) for k in keys))
+    return b"".join(out)
+
+
+class HashedSet:
+    """Membership by hash, a drop-in for the sets of words that `decide` takes (a hash match is a word match)."""
+
+    def __init__(self, tag: int, keys):
+        self.tag, self.keys = tag, frozenset(keys)
+
+    def __contains__(self, text: str) -> bool:
+        return lex_key(self.tag, text) in self.keys
+
+
+def lfl_load(b: bytes) -> Dict[str, HashedSet]:
+    assert b[:4] == b"LFL1"
+    (nt,) = struct.unpack_from("<I", b, 4)
+    off, res, by_tag = 8, {}, {v: k for k, v in LEX_TAGS.items()}
+    for _ in range(nt):
+        tag, n = struct.unpack_from("<BI", b, off)
+        off += 5
+        res[by_tag[tag]] = HashedSet(tag, struct.unpack_from("<%dQ" % n, b, off))
+        off += 8 * n
+    assert off == len(b), "trailing bytes"
+    return res
+```
+
+### 20.11 Network weight file LFW1 and the reference forward pass
+
+`LFW1` is the portable weight file that the trainer exports next to the ONNX file of DP-1 (MD-14). The header is the magic, the channel count, the embedding width and the kernel list; the body is float32 little endian in a fixed order: the embedding table `[97][e]`, then for each convolution its weight `[ch][cin][k]` and bias `[ch]`, then the head weight `[3][2*ch]` and bias `[3]`. `lfw_forward` is deliberately slow and simple (same-padding convolutions, ReLU, max and mean pooling over every position, `BOS` and `EOS` included, true length without padding); it exists to check a native implementation, which MUST agree with it on the toy weights of `toy_weights` to 1e-5 and on the exported weights of the trained network to 1e-4 per logit (MD-14). `toy_weights` uses integer arithmetic only, so every language reproduces the same file byte for byte.
+
+```python
+# ==== 20.11 Network weight file LFW1 and reference forward pass ======================================
+LFW_MAGIC = b"LFW1"
+
+
+def lfw_pack(ch: int, emb_dim: int, kernels: Sequence[int], floats: Sequence[float]) -> bytes:
+    """Header: magic, u32 ch, u32 emb_dim, u32 nconv, nconv x u32 kernel, then float32 little-endian in the order
+    emb[97][e]; per conv: weight[ch][cin][k], bias[ch]; head weight[3][2*ch], head bias[3]."""
+    head = LFW_MAGIC + struct.pack("<III", ch, emb_dim, len(kernels)) + b"".join(struct.pack("<I", k) for k in kernels)
+    return head + struct.pack("<%df" % len(floats), *floats)
+
+
+def lfw_size(ch: int, emb_dim: int, kernels: Sequence[int]) -> int:
+    n, cin = VOCAB * emb_dim, emb_dim
+    for k in kernels:
+        n += ch * cin * k + ch
+        cin = ch
+    return n + 3 * 2 * ch + 3
+
+
+def lfw_load(b: bytes) -> dict:
+    assert b[:4] == LFW_MAGIC
+    ch, e, nc = struct.unpack_from("<III", b, 4)
+    kernels = list(struct.unpack_from("<" + "I" * nc, b, 16))
+    off = 16 + 4 * nc
+    assert len(b) - off == 4 * lfw_size(ch, e, kernels), "size mismatch"
+
+    def take(n):
+        nonlocal off
+        v = list(struct.unpack_from("<%df" % n, b, off))
+        off += 4 * n
+        return v
+    W = {"ch": ch, "e": e, "kernels": kernels, "emb": take(VOCAB * e), "convs": []}
+    cin = e
+    for k in kernels:
+        W["convs"].append((take(ch * cin * k), take(ch), cin, k))
+        cin = ch
+    W["hw"], W["hb"] = take(3 * 2 * ch), take(3)
+    return W
+
+
+def lfw_forward(W: dict, ids: Sequence[int]) -> List[float]:
+    """Logits (EN, RU, OTHER) for a token list at its true length (no padding). Same-padding convolutions,
+    ReLU, masked max and mean pooling over all positions (BOS and EOS included), linear head."""
+    ch, e, T = W["ch"], W["e"], len(ids)
+    x = [[W["emb"][t * e + j] for j in range(e)] for t in ids]
+    for (w, bias, cin, k) in W["convs"]:
+        pad, y = k // 2, []
+        for t in range(T):
+            row = []
+            for o in range(ch):
+                s = bias[o]
+                for kk in range(k):
+                    u = t + kk - pad
+                    if 0 <= u < T:
+                        base = o * cin * k
+                        for i in range(cin):
+                            s += w[base + i * k + kk] * x[u][i]
+                row.append(s if s > 0 else 0.0)
+            y.append(row)
+        x = y
+    feat = [max(x[t][o] for t in range(T)) for o in range(ch)] + [sum(x[t][o] for t in range(T)) / T for o in range(ch)]
+    return [W["hb"][c] + sum(W["hw"][c * 2 * ch + j] * feat[j] for j in range(2 * ch)) for c in range(3)]
+
+
+def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:
+    """Deterministic toy weights (integer arithmetic only, so every language reproduces them exactly)."""
+    n = lfw_size(ch, emb_dim, kernels)
+    state, floats = seed, []
+    for _ in range(n):
+        state = (state * 1103515245 + 12345) % (2 ** 31)
+        floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]
+    return lfw_pack(ch, emb_dim, kernels, floats)
+```
+
+### 20.12 Golden test vectors
+
+`vectors.py` imports `lfengine.py`, runs the functions of 20.2 to 20.11 on fixed inputs and prints one JSON document. The expected output is given below it. An implementation conforms when its own generator prints the same document: strings, integers, booleans, token lists, hashes and byte counts exactly; floats as printed, that is equal after rounding to the number of decimals shown. The output does not depend on the hash seed of the interpreter (CT-2). `sha256_16` is the first 16 hex digits of the SHA-256 of the file bytes.
+
+| Key | What it pins down | Part |
+| --- | --- | --- |
+| `render`, `caps`, `prefix`, `tok25` | Typed keys to the text of the other layout, model tokens with and without `EOS`, Caps Lock per layout, the 20-key limit | 20.2 |
+| `cands` | The single candidate: leading opener, core, trailing punctuation, the seven letter-keys, no candidate | 20.3 |
+| `guards` | Reason codes of the shape guards | 20.4 |
+| `priors`, `lambdas`, `scores`, `cal_json` | Prior vectors, thresholds in nats, the score, the bytes of the calibration package | 20.5 |
+| `decide` | Rows 5 to 12 of the priority matrix with a stub scorer | 20.6 |
+| `trace_run`, `trace_undo`, `scen` | Run credit, cool-down, boundaries, gate, layout change | 20.7 |
+| `manual` | Manual conversion | 20.8 |
+| `ev1`, `poisson` | The EV-1 pass rule | 20.9 |
+| `wb`, `wb_score`, `fnv`, `lfl` | Baseline log-probabilities, `LFB1` and `LFL1` bytes, hash keys | 20.10 |
+| `lfw` | `LFW1` toy weights and reference logits | 20.11 |
+
+**How to read the traces.** In `trace_run` the word `ghbdtn` is converted in the state `default` and sets the run credit to 3; `z` (one key) is KEEP and leaves the credit at 3; the next three words are decided in the state `run` and lower the credit to 2, 1 and 0; the following `ntcn` is decided in the state `default` again and is KEEP (`abstain`, margin −2.707), so a chain of run-assisted conversions stops after three words. In `trace_undo` an undo at 1,000 ms makes the next words KEEP (`cooldown`) until 3 word decisions have been suppressed and 10,000 ms have passed; at 11,500 ms the same word converts again. In `scen`, Enter and Tab are context breaks and give no decision; a layout change inside a word drops the word; a Space read on another layout gives `layout_changed_at_boundary`; a closed gate stores nothing, and the first word after the gate reopens is decided normally; 65 keys give `overflow`; a second Space after a decision gives nothing.
+
+```python
+"""vectors.py - generates the golden test vectors of section 20.12 from lfengine.py.
+Run:  python vectors.py > vectors_out.json   (lfengine.py in the same directory; standard library only)."""
+import sys, json, math, hashlib, struct; sys.path.insert(0, ".")
+import lfengine as L
+K = L.keys_from_text
+cal = L.example_cal(); L.check_calibration_package(cal)
+out = {}
+# ---- V1 render + tokens
+rows = []
+for typed, lay in [("ghbdtn","en"),("Ghbdtn","en"),("GHBDTN","en"),("[jhjij","en"),(";bpym","en"),(",jkmit","en"),("k.,k.","en"),("`","en"),("руддщ","ru"),("Руддщ,","ru")]:
+    keys = K(typed, lay); other = L.OTHER_LAYOUT[lay]
+    rows.append([typed, lay, L.render(keys, other), L.tokens(keys)])
+out["render"] = rows
+# caps
+caps = []
+for kid, sh, cp in [(30,False,True),(23,False,True),(36,True,True),(23,False,False)]:
+    k = L.Key(kid, sh, cp); caps.append([kid, sh, cp, L.render_key(k,"en"), L.render_key(k,"ru"), L.token(k)])
+out["caps"] = caps
+out["prefix"] = L.tokens(K("ghb","en"), complete=False)
+out["tok25"] = len(L.tokens([L.Key(i%47) for i in range(25)]))
+# ---- V3 candidates
+cands = []
+for typed, lay, tgt in [("Ghbdtn?","en","ru"),("Ghbdtn?!","en","ru"),("(ghbdtn)","en","ru"),("k.,k.","en","ru"),("[jhjij","en","ru"),("руддщ,","ru","en"),("(руддщ)","ru","en"),("руддщб","ru","en"),("руддщ..","ru","en"),("ghb1","en","ru"),(",","en","ru"),('"ghbdtn"',"en","ru"),("hello,","en","ru"),("Ghbdtn,","en","ru")]:
+    run = K(typed, lay); c = L.candidate(run, tgt)
+    cands.append([typed, tgt, None if c is None else (L.render(c.lead,tgt), L.render(c.core,tgt), L.render(c.trail,tgt))])
+out["cands"] = cands
+# ---- V4 guards
+gs = []
+for typed, act in [("github.com","en"),("https://x.io","en"),("user@example.com","en"),("MyVariable","en"),("asdfgh","en"),("фывапр","ru"),("kubectl","en"),("ghbdtn","en")]:
+    run = K(typed, act)
+    cand = L.candidate(run, L.OTHER_LAYOUT[act])
+    gs.append([typed, act, L.shape_guard(run, act, cand.core) if cand else "no_candidate"])
+out["guards"] = gs
+# ---- V13 priors, V14 thresholds
+pri = []
+for a in ("en","ru"):
+    for st in L.STATES:
+        w = cal["w"][a][st]; v = L.deployment_prior(a, w, cal["o_lat"]); pri.append([a, st, w, [round(x,4) for x in v]])
+out["priors"] = pri
+out["lambdas"] = [[t, round(L.logit(t),3)] for t in (0.9995, 0.999, 0.997, 0.995, 0.99, 0.9)]
+# ---- V5 score examples
+sc = []
+for z, a, st in [([-3,9,-2],"en","default"),([-3,9,-2],"en","run"),([-3,9,-2],"en","after_switch"),([8,-3,-2],"ru","default"),([-2,-3,8],"ru","default"),([8,-3,-2],"en","default")]:
+    w = cal["w"][a][st]; sc.append([z, a, st, round(L.score(z, a, cal, w), 3)])
+out["scores"] = sc
+# ---- V6 decide with stub scorers
+def mk(z): return lambda ids: z
+dec = []
+lex = {"en": {"hello","the"}, "ru": {"привет"}, "acr_en": {"sql"}, "acr_ru": {"мтс"}}
+cases = [("ghbdtn","en",[-3,9,-2],"default",False,frozenset()),
+         ("ghbdtn","en",[-3,8,-2],"default",False,frozenset()),
+         ("ghbdtn","en",[-3,8,-2],"run",True,frozenset()),
+         ("ghbdtn","en",[-3,9,-2],"default",False,frozenset({("en2ru","ghbdtn")})),
+         ("hello","en",[-3,9,-2],"default",False,frozenset()),
+         ("z","en",[-3,9,-2],"default",False,frozenset()),
+         ("ye","en",[-3,9,-2],"default",False,frozenset()),
+         ("ye","en",[-3,9,-2],"run",True,frozenset()),
+         ("github.com","en",[-3,9,-2],"default",False,frozenset()),
+         ("руддщ","ru",[9,-3,-2],"default",False,frozenset()),
+         ("руддщ,","ru",[9,-3,-2],"default",False,frozenset()),
+         ("привет","ru",[9,-3,-2],"default",False,frozenset()),
+         ("Ghbdtn?","en",[-3,9,-2],"default",False,frozenset())]
+for typed, act, z, st, ra, ex in cases:
+    run = K(typed, act)
+    d = L.decide(run, act, cal, mk(z), st, ra, ex, lex)
+    dec.append([typed, act, z, st, ra, bool(ex), d.action, d.reason, d.replacement, None if d.margin is None else round(d.margin,3), d.n_keys])
+out["decide"] = dec
+# ---- V7 engine traces
+def stub_by_word(table, default):
+    def f(ids):
+        txt = "".join(L.TABLE["en"][(t-1)%2][(t-1)//2] for t in ids if 1 <= t <= 94)
+        return table.get(txt.lower(), default)
+    return f
+HI, MID = [-3,9,-2], [-3,6.5,-2]
+sc1 = stub_by_word({"ghbdtn": HI}, MID)
+E = L.Engine(cal, sc1, lex)
+def word(txt, lay, t0):
+    for i,k in enumerate(K(txt, lay)): E.on_event(L.Event("key", k, lay, t0+i*100))
+    return E.on_event(L.Event("space", None, lay, t0+len(txt)*100+50))
+tr = []
+for txt, t0 in [("ghbdtn",0),("z",1000),("ntcn",2000),("vbh",3000),("ntcn",4000),("ntcn",5000)]:
+    st = "run" if E.credit>0 else ("after_switch" if E.after_switch else "default")
+    d = word(txt, "en", t0)
+    tr.append([txt, st, d.action, d.reason, None if d.margin is None else round(d.margin,3), E.credit])
+out["trace_run"] = tr
+# undo + cooldown
+E = L.Engine(cal, sc1, lex)
+tr2 = []
+d = word("ghbdtn","en",0); tr2.append(["ghbdtn", d.action, d.reason, E.credit])
+E.undo(1000); tr2.append(["(undo at 1000 ms)", "", "", E.credit])
+for txt,t0 in [("ghbdtn",2000),("ghbdtn",3000),("ghbdtn",4000),("ghbdtn",5000),("ghbdtn",11500)]:
+    d = word(txt,"en",t0); tr2.append([f"{txt} @{t0}", d.action, d.reason, E.credit])
+out["trace_undo"] = tr2
+# other event scenarios
+def scen(name, evs, gate=None):
+    E = L.Engine(cal, sc1, lex); res = []
+    for ev in evs:
+        if ev == "gate:DENY": E.set_gate("DENY"); continue
+        if ev == "gate:ALLOW": E.set_gate("ALLOW"); continue
+        r = E.on_event(ev)
+        if r is not None: res.append([r.action, r.reason])
+    return [name, res]
+ks = lambda t, l="en", tl="en": [L.Event("key", k, l, i*100) for i,k in enumerate(K(t,tl))]
+sp = lambda l="en", t=9000: L.Event("space", None, l, t)
+out["scen"] = [
+ scen("word + Space", ks("ghbdtn")+[sp()]),
+ scen("word + Enter (break), then Space", ks("ghbdtn")+[L.Event("break")]+[sp()]),
+ scen("word + Tab (break), then Space", ks("ghbdtn")+[L.Event("break")]+[sp()]),
+ scen("layout changes inside the word (key layout differs)", ks("ghb")+ks("dtn","ru","en")+[sp("ru")]),
+ scen("manual layout event inside the word", ks("ghb")+[L.Event("layout")]+ks("dtn")+[sp()]),
+ scen("Space sampled on another layout", ks("ghbdtn")+[sp("ru")]),
+ scen("gate DENY while typing (password field)", ["gate:DENY"]+ks("ghbdtn")+[sp()]),
+ scen("gate DENY then ALLOW again, new word", ["gate:DENY"]+ks("ghbdtn")+[sp(), "gate:ALLOW"]+ks("ghbdtn")+[sp()]),
+ scen("Backspace edits the word", ks("ghbdtnx")+[L.Event("backspace")]+[sp()]),
+ scen("65 keys (overflow)", [L.Event("key", L.Key(i%33), "en", i) for i in range(65)]+[sp()]),
+ scen("two Spaces", ks("ghbdtn")+[sp(),sp()]),
+]
+# ---- V8 manual
+out["manual"] = [[t, *L.manual_convert(t)] for t in ["Ghbdtn? Rfr ltkf?","Привет, как дела?","123","ghbdtn 😀","ЁЖ ёж","Hello, Привет"]]
+# ---- V9 ev1
+out["ev1"] = [
+ ["4 errors, 4 users, n=100000, 20 users, 100 docs", L.ev1_pass([("u%d"%i,"d%d"%i) for i in range(4)],100000,20,100), round(L.ev1_bound([("u%d"%i,"d%d"%i) for i in range(4)],100000),7)],
+ ["4 errors in one document", L.ev1_pass([("u1","d1")]*4,100000,20,100), round(L.ev1_bound([("u1","d1")]*4,100000),7)],
+ ["0 errors, n=100000", L.ev1_pass([],100000,20,100), round(L.ev1_bound([],100000),7)],
+ ["0 errors, n=99999", L.ev1_pass([],99999,20,100), round(L.ev1_bound([],99999),7)],
+ ["0 errors, 19 users", L.ev1_pass([],200000,19,100), round(L.ev1_bound([],200000),7)],
+ ["5 errors in 5 clusters, n=150000", L.ev1_pass([("u%d"%i,"d%d"%i) for i in range(5)],150000,20,100), round(L.ev1_bound([("u%d"%i,"d%d"%i) for i in range(5)],150000),7)],
+ ["2+2 errors in 2 clusters, n=100000", L.ev1_pass([("u1","d1")]*2+[("u2","d2")]*2,100000,20,100), round(L.ev1_bound([("u1","d1")]*2+[("u2","d2")]*2,100000),7)],
+]
+out["poisson"] = [round(L.poisson_upper(k),4) for k in range(6)]
+# ---- V10 baseline toy
+def keyrow(w, lay): return L.tokens(K(w, lay))
+# train each class on key rows of its own words (RU words typed on RU layout, EN/OTHER on EN)
+trainset = {0:[keyrow(w,"en") for w in ["hello","hell","help","hero","world","word"]],
+            1:[keyrow(w,"ru") for w in ["привет","привал","приказ","пригород","мир","мирно"]],
+            2:[keyrow(w,"en") for w in ["kubectl","github","asdfgh","docker","nginx","vim"]]}
+ms = [L.WittenBell().fit(trainset[c]) for c in range(3)]
+lp = [math.log(x) for x in cal["pi_train"]]
+blob = L.lfb_pack(ms, lp); pkg = L.lfb_load(blob)
+test = keyrow("ghbdtn","en")
+lg = L.baseline_logits(ms, lp, test)
+out["wb"] = {"test_word_keys":"ghbdtn", "logp_by_class":[round(m.logp(test),6) for m in ms], "logits":[round(v,6) for v in lg],
+             "lfb_bytes": len(blob), "lfb_sha256_16": hashlib.sha256(blob).hexdigest()[:16],
+             "lfb_logp": [round(L.lfb_logp(pkg,c,test),6) for c in range(3)],
+             "hello_ru": round(ms[1].logp(keyrow("hello","en")),6), "hello_en": round(ms[0].logp(keyrow("hello","en")),6),
+             "n_pairs": [sum(len(d) for k in range(3) for d in m.cnt[k].values()) for m in ms]}
+out["wb_score"] = round(L.score(lg, "en", {**cal, "temperature":{"network":1.0,"ngram":1.0}}, 0.01, "ngram"), 3)
+# ---- V11 toy network
+tw = L.toy_weights(); W = L.lfw_load(tw)
+out["lfw"] = {"bytes": len(tw), "sha256_16": hashlib.sha256(tw).hexdigest()[:16],
+              "logits_ghbdtn": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("ghbdtn","en")))],
+              "logits_hello": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("hello","en")))],
+              "first_floats": [float(x) for x in struct.unpack_from("<4f", tw, 16+12)]}
+out["fnv"] = [[s, hex(L.fnv1a64(s.encode()))] for s in ["", "a", "foobar"]] + [["ctx_key(2,(95,61))", hex(L.ctx_key(2,(95,61)))], ["pair_key(2,(95,61),63)", hex(L.pair_key(2,(95,61),63))]]
+# ---- V12 lexicon tables and calibration package
+lexb = L.lfl_pack({"lex_en": ["Hello", "the", "World"], "lex_ru": ["привет", "мир"], "acr_en": ["SQL"], "acr_ru": ["МТС"]})
+lt = L.lfl_load(lexb)
+out["lfl"] = {"bytes": len(lexb), "sha256_16": hashlib.sha256(lexb).hexdigest()[:16],
+              "keys": [["lex_en", "hello", hex(L.lex_key(1, "hello"))], ["lex_ru", "привет", hex(L.lex_key(2, "привет"))],
+                       ["acr_ru", "МТС", hex(L.lex_key(4, "МТС"))]],
+              "member": [["lex_en", "HELLO", "HELLO" in lt["lex_en"]], ["lex_en", "hi", "hi" in lt["lex_en"]],
+                         ["acr_en", "sql", "sql" in lt["acr_en"]]]}
+cj = L.cal_to_json(cal)
+out["cal_json"] = {"bytes": len(cj.encode("utf-8")), "sha256_16": hashlib.sha256(cj.encode("utf-8")).hexdigest()[:16]}
+def dumps(v):
+    return json.dumps(v, ensure_ascii=False)
+def block(v):    # valid JSON, one row per line
+    if isinstance(v, list) and v and isinstance(v[0], list):
+        return "[\n" + ",\n".join(" " + dumps(r) for r in v) + "\n]"
+    if isinstance(v, dict):
+        return "{\n" + ",\n".join(" " + dumps(k) + ": " + dumps(x) for k, x in v.items()) + "\n}"
+    return dumps(v)
+sys.stdout.write("{\n" + ",\n".join(dumps(k) + ": " + block(v) for k, v in out.items()) + "\n}\n")
+```
+
+Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a final newline):
+
+```json
+{
+"render": [
+ ["ghbdtn", "en", "привет", [95, 61, 63, 83, 57, 35, 85, 96]],
+ ["Ghbdtn", "en", "Привет", [95, 62, 63, 83, 57, 35, 85, 96]],
+ ["GHBDTN", "en", "ПРИВЕТ", [95, 62, 64, 84, 58, 36, 86, 96]],
+ ["[jhjij", "en", "хорошо", [95, 47, 65, 63, 65, 41, 65, 96]],
+ [";bpym", "en", "жизнь", [95, 71, 83, 45, 37, 87, 96]],
+ [",jkmit", "en", "больше", [95, 89, 65, 67, 87, 41, 35, 96]],
+ ["k.,k.", "en", "люблю", [95, 67, 91, 89, 67, 91, 96]],
+ ["`", "en", "ё", [95, 1, 96]],
+ ["руддщ", "ru", "hello", [95, 63, 31, 69, 69, 43, 96]],
+ ["Руддщ,", "ru", "Hello?", [95, 64, 31, 69, 69, 43, 94, 96]]
+],
+"caps": [
+ [30, false, true, "G", "П", 62],
+ [23, false, true, "[", "Х", 48],
+ [36, true, true, "\"", "э", 73],
+ [23, false, false, "[", "х", 47]
+],
+"prefix": [95, 61, 63, 83],
+"tok25": 21,
+"cands": [
+ ["Ghbdtn?", "ru", ["", "Привет", ","]],
+ ["Ghbdtn?!", "ru", ["", "Привет", ",!"]],
+ ["(ghbdtn)", "ru", ["(", "привет", ")"]],
+ ["k.,k.", "ru", ["", "люблю", ""]],
+ ["[jhjij", "ru", ["", "хорошо", ""]],
+ ["руддщ,", "en", ["", "hello", "?"]],
+ ["(руддщ)", "en", ["(", "hello", ")"]],
+ ["руддщб", "en", ["", "hello", ","]],
+ ["руддщ..", "en", null],
+ ["ghb1", "ru", null],
+ [",", "ru", ["", "б", ""]],
+ ["\"ghbdtn\"", "ru", ["", "ЭприветЭ", ""]],
+ ["hello,", "ru", ["", "руддщб", ""]],
+ ["Ghbdtn,", "ru", ["", "Приветб", ""]]
+],
+"guards": [
+ ["github.com", "en", "shape_dotted"],
+ ["https://x.io", "en", "no_candidate"],
+ ["user@example.com", "en", "no_candidate"],
+ ["MyVariable", "en", "shape_camel"],
+ ["asdfgh", "en", "shape_keywalk"],
+ ["фывапр", "ru", "shape_keywalk"],
+ ["kubectl", "en", null],
+ ["ghbdtn", "en", null]
+],
+"priors": [
+ ["en", "default", 0.01, [0.7425, 0.01, 0.2475]],
+ ["en", "after_switch", 0.003, [0.7478, 0.003, 0.2492]],
+ ["en", "run", 0.25, [0.5625, 0.25, 0.1875]],
+ ["ru", "default", 0.01, [0.0075, 0.99, 0.0025]],
+ ["ru", "after_switch", 0.003, [0.0023, 0.997, 0.0008]],
+ ["ru", "run", 0.25, [0.1875, 0.75, 0.0625]]
+],
+"lambdas": [
+ [0.9995, 7.6],
+ [0.999, 6.907],
+ [0.997, 5.806],
+ [0.995, 5.293],
+ [0.99, 4.595],
+ [0.9, 2.197]
+],
+"scores": [
+ [[-3, 9, -2], "en", "default", 6.699],
+ [[-3, 9, -2], "en", "run", 10.196],
+ [[-3, 9, -2], "en", "after_switch", 5.488],
+ [[8, -3, -2], "ru", "default", 6.169],
+ [[-2, -3, 8], "ru", "default", 5.617],
+ [[8, -3, -2], "en", "default", -15.359]
+],
+"decide": [
+ ["ghbdtn", "en", [-3, 9, -2], "default", false, false, "CONVERT", "score_above_threshold", "привет", 0.893, 6],
+ ["ghbdtn", "en", [-3, 8, -2], "default", false, false, "KEEP", "abstain", null, -0.107, 6],
+ ["ghbdtn", "en", [-3, 8, -2], "run", true, false, "CONVERT", "score_above_threshold", "привет", 3.39, 6],
+ ["ghbdtn", "en", [-3, 9, -2], "default", false, true, "KEEP", "user_exception", null, null, 6],
+ ["hello", "en", [-3, 9, -2], "default", false, false, "KEEP", "lexicon_active", null, null, 5],
+ ["z", "en", [-3, 9, -2], "default", false, false, "KEEP", "one_key", null, null, 1],
+ ["ye", "en", [-3, 9, -2], "default", false, false, "KEEP", "two_key_rule", null, null, 2],
+ ["ye", "en", [-3, 9, -2], "run", true, false, "CONVERT", "two_key_allow_list", "ну", null, 2],
+ ["github.com", "en", [-3, 9, -2], "default", false, false, "KEEP", "shape_dotted", null, null, 10],
+ ["руддщ", "ru", [9, -3, -2], "default", false, false, "CONVERT", "score_above_threshold", "hello", 1.362, 5],
+ ["руддщ,", "ru", [9, -3, -2], "default", false, false, "CONVERT", "score_above_threshold", "hello?", 1.362, 5],
+ ["привет", "ru", [9, -3, -2], "default", false, false, "KEEP", "lexicon_active", null, null, 6],
+ ["Ghbdtn?", "en", [-3, 9, -2], "default", false, false, "CONVERT", "score_above_threshold", "Привет,", 0.893, 6]
+],
+"trace_run": [
+ ["ghbdtn", "default", "CONVERT", "score_above_threshold", 0.893, 3],
+ ["z", "run", "KEEP", "one_key", null, 3],
+ ["ntcn", "run", "CONVERT", "score_above_threshold", 0.789, 2],
+ ["vbh", "run", "CONVERT", "score_above_threshold", 0.789, 1],
+ ["ntcn", "run", "CONVERT", "score_above_threshold", 0.789, 0],
+ ["ntcn", "default", "KEEP", "abstain", -2.707, 0]
+],
+"trace_undo": [
+ ["ghbdtn", "CONVERT", "score_above_threshold", 3],
+ ["(undo at 1000 ms)", "", "", 0],
+ ["ghbdtn @2000", "KEEP", "cooldown", 0],
+ ["ghbdtn @3000", "KEEP", "cooldown", 0],
+ ["ghbdtn @4000", "KEEP", "cooldown", 0],
+ ["ghbdtn @5000", "KEEP", "cooldown", 0],
+ ["ghbdtn @11500", "CONVERT", "score_above_threshold", 3]
+],
+"scen": [
+ ["word + Space", [["CONVERT", "score_above_threshold"]]],
+ ["word + Enter (break), then Space", []],
+ ["word + Tab (break), then Space", []],
+ ["layout changes inside the word (key layout differs)", []],
+ ["manual layout event inside the word", []],
+ ["Space sampled on another layout", [["KEEP", "layout_changed_at_boundary"]]],
+ ["gate DENY while typing (password field)", []],
+ ["gate DENY then ALLOW again, new word", [["CONVERT", "score_above_threshold"]]],
+ ["Backspace edits the word", [["CONVERT", "score_above_threshold"]]],
+ ["65 keys (overflow)", [["KEEP", "overflow"]]],
+ ["two Spaces", [["CONVERT", "score_above_threshold"]]]
+],
+"manual": [
+ ["Ghbdtn? Rfr ltkf?", "en2ru", "Привет, Как дела,"],
+ ["Привет, как дела?", "ru2en", "Ghbdtn? rfr ltkf&"],
+ ["123", null, "123"],
+ ["ghbdtn 😀", "en2ru", "привет 😀"],
+ ["ЁЖ ёж", "ru2en", "~: `;"],
+ ["Hello, Привет", "ru2en", "Hello? Ghbdtn"]
+],
+"ev1": [
+ ["4 errors, 4 users, n=100000, 20 users, 100 docs", true, 9.15e-05],
+ ["4 errors in one document", false, 0.0001898],
+ ["0 errors, n=100000", true, 3e-05],
+ ["0 errors, n=99999", false, 3e-05],
+ ["0 errors, 19 users", false, 1.5e-05],
+ ["5 errors in 5 clusters, n=150000", true, 7.01e-05],
+ ["2+2 errors in 2 clusters, n=100000", false, 0.0001259]
+],
+"poisson": [2.9957, 4.7439, 6.2958, 7.7537, 9.1535, 10.513],
+"wb": {
+ "test_word_keys": "ghbdtn",
+ "logp_by_class": [-35.644469, -3.291324, -24.057021],
+ "logits": [-36.612053, -4.207615, -25.571149],
+ "lfb_bytes": 5216,
+ "lfb_sha256_16": "1adf64096abc09a8",
+ "lfb_logp": [-35.644469, -3.291324, -24.057021],
+ "hello_ru": -27.44711,
+ "hello_en": -3.270012,
+ "n_pairs": [45, 68, 91]
+},
+"wb_score": 17.557,
+"lfw": {
+ "bytes": 2440,
+ "sha256_16": "0fd995cb611e1201",
+ "logits_ghbdtn": [-0.005081, -0.254659, -0.122052],
+ "logits_hello": [-0.011607, -0.263225, -0.101561],
+ "first_floats": [-0.25, 0.0, -0.03125, 0.28125]
+},
+"fnv": [
+ ["", "0xcbf29ce484222325"],
+ ["a", "0xaf63dc4c8601ec8c"],
+ ["foobar", "0x85944171f73967e8"],
+ ["ctx_key(2,(95,61))", "0x6add0b1c24d36c09"],
+ ["pair_key(2,(95,61),63)", "0x53edd75759f89572"]
+],
+"lfl": {
+ "bytes": 84,
+ "sha256_16": "c737f8710843f069",
+ "keys": [["lex_en", "hello", "0x1f466cfcfe5bb68c"], ["lex_ru", "привет", "0x5ac2513bb852af1f"], ["acr_ru", "МТС", "0x3a1b89f4ad0b309e"]],
+ "member": [["lex_en", "HELLO", true], ["lex_en", "hi", false], ["acr_en", "sql", true]]
+},
+"cal_json": {
+ "bytes": 1261,
+ "sha256_16": "3b11d4012da7da1d"
+}
+}
+```
+
+### 20.13 Conformance tests
+
+An implementation of the engine, in any language and on any platform, is conformant when it passes the six checks below. The vectors of 20.12 pin the exact values; the property tests pin the rules that no finite list of vectors can; the last two checks tie the production code to the reference.
+
+| ID | Check |
+| --- | --- |
+| CT-1 | Every entry of the expected JSON of 20.12 is reproduced: strings, integers, booleans, token lists, hashes and byte counts exactly; floats equal after rounding to the number of decimals printed. |
+| CT-2 | The output is deterministic. The reference generator prints byte-identical output on every run, on every Python from 3.9 upwards and for every value of `PYTHONHASHSEED`; no result depends on the iteration order of a set or a dictionary. |
+| CT-3 | The property tests of `conformance.py` below pass: 200,000 random key runs (no key lost or duplicated by the candidate, core made of letters only, at most one leading and two trailing marks), priors that sum to 1, a probability stored where nats are expected is refused, the `LFB1` round trip, and the `LFW1` size rule of MD-14. |
+| CT-4 | With the real lexicon of 8.9: no word of the 20,000 most frequent word forms of either language, typed on its own layout, has a core shorter than the whole run, and every Russian word of that list that uses only keys of the Russian layout, typed on the English layout, comes back from `candidate` with its whole run as core. A failure is a defect of the segmentation, not of the lexicon (the seven letter-keys, 5.3). |
+| CT-5 | The runtime meets MD-12 (baseline log-probabilities within 1e-9 of the reference) and MD-14 (network logits within 1e-5 on the toy weights of 20.12 and within 1e-4 on at least 100,000 key sequences of the exported network). |
+| CT-6 | A change of the code of 20.2 to 20.11 that changes any entry of 20.12 is a change of this specification: the expected output of 20.12 is updated in the same revision. |
+
+CT-1 to CT-3 need only the files of this section. CT-4 needs the lexicon built by D3, so it belongs to the build of the tables, not to the unit tests of the engine.
+
+```python
+"""conformance.py - property tests of section 20.13 (standard library only).
+Usage: python conformance.py   (in the folder that holds lfengine.py; prints OK or raises AssertionError)"""
+import sys, random, math; sys.path.insert(0, ".")
+import lfengine as L
+
+R = random.Random(1)
+for _ in range(200_000):                                  # P1: tokens, rendering, candidate
+    run = [L.Key(R.randrange(47), R.random() < .5, R.random() < .3) for _ in range(R.randrange(1, 12))]
+    assert all(1 <= L.token(k) <= 94 for k in run)
+    for lay in ("en", "ru"):
+        txt = L.render(run, lay)
+        assert L.render([L.Key(k.id, L.effective_shift(k, lay)) for k in run], lay) == txt
+        assert L.render(L.keys_from_text(txt, lay), lay) == txt
+    for tgt in ("en", "ru"):
+        c = L.candidate(run, tgt)
+        if c:
+            assert c.lead + c.core + c.trail == tuple(run)                       # no key lost or duplicated
+            assert len(c.lead) <= 1 and len(c.trail) <= 2 and len(c.core) >= 1
+            assert all(L.is_letter_in(tgt, k.id) for k in c.core)                # the core is letters only
+
+for a in ("en", "ru"):                                    # P2: every prior is a probability vector
+    for st in L.STATES:
+        cal = L.example_cal()
+        assert abs(sum(L.deployment_prior(a, cal["w"][a][st], cal["o_lat"])) - 1) < 1e-12
+
+cal = L.example_cal()                                     # P3: a probability stored where nats are expected is refused
+bad = L.example_cal(); bad["lambda_nats"]["network"]["en2ru"]["5-7"] = 0.997
+try:
+    L.check_calibration_package(bad); raise SystemExit("unit mix-up not caught")
+except AssertionError:
+    pass
+
+rows = [[L.BOS] + [L.token(L.Key(R.randrange(47), R.random() < .3)) for _ in range(R.randrange(2, 9))] + [L.EOS]
+        for _ in range(300)]                              # P4: LFB1 round trip equals the in-memory model
+ms = [L.WittenBell().fit(rows[i::3]) for i in range(3)]
+pkg = L.lfb_load(L.lfb_pack(ms, [math.log(x) for x in cal["pi_train"]]))
+assert max(abs(L.lfb_logp(pkg, c, r) - ms[c].logp(r)) for c in range(3) for r in rows[:100]) < 1e-12
+
+tw = L.toy_weights()                                      # P5: LFW1 size is header + 4 bytes per parameter; three finite logits
+assert len(tw) == 16 + 4 * 3 + 4 * L.lfw_size(4, 4, (3, 5, 3))
+out = L.lfw_forward(L.lfw_load(tw), L.tokens(L.keys_from_text("ghbdtn", "en")))
+assert len(out) == 3 and all(math.isfinite(v) for v in out)
+print("OK")
 ```
