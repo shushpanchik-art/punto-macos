@@ -47,3 +47,9 @@
 - verify/ + agentA/agentB dirs hold earlier checks (code-from-doc == lfengine.py; vectors in doc == code output; seed-stable). scan.py = regex scan over spec md.
 - User msg 10-29: "поручай простые задачи агентам" -> use Agent tool (haiku/sonnet) for mechanical checks, give precise briefs.
 - NEXT: (1) read doc sinceRev:102 to get current rev; (2) agents: consistency greps + code-vs-doc; (3) re-export spec + sync; (4) FINAL REPORT in Russian (audit remarks: confirmed/partly/not; what's open). Then mark tasks 7-12 complete.
+
+## 2026-10-29 (cycle N+5) — DONE
+- Agents (haiku) ran: consistency scan (3 CERTAIN + 7 MAYBE leftovers), xref/ID/table check (clean), code-from-doc conformance (PASS, vectors == expected, seed-stable, repo copy identical modulo blank lines).
+- I fixed all 10 leftovers in the doc (rev 103-117): 14.1 mid-word row, 14.1/4.1 XKB->Linux deferred, 14.3/14.5 personal vocabulary/threshold shift, 14.4 input frameworks, 1/5.5/10.5/10.7 nats notes, 2 stage-0 gate, 17.3 Esc opt-in.
+- Spec snapshot rev 117 pushed: commit dd3173a on origin/claude/layout-corrector-spec (shushpanchik-art/punto-macos). Tasks 1-12 completed. Final Russian report sent to user.
+- OPEN (honest): real-data calibration/acceptance (R-CAL/R-ACC) not run; latency on M1 Max / Windows not measured; OS adapters not implemented (spec + engine only); corpora exact versions/hashes fixed at download time (8.9); target-app list is proposed (16.3).
