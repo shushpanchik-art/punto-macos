@@ -41,3 +41,9 @@
 - 2026-10-26 18:07 (cycle N+3): CORRECTION - lines appended by me at 18:0x were from a STALE context (rev 75). Truth: see the 05:55/07:55 entries above (doc already has 20.6-20.12). User also asked (2026-10-26) to DELEGATE SIMPLE TASKS to agents (Agent tool; qwen-coder unavailable in cloud). Pushed a5706d3 earlier contains OLD snapshot (rev 75 spec, gen_vectors.py) -> must re-sync (sync_to_github.sh).
 - 2026-10-26 18:10: exported spec rev 102 -> scratchpad/spec_rev102.md (also repo spec/). Doc has 20.1-20.13. Next: delegate verification (code-vs-doc) and consistency greps to agents, then sync_to_github.sh.
 - 2026-10-27 00:10 (cycle N+4): user: "поручай простые задачи агентам". GitHub linked, push works (branch pushed; remote HEAD a5706d3 = OLD snapshot, must re-sync). verify/rev102: out.json == spec_expected.json (vectors in doc match code, seed-stable). Spawning haiku agents for (a) consistency greps over spec_rev102.md, (b) assembled-code-from-doc vs ref/lfengine.py check. Then sync_to_github.sh, then final Russian report.
+
+## 2026-10-29 00:30 (cycle N+5) — TRUE STATE
+- GitHub: remote branch claude/layout-corrector-spec HEAD 36fedf3 (code+conformance synced 10-28 19:15; spec snapshot 0a56e8d from 10-28 01:08 may be stale vs doc). Push works. Repo clone /home/claude/repos/punto-macos. sync_to_github.sh exists (code only; spec must be re-exported with mcp__Claude_Docs__export).
+- verify/ + agentA/agentB dirs hold earlier checks (code-from-doc == lfengine.py; vectors in doc == code output; seed-stable). scan.py = regex scan over spec md.
+- User msg 10-29: "поручай простые задачи агентам" -> use Agent tool (haiku/sonnet) for mechanical checks, give precise briefs.
+- NEXT: (1) read doc sinceRev:102 to get current rev; (2) agents: consistency greps + code-vs-doc; (3) re-export spec + sync; (4) FINAL REPORT in Russian (audit remarks: confirmed/partly/not; what's open). Then mark tasks 7-12 complete.

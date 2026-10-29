@@ -14,7 +14,7 @@ Do not train a language model for this task. Train a classifier of about 43,000 
 2. **Input is key positions, not characters** (section 5.1). Each keystroke is `(physical key, Shift)`, one of 94 tokens, so one model serves every layout pair that is a key-for-key permutation.
 3. **Three classes: `EN`, `RU`, `OTHER`** (section 5.2). The action (keep or convert) comes from the active layout; "abstain" is a policy outcome, not a trained class.
 4. **A cascade, not one model** (section 6). Guards, then lexicon look-ups, then an n-gram stage, then the network, then a calibrated policy. The network ships only if it beats the statistical baseline on real data (EV-12).
-5. **Safety comes from calibration** (section 10). Temperature scaling, a prior-shift correction for the rarity of wrong-layout words, and thresholds of 0.995 to 0.999 that depend on word length. One-key words are never converted.
+5. **Safety comes from calibration** (section 10). Temperature scaling, a prior-shift correction for the rarity of wrong-layout words, and thresholds of 0.995 to 0.999 (5.3 to 6.9 nats, section 10.3) that depend on word length. One-key words are never converted.
 6. **Judge by false corrections per correct word**, not by accuracy (section 11). The gate is at most 4 false corrections in 100,000 correct words, which is about one wrong correction per 20,000 words typed.
 
 **Target numbers**
@@ -60,7 +60,7 @@ The short answers are below; each row names the section that holds the evidence 
 | Length-dependent thresholds, direction-dependent | 3-key words collide across languages; 12-key words do not | 10.3, 10.4 |
 | Language-pair scope and layout variants | Dvorak, Colemak, AZERTY and phonetic Russian are out of scope; Windows and macOS Russian differ in punctuation | 14.1 |
 | Caps Lock, Shift, dead keys, layout switch mid-word | The same key sequence has different case on each layout | 14.1, 14.2 |
-| Guards: secure fields, code editors, URLs, identifiers | A correction in a password or a command is a severity-1 defect | 13.1 |
+| Stage 0 gate: secure fields and unknown applications, before any buffering. Guards: code editors, URLs, identifiers | A correction in a password or a command is a severity-1 defect | 13.1 |
 | Replacement protocol, undo, cool-down, rollback | Lost or duplicated characters are worse than a missed correction | 13.2, 13.3 |
 | Privacy and data licences | Keystrokes are sensitive; several text sources have unclear licences | 8.7, 8.8, 13.4 |
 | Drift and adaptation | Slang and brands change; thresholds are fixed per release and only the exception list adapts per user | 10.6, 14.3, 14.5 |
@@ -114,7 +114,7 @@ The product is an on-device tool that notices a word typed on the wrong layout (
 
 ### 4.1 In scope
 
-- Language pair RU ↔ EN: US QWERTY and Russian ЙЦУКЕН (Windows "Russian", macOS "Russian - PC" and "Russian", XKB `ru`). The layout-pair table is a parameter, so further pairs can be added without changing the architecture.
+- Language pair RU ↔ EN: US QWERTY and Russian ЙЦУКЕН (Windows "Russian", macOS "Russian - PC" and "Russian"; Linux, deferred to a later release (13.7): XKB `ru`). The layout-pair table is a parameter, so further pairs can be added without changing the architecture.
 - Automatic replacement of the last word when Space is typed; optional early detection inside a word (off by default).
 - Manual convert hotkey, undo, learned exceptions, per-application and per-field blacklists.
 - Fully local inference. No network call is allowed on the typing path.
@@ -271,7 +271,7 @@ Required false-positive rate for precision P at recall R = 0.95:
 | 3% | 1 in 3,400 | 1 in 6,800 | 1 in 34,000 |
 | 10% | 1 in 940 | 1 in 1,900 | 1 in 9,500 |
 
-Two consequences. First, the metric that matters is the false-positive rate on correct words at the 1e-4 to 1e-5 level, not accuracy. Second, the model's raw posteriors must be corrected for prior shift: multiply the class probabilities by `π_deploy(y | layout, context) / π_train(y)` and renormalise before thresholding. The deployment prior comes from the active layout (a user who switched to Russian deliberately is probably typing Russian) and from the previous words of the same run.
+Two consequences. First, the metric that matters is the false-positive rate on correct words at the 1e-4 to 1e-5 level, not accuracy. Second, the model's calibrated posteriors (temperature scaling first, section 10.1) must be corrected for prior shift: multiply the class probabilities by `π_deploy(y | layout, context) / π_train(y)` and renormalise before thresholding. The deployment prior comes from the active layout (a user who switched to Russian deliberately is probably typing Russian) and from the previous words of the same run.
 
 **Wrong-layout rate is not known.** Public evidence is indirect: about 7.8% of null-result queries in the eBay study, and "more than 1%" of Russian Wikipedia queries by a rough Wikimedia estimate. This specification therefore designs for π between 0.3% and 3% and requires measuring it (section 11).
 
@@ -741,7 +741,7 @@ Three consequences. A word that exists in the active language is never converted
 Off by default. It may be enabled only after the gates below pass on the realistic test set, because the tool changes text while the user is typing.
 
 - At least `N_min` keys typed. Starting values: 4 for EN→RU and 5 for RU→EN; final values from the prefix curves (section 18.3).
-- Threshold at least one step stricter than the boundary threshold for the same length (for example 0.9995 at 4–5 keys).
+- Threshold at least one step stricter than the boundary threshold for the same length (for example 0.9995, which is 7.6 nats, where the boundary threshold is 0.999).
 - The decisions on the last 2 key events agree (`ConsecutiveAgreementCount` = 2), as in KeyboardSwitcher.
 - Training includes prefix samples without the end-of-word token (35% of samples, section 8.3), so that the model has seen unfinished words.
 - Early conversions have their own false-positive rate in the report. The gate is the same as for the boundary mode.
@@ -754,7 +754,7 @@ The feature may enter a later release only when this document defines the comple
 
 ### 10.7 Why the thresholds are so high
 
-A convert decision is worth it when `p' ≥ C_FP / (C_FP + C_FN)`, where `C_FP` is the cost of a wrong correction and `C_FN` the cost of a missed one. A missed correction costs one hotkey press. A wrong one costs the user noticing, undoing and retyping, and, more importantly, trust: people disable the tool after a few visible errors. Taking `C_FP / C_FN` between 100 and 1000 gives thresholds between 0.99 and 0.999. This ratio is an assumption, not a measurement; the opt-in undo statistics (section 14.5) are the way to refine it.
+A convert decision is worth it when `p' ≥ C_FP / (C_FP + C_FN)`, where `C_FP` is the cost of a wrong correction and `C_FN` the cost of a missed one. A missed correction costs one hotkey press. A wrong one costs the user noticing, undoing and retyping, and, more importantly, trust: people disable the tool after a few visible errors. Taking `C_FP / C_FN` between 100 and 1000 gives probability thresholds between 0.99 and 0.999 (4.6 to 6.9 nats). This ratio is an assumption, not a measurement; the opt-in undo statistics (section 14.5) are the way to refine it.
 
 ### 10.8 Requirements
 
@@ -1186,12 +1186,12 @@ The seven questions in the brief cover the model; the parameters below decide wh
 
 | Parameter | Specified default | Why it matters and how it is verified |
 | --- | --- | --- |
-| Layout variants | Tables generated per OS and variant: Windows "Russian"; macOS "Russian" and "Russian - PC"; XKB `ru`; US QWERTY. ISO keyboards add one key | Punctuation placement differs between variants (section 5.4). A round-trip test per variant, and a golden test of the seven punctuation keys that carry Russian letters |
+| Layout variants | Tables generated per OS and variant: Windows "Russian"; macOS "Russian" and "Russian - PC"; Linux (deferred, section 13.7) XKB `ru`; US QWERTY. ISO keyboards add one key | Punctuation placement differs between variants (section 5.4). A round-trip test per variant, and a golden test of the seven punctuation keys that carry Russian letters |
 | Latin layouts other than US QWERTY | Out of scope. Detected and the tool is disabled for that layout pair | Dvorak, Colemak, AZERTY and QWERTZ change the physical position of Latin letters, so key tokens trained on QWERTY positions would be wrong. Supporting them needs a per-pair canonical key table and its own training run |
 | Cyrillic layouts other than ЙЦУКЕН | Out of scope (phonetic Russian, Ukrainian, Belarusian). Detected and disabled | Not a key-for-key permutation of QWERTY. The layout abstraction allows adding a pair later |
 | Caps Lock and Shift | Store both raw; apply case per target layout (section 5.1) | On the Russian layout Caps Lock capitalises `ж э х ъ б ю`; on the English layout it does not capitalise `; ' [ ] , .`. Test cases for `GHBDTN`, `Ghbdtn`, `gHBDTN` |
 | Dead keys, AltGr, compose | Candidate is ineligible | Not representable as one of 47 key positions |
-| Layout change mid-word | Buffer raw `(key, shift)` and translate at decision time | Traple does this so a mid-word switch cannot corrupt the buffer |
+| Layout change mid-word | Drop the word: its keys came from two layouts, so nothing is converted and nothing is replayed (sections 5.3 and 13.2) | One layout id cannot render keys typed under two layouts, so any conversion would be a guess. Traple translates at decision time; this specification does not. Verified by RT-14 |
 | Active layout source | Read from the OS on every word; never inferred | A wrong layout label inverts the action |
 
 ### 14.2 Typing behaviour
@@ -1210,7 +1210,7 @@ The seven questions in the brief cover the model; the parameters below decide wh
 | Parameter | Specified default | Why it matters and how it is verified |
 | --- | --- | --- |
 | Code-switching | Decision per word; prior from the active layout and the previous words of the run | Russian text with English terms and the reverse is normal for the target user. Mixed-language stress set |
-| Names, brands, acronyms | Lexicon plus a personal vocabulary learned locally from accepted words | `мтс` and `vnc` are the same keys; only context or the user's vocabulary separates them |
+| Names, brands, acronyms | Lexicon plus the user's local exception list (words the user undid, 13.3) | `мтс` and `vnc` are the same keys; only context or the user's vocabulary separates them |
 | Transliteration (`privet`) | Class OTHER. Typed on the English layout: KEEP (correct input). Typed on the Russian layout: converted to Latin like any Latin-script text (5.2) | The share in real typing is unknown; measure it in the realistic set and add a class only if it exceeds 0.5% of words |
 | Slang and new words | Lexicon refresh every quarter; retrain at least every 6 months | Vocabulary drifts; a stale lexicon raises both error rates |
 | Further language pairs (UA, BY, KZ, DE) | Out of scope; table and training data are parameters | Each pair needs its own data, thresholds and acceptance test |
@@ -1219,7 +1219,7 @@ The seven questions in the brief cover the model; the parameters below decide wh
 
 | Parameter | Specified default | Why it matters and how it is verified |
 | --- | --- | --- |
-| Input frameworks | Windows TSF, macOS Input Sources, Linux IBus/fcitx and X11 only for the first release | Wayland restricts global key capture; "replace the selection" is the fallback. Platform support table in the plan |
+| Input frameworks | Windows 10/11 and macOS 13+ only for the first release: a listen-only key observer plus an accessibility text adapter, not an input method (section 13.7). Linux is deferred | For the deferred Linux port, Wayland restricts global key capture; "replace the selection" is the fallback. Platform table in section 13.7 |
 | App classes | Browsers, Electron apps, Office suites, chat clients, notes. Terminals, IDEs, remote desktops, games excluded | Replacement APIs differ per app. Test matrix of at least 15 applications per OS |
 | Screen readers | No change announced twice; test with VoiceOver and NVDA | A silent text replacement can be invisible or noisy for assistive technology |
 | Session events | Sleep, wake, lock screen, fast user switching, UAC or secure desktop flush the buffer | Stale buffers survive these events otherwise |
@@ -1229,7 +1229,7 @@ The seven questions in the brief cover the model; the parameters below decide wh
 
 | Parameter | Specified default | Why it matters and how it is verified |
 | --- | --- | --- |
-| Per-user adaptation | Exceptions, personal vocabulary and bounded threshold shift (section 10.6); no on-device training of weights | Personalisation without the risk of a drifting classifier |
+| Per-user adaptation | The local exception list and the cool-down (13.3). The bounded threshold shift of 10.6 is deferred and off in the first release; no on-device training of weights | Personalisation without the risk of a drifting classifier |
 | Field quality signal | Opt-in counters: corrections, undos, manual conversions by length and direction. Target undo rate ≤ 0.5% of corrections | An undo is a proxy for a false positive. It under-counts, because not every user notices or undoes |
 | Model and lexicon updates | Signed, versioned packages; one-step rollback; staged rollout | A bad model is a visible regression in text the user wrote |
 | Visual feedback | Optional non-blocking hint when the tool abstains; never changes text | Gives users a path to manual conversion without risk |
@@ -1386,7 +1386,7 @@ The three drafts agree on the core decision (classify, never generate) and disag
 ### 17.3 What was kept
 
 - **All three:** a fixed key-position table converts; the network never generates (§5, §13).
-- **First draft:** a threshold that depends on length; Esc-undo; learned exceptions.
+- **First draft:** a threshold that depends on length; undo (Esc only as a per-application opt-in, 13.3); learned exceptions.
 - **Second draft:** statistical stage first, a written criterion for dropping the network (EV-12), temperature scaling, the idea of an `OTHER` class outside the language pair, the rule-of-three argument for test size.
 - **Third draft:** baseline-first order, guard table, secure-field handling, false-positive rate as the headline, `ABSTAIN` semantics, a locked test set that is used once.
 
