@@ -306,7 +306,13 @@
  ["m1 one user key does not explain a caret two forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn x", true],
  ["m1 write damages the Space after the range", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", true],
  ["m1 write damages the Space, a typed-ahead key follows", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", true],
- ["m1 autocorrect with a typed-ahead key, the rollback restores the fragment", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", "Hello ghbdtn a", true]
+ ["m1 autocorrect with a typed-ahead key, the rollback restores the fragment", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", "Hello ghbdtn a", true],
+ ["m1 a key that types nothing during the read-back is allowed", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 one key may explain a caret one place forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 one key does not explain a caret behind its place", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "back"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 one typed key and a caret one place back is still inside the window", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["m2 a key that types nothing while the range is read: nothing is sent", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"read:1": "key"}, "", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn ", false],
+ ["m2 a key that types nothing between synthetic events", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key"}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false]
 ],
 "fingerprint": [
  ["en", "7b35aa964f372005ccef6558a1049dce2a550d772939090e3dba51302c0f3078", "en"],

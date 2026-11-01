@@ -1034,7 +1034,7 @@ class Adapter:
     def read(self, start: int, end: int) -> Optional[str]: raise NotImplementedError    # None: not readable
     def replace(self, start: int, end: int, text: str) -> None: raise NotImplementedError   # M1, one operation
     def send(self, events: Sequence[Tuple[str, str]]) -> None: raise NotImplementedError    # M2: ("bs","") / ("ch",c)
-    def modifier_down(self) -> bool: return False     # M2 only: Shift, Ctrl, Alt or a Windows key is physically down
+    def modifier_down(self) -> bool: raise NotImplementedError   # M2 only: Shift, Ctrl, Alt or a Windows key is physically down
     def mark(self) -> int: raise NotImplementedError  # an opaque token: "from now on, count the user's key events"
     def keys_since(self, mark: int) -> int: raise NotImplementedError   # user key events seen since that token
 
@@ -1151,12 +1151,12 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
 class SimField(Adapter):
     """In-memory text field with fault injection, the test double of the replacement transaction.
     `faults` maps (operation, k) to a fault name, k = the 1-based number of the call of that operation:
-      gate: 'DENY' | 'UNKNOWN' | 'raise'      caret: 'back' | 'forward' | 'raise'      read: 'none' | 'stale' | 'raise' | 'user:<c>'
+      gate: 'DENY' | 'UNKNOWN' | 'raise'      caret: 'back' | 'forward' | 'raise'      read: 'none' | 'stale' | 'raise' | 'user:<c>' | 'key'
       replace: 'raise' (nothing written) | 'partial' (half written, then error) | 'applied_error' (written, then error)
                | 'autocorrect' (the application changes the last character) | 'ignored' (silently not written)
                | 'spill' (the character after the range, the Space, is damaged as well)
-               | 'user:<c>' (the user types <c> just before the write)
-      event k (M2 only): 'raise' | 'user:<c>' (the user types <c> just before synthetic event k; a documented
+               | 'user:<c>' (the user types <c> just before the write) | 'key' (a key that types nothing: Shift, an arrow)
+      event k (M2 only): 'raise' | 'key' | 'user:<c>' (the user types <c> just before synthetic event k; a documented
                impossibility inside one SendInput call on Windows, possible between CGEventPost calls on macOS)
                | 'drop' (event k is silently not delivered: UIPI, or a partial insertion).
       modifiers: True when a modifier key is physically down."""
@@ -1167,6 +1167,7 @@ class SimField(Adapter):
         self.count: Dict[str, int] = {}
         self.user: List[str] = []         # every character the user typed, in order (evidence for G-EVENT)
         self.sent = 0                     # synthetic events delivered
+        self.silent = 0                   # user key events that typed no character (Shift, arrows)
         self.modifiers = False            # a modifier key is physically down
 
     def _hit(self, op: str) -> Optional[str]:
@@ -1194,6 +1195,8 @@ class SimField(Adapter):
         f = self._hit("read")
         if f and f.startswith("user:"):
             self.type_user(f[5:])
+        if f == "key":
+            self.silent += 1
         if f == "raise":
             raise AdapterError("timeout")
         if f == "none":
@@ -1205,6 +1208,8 @@ class SimField(Adapter):
         f = self._hit("replace")
         if f and f.startswith("user:"):
             self.type_user(f[5:])
+        if f == "key":
+            self.silent += 1
         if f == "raise":
             raise AdapterError("timeout")
         if f == "ignored":
@@ -1223,16 +1228,18 @@ class SimField(Adapter):
         return self.modifiers
 
     def mark(self) -> int:
-        return len(self.user)
+        return len(self.user) + self.silent
 
     def keys_since(self, mark: int) -> int:
-        return len(self.user) - mark
+        return len(self.user) + self.silent - mark
 
     def send(self, events: Sequence[Tuple[str, str]]) -> None:
         for k, (kind, ch) in enumerate(events, 1):
             f = self.faults.get(("event", k))
             if f and f.startswith("user:"):
                 self.type_user(f[5:])
+            if f == "key":
+                self.silent += 1
             if f == "raise":
                 raise AdapterError("timeout")
             if f == "drop":

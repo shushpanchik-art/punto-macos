@@ -263,6 +263,12 @@ def build():
         ("m1 write damages the Space after the range", M1, B, {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", True),
         ("m1 write damages the Space, a typed-ahead key follows", M1, B + "a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", True),
         ("m1 autocorrect with a typed-ahead key, the rollback restores the fragment", M1, B + "a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", B + "a", True),
+        ("m1 a key that types nothing during the read-back is allowed", M1, B, {"read:2": "key"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 one key may explain a caret one place forward", M1, B, {"read:2": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 one key does not explain a caret behind its place", M1, B, {"read:2": "key", "caret:2": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 one typed key and a caret one place back is still inside the window", M1, B, {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m2 a key that types nothing while the range is read: nothing is sent", M2, B, {"read:1": "key"}, "", MAN, "ABORTED", "typed_ahead", B, False),
+        ("m2 a key that types nothing between synthetic events", M2, B, {"event:3": "key"}, "", MAN, "VERIFIED", "ok", C, False),
     ]
     tx = []
     for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in FM:

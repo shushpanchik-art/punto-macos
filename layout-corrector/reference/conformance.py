@@ -216,7 +216,7 @@ if os.path.exists("vectors_out.json"):
     with open("vectors_out.json", encoding="utf-8") as fh:
         T(json.load(fh) == json.loads(vectors.render(V)), "vectors_out.json is not what vectors.py generates")
 BASE, OLD, NEW = "Hello ghbdtn ", "ghbdtn", "привет"
-T(len(V["tx"]) == 45, "fault matrix size")
+T(len(V["tx"]) == 51, "fault matrix size")
 for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["tx"]:
     f = L.SimField(text, caps, {(k.split(":")[0], int(k.split(":")[1])): v for k, v in faults.items()})
     res = L.run_transaction(f, OLD, NEW, ahead, **kw)
@@ -235,9 +235,9 @@ for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["
 # Every fault of one phase, applied to every step, never ends in a silent VERIFIED with wrong text, and never
 # crashes (an exhaustive sweep over single faults and pairs of faults, M1 with rollback).
 FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward"]),
-               ("read", 1, ["none", "stale", "raise", "user:x"]), ("read", 2, ["none", "stale", "raise", "user:x"]),
+               ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
                ("read", 3, ["none", "stale", "raise"]),
-               ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x"]),
+               ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x", "key"]),
                ("replace", 2, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x"])]
 sweep = 0
 for combo in itertools.chain(([s] for s in FAULT_SLOTS), itertools.combinations(FAULT_SLOTS, 2)):
@@ -260,8 +260,8 @@ M1_SWEEP = sweep
 # Invariants: a user key seen before the first event means nothing is sent; whatever is written, the user's own
 # keys are never lost or duplicated by the plan (G-EVENT) and a wrong text is never VERIFIED.
 M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward"]),
-            ("read", 1, ["none", "stale", "raise", "user:x"]), ("read", 2, ["none", "stale", "raise", "user:x"]),
-            ("read", 3, ["none", "stale", "raise"])] + [("event", k, ["raise", "user:x", "drop"]) for k in range(1, 15)]
+            ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
+            ("read", 3, ["none", "stale", "raise"])] + [("event", k, ["raise", "user:x", "drop", "key"]) for k in range(1, 15)]
 for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_SLOTS[:6] + M2_SLOTS[6:9] + M2_SLOTS[-3:], 2)):
     for picks in itertools.product(*[[(op, k, v) for v in vs] for op, k, vs in combo]):
         faults = {(op, k): v for op, k, v in picks}
@@ -275,9 +275,9 @@ for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_
         T(res.outcome != "UNRECOVERED" or (res.incident and res.quarantine), f"M2 sweep UNRECOVERED without incident {faults}")
         T(f.sent in (0, 14) or any(k == "event" for (k, _) in faults) or res.outcome == "UNRECOVERED", f"M2 sweep partial plan {faults}")
         T(f.user == ["x"] * len(f.user), "M2 user keys are exactly the scripted ones")
-        if faults.get(("read", 1)) == "user:x":                  # the key came before the first event: nothing may be sent
+        if faults.get(("read", 1)) in ("user:x", "key"):         # the key came before the first event: nothing may be sent
             T(f.sent == 0 and res.outcome == "ABORTED", f"M2 sweep: key before the write {faults}")
-T((M1_SWEEP, sweep) == (497, 1184), f"sweep size {M1_SWEEP} / {sweep}")
+T((M1_SWEEP, sweep) == (587, 1588), f"sweep size {M1_SWEEP} / {sweep}")
 
 # ---- P10 engine: undo snapshot lifecycle, modes, outcomes, stream gap ---------------------------------------
 scorer = lambda ids: [-3, 9, -2]
