@@ -269,6 +269,12 @@ def build():
         ("m1 one typed key and a caret one place back is still inside the window", M1, B, {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
         ("m2 a key that types nothing while the range is read: nothing is sent", M2, B, {"read:1": "key"}, "", MAN, "ABORTED", "typed_ahead", B, False),
         ("m2 a key that types nothing between synthetic events", M2, B, {"event:3": "key"}, "", MAN, "VERIFIED", "ok", C, False),
+        ("m1 a key during the write explains a caret one place forward", M1, B, {"replace:1": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 a key during the write does not explain a caret two places forward", M1, B, {"replace:1": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 a key during the read-back does not explain a caret two places forward", M1, B, {"read:2": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m2 a key between synthetic events explains a caret one place forward", M2, B, {"event:3": "key", "caret:2": "forward"}, "", MAN, "VERIFIED", "ok", C, False),
+        ("m2 a key between synthetic events does not explain a caret two places forward", M2, B, {"event:3": "key", "caret:2": "forward2"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 the synthetic events are not user keys: a caret ahead without any user key fails", M2, B, {"caret:2": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
     ]
     tx = []
     for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in FM:

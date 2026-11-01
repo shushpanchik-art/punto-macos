@@ -1151,7 +1151,7 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
 class SimField(Adapter):
     """In-memory text field with fault injection, the test double of the replacement transaction.
     `faults` maps (operation, k) to a fault name, k = the 1-based number of the call of that operation:
-      gate: 'DENY' | 'UNKNOWN' | 'raise'      caret: 'back' | 'forward' | 'raise'      read: 'none' | 'stale' | 'raise' | 'user:<c>' | 'key'
+      gate: 'DENY' | 'UNKNOWN' | 'raise'      caret: 'back' | 'forward' | 'forward2' | 'raise'      read: 'none' | 'stale' | 'raise' | 'user:<c>' | 'key'
       replace: 'raise' (nothing written) | 'partial' (half written, then error) | 'applied_error' (written, then error)
                | 'autocorrect' (the application changes the last character) | 'ignored' (silently not written)
                | 'spill' (the character after the range, the Space, is damaged as well)
@@ -1189,7 +1189,7 @@ class SimField(Adapter):
         f = self._hit("caret")
         if f == "raise":
             raise AdapterError("caret")
-        return self.pos - 1 if f == "back" else self.pos + 1 if f == "forward" else self.pos
+        return {"back": -1, "forward": 1, "forward2": 2}.get(f, 0) + self.pos
 
     def read(self, start: int, end: int) -> Optional[str]:
         f = self._hit("read")

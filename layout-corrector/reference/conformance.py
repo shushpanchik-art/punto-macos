@@ -216,7 +216,7 @@ if os.path.exists("vectors_out.json"):
     with open("vectors_out.json", encoding="utf-8") as fh:
         T(json.load(fh) == json.loads(vectors.render(V)), "vectors_out.json is not what vectors.py generates")
 BASE, OLD, NEW = "Hello ghbdtn ", "ghbdtn", "привет"
-T(len(V["tx"]) == 51, "fault matrix size")
+T(len(V["tx"]) == 57, "fault matrix size")
 for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["tx"]:
     f = L.SimField(text, caps, {(k.split(":")[0], int(k.split(":")[1])): v for k, v in faults.items()})
     res = L.run_transaction(f, OLD, NEW, ahead, **kw)
@@ -234,7 +234,7 @@ for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["
 
 # Every fault of one phase, applied to every step, never ends in a silent VERIFIED with wrong text, and never
 # crashes (an exhaustive sweep over single faults and pairs of faults, M1 with rollback).
-FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward"]),
+FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
                ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
                ("read", 3, ["none", "stale", "raise"]),
                ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x", "key"]),
@@ -259,7 +259,7 @@ M1_SWEEP = sweep
 # The same sweep for M2 (the hotkey path): events 1 to 14 are the plan (7 Backspace, 6 characters, the Space).
 # Invariants: a user key seen before the first event means nothing is sent; whatever is written, the user's own
 # keys are never lost or duplicated by the plan (G-EVENT) and a wrong text is never VERIFIED.
-M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward"]),
+M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
             ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
             ("read", 3, ["none", "stale", "raise"])] + [("event", k, ["raise", "user:x", "drop", "key"]) for k in range(1, 15)]
 for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_SLOTS[:6] + M2_SLOTS[6:9] + M2_SLOTS[-3:], 2)):
@@ -277,7 +277,7 @@ for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_
         T(f.user == ["x"] * len(f.user), "M2 user keys are exactly the scripted ones")
         if faults.get(("read", 1)) in ("user:x", "key"):         # the key came before the first event: nothing may be sent
             T(f.sent == 0 and res.outcome == "ABORTED", f"M2 sweep: key before the write {faults}")
-T((M1_SWEEP, sweep) == (587, 1588), f"sweep size {M1_SWEEP} / {sweep}")
+T((M1_SWEEP, sweep) == (621, 1665), f"sweep size {M1_SWEEP} / {sweep}")
 
 # ---- P10 engine: undo snapshot lifecycle, modes, outcomes, stream gap ---------------------------------------
 scorer = lambda ids: [-3, 9, -2]
