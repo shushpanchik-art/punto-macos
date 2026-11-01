@@ -298,7 +298,15 @@
  ["m2 manual ok", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false],
  ["m2 with typed-ahead keys is refused", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn a", {}, "a", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn a", false],
  ["m2 user key between synthetic events", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello gпривет ", true],
- ["m2 synthetic event times out", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:5": "raise"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "write_error", "Hello ghb", true]
+ ["m2 synthetic event times out", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:5": "raise"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "write_error", "Hello ghb", true],
+ ["m2 user key while the range is read: nothing is sent", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"read:1": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn x", false],
+ ["m2 user key before the first synthetic event: the race that stays", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:1": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello gпривет ", true],
+ ["m1 caret forward although no user key came", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 one user key during the read-back moves the caret by one", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["m1 one user key does not explain a caret two forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn x", true],
+ ["m1 write damages the Space after the range", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", true],
+ ["m1 write damages the Space, a typed-ahead key follows", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", true],
+ ["m1 autocorrect with a typed-ahead key, the rollback restores the fragment", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", "Hello ghbdtn a", true]
 ],
 "fingerprint": [
  ["en", "7b35aa964f372005ccef6558a1049dce2a550d772939090e3dba51302c0f3078", "en"],
@@ -309,11 +317,18 @@
 "hook": [
  ["three matched keys", true, false],
  ["key unseen by the hook, at the limit", true, false],
- ["key unseen by the hook, past the limit", false, true],
+ ["key unseen by the hook, past the limit", false, true, "canary_missing"],
  ["gap is reported once", false, false],
  ["re-arm pair 1", false, false],
  ["re-arm pair 2", false, false],
  ["re-arm pair 3", true, false],
+ ["lost b and extra c cancel as counts, at the limit", true, false, null],
+ ["lost b and extra c cancel as counts, past the limit", false, true, "canary_missing"],
+ ["extra hook key alone, at the limit", true, false, null],
+ ["extra hook key alone, past the limit", false, true, "canary_extra"],
+ ["hook event first, injected event ignored", true, false, null],
+ ["two physical presses, one reported, at the limit of the unmatched press", true, false, null],
+ ["two physical presses, one reported, past the limit of the unmatched press", false, true, "canary_missing"],
  ["macOS tapDisabledByTimeout", false, true, "tap_timeout"],
  ["macOS tap enabled again", true, false, null],
  ["macOS tapDisabledByUserInput", false, true, "tap_user_input"]

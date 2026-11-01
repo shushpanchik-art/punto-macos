@@ -255,6 +255,14 @@ def build():
         ("m2 with typed-ahead keys is refused", M2, B + "a", {}, "a", MAN, "ABORTED", "typed_ahead", B + "a", False),
         ("m2 user key between synthetic events", M2, B, {"event:3": "user:x"}, "", MAN, "UNRECOVERED", "verify_failed", "Hello gпривет ", True),
         ("m2 synthetic event times out", M2, B, {"event:5": "raise"}, "", MAN, "UNRECOVERED", "write_error", "Hello ghb", True),
+        ("m2 user key while the range is read: nothing is sent", M2, B, {"read:1": "user:x"}, "", MAN, "ABORTED", "typed_ahead", B + "x", False),
+        ("m2 user key before the first synthetic event: the race that stays", M2, B, {"event:1": "user:x"}, "", MAN, "UNRECOVERED", "verify_failed", "Hello gпривет ", True),
+        ("m1 caret forward although no user key came", M1, B, {"caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 one user key during the read-back moves the caret by one", M1, B, {"read:2": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m1 one user key does not explain a caret two forward", M1, B, {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B + "x", True),
+        ("m1 write damages the Space after the range", M1, B, {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", True),
+        ("m1 write damages the Space, a typed-ahead key follows", M1, B + "a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", True),
+        ("m1 autocorrect with a typed-ahead key, the rollback restores the fragment", M1, B + "a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", B + "a", True),
     ]
     tx = []
     for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in FM:
@@ -274,14 +282,25 @@ def build():
     # ---- V21 hook health
     h = L.HookHealth(canary=True); hh = []
     for t in (0, 100, 200):
-        h.raw_key(t); h.hook_key(t + 5)
+        h.raw_key(t, "s%d" % t); h.hook_key(t + 5, "s%d" % t)
     hh.append(["three matched keys", h.check(250), h.take_gap()])
-    h.raw_key(1000); hh.append(["key unseen by the hook, at the limit", h.check(1300), h.take_gap()])
-    hh.append(["key unseen by the hook, past the limit", h.check(1301), h.take_gap()])
+    h.raw_key(1000, "k"); hh.append(["key unseen by the hook, at the limit", h.check(1300), h.take_gap()])
+    hh.append(["key unseen by the hook, past the limit", h.check(1301), h.take_gap(), h.reason])
     hh.append(["gap is reported once", h.ok, h.take_gap()])
     h.reinstalled()
     for i in range(3):
-        h.raw_key(3000 + i); h.hook_key(3000 + i); hh.append([f"re-arm pair {i + 1}", h.ok, h.take_gap()])
+        h.raw_key(3000 + i, i); h.hook_key(3000 + i, i); hh.append([f"re-arm pair {i + 1}", h.ok, h.take_gap()])
+    c = L.HookHealth(); c.raw_key(0, "a"); c.hook_key(3, "a"); c.raw_key(100, "b"); c.hook_key(105, "c")
+    hh.append(["lost b and extra c cancel as counts, at the limit", c.check(400), c.take_gap(), c.reason])
+    hh.append(["lost b and extra c cancel as counts, past the limit", c.check(401), c.take_gap(), c.reason])
+    c = L.HookHealth(); c.hook_key(0, "c")
+    hh.append(["extra hook key alone, at the limit", c.check(300), c.take_gap(), c.reason])
+    hh.append(["extra hook key alone, past the limit", c.check(301), c.take_gap(), c.reason])
+    c = L.HookHealth(); c.hook_key(10, "a"); c.raw_key(12, "a"); c.hook_key(30, "c", injected=True)
+    hh.append(["hook event first, injected event ignored", c.check(10_000), c.take_gap(), c.reason])
+    c = L.HookHealth(); c.raw_key(0, "a"); c.raw_key(50, "a"); c.hook_key(55, "a")
+    hh.append(["two physical presses, one reported, at the limit of the unmatched press", c.check(350), c.take_gap(), c.reason])
+    hh.append(["two physical presses, one reported, past the limit of the unmatched press", c.check(351), c.take_gap(), c.reason])
     m = L.HookHealth(canary=False); m.tap_disabled("timeout"); hh.append(["macOS tapDisabledByTimeout", m.ok, m.take_gap(), m.reason])
     m.reinstalled(); hh.append(["macOS tap enabled again", m.ok, m.take_gap(), m.reason])
     m.tap_disabled("user_input"); hh.append(["macOS tapDisabledByUserInput", m.ok, m.take_gap(), m.reason])

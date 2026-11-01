@@ -105,6 +105,12 @@ BAD = {
     "w[run] above its cap": (["w", "en", "run"], 0.4),
     "two-key list missing": (["two_key_allow", "ru2en"], DELETE),
     "two-key list empty": (["two_key_allow", "en2ru"], set()),
+    "two-key word of three letters": (["two_key_allow", "en2ru"], {"на", "она"}),
+    "two-key word of one letter": (["two_key_allow", "en2ru"], {"на", "н"}),
+    "two-key word not case-folded": (["two_key_allow", "en2ru"], {"На"}),
+    "two-key word with a space": (["two_key_allow", "en2ru"], {"н "}),
+    "two-key list is a list, not a set": (["two_key_allow", "en2ru"], ["на"]),
+    "two-key list is a string": (["two_key_allow", "en2ru"], "на не"),
     "wrong schema": (["schema"], "LFC0"),
     "unknown field": (["extra"], 1),
     "field missing": (["o_lat"], DELETE),
@@ -125,6 +131,11 @@ for what, text in {
     "not JSON": "{",
     "not an object": "[1]",
     "allow list of numbers": good_json.replace('"на"', "5", 1),
+    "allow list is a string": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": "на не но"}}, ensure_ascii=False),
+    "allow list is null": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": None}}, ensure_ascii=False),
+    "allow list has a duplicate": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": ["на", "на"]}}, ensure_ascii=False),
+    "allow list of one-letter words": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": ["н", "а"]}}, ensure_ascii=False),
+    "allow list is empty": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": []}}, ensure_ascii=False),
 }.items():
     raises(L.CalibrationError, lambda t=text: L.cal_from_json(t), "JSON: " + what)
 # the runtime reaction: a refused package gives a defined mode, never a half-activated engine
@@ -205,7 +216,7 @@ if os.path.exists("vectors_out.json"):
     with open("vectors_out.json", encoding="utf-8") as fh:
         T(json.load(fh) == json.loads(vectors.render(V)), "vectors_out.json is not what vectors.py generates")
 BASE, OLD, NEW = "Hello ghbdtn ", "ghbdtn", "привет"
-T(len(V["tx"]) == 37, "fault matrix size")
+T(len(V["tx"]) == 45, "fault matrix size")
 for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["tx"]:
     f = L.SimField(text, caps, {(k.split(":")[0], int(k.split(":")[1])): v for k, v in faults.items()})
     res = L.run_transaction(f, OLD, NEW, ahead, **kw)
@@ -223,10 +234,11 @@ for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["
 
 # Every fault of one phase, applied to every step, never ends in a silent VERIFIED with wrong text, and never
 # crashes (an exhaustive sweep over single faults and pairs of faults, M1 with rollback).
-FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back"]), ("caret", 2, ["raise", "back"]),
+FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward"]),
                ("read", 1, ["none", "stale", "raise", "user:x"]), ("read", 2, ["none", "stale", "raise", "user:x"]),
-               ("read", 3, ["none", "stale", "raise"]), ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "user:x"]),
-               ("replace", 2, ["raise", "partial", "applied_error", "autocorrect", "ignored", "user:x"])]
+               ("read", 3, ["none", "stale", "raise"]),
+               ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x"]),
+               ("replace", 2, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x"])]
 sweep = 0
 for combo in itertools.chain(([s] for s in FAULT_SLOTS), itertools.combinations(FAULT_SLOTS, 2)):
     for picks in itertools.product(*[[(op, k, v) for v in vs] for op, k, vs in combo]):
@@ -236,13 +248,36 @@ for combo in itertools.chain(([s] for s in FAULT_SLOTS), itertools.combinations(
         sweep += 1
         body = f.text.replace("x", "")
         T(res.outcome in L.OUTCOMES, "vocabulary")
-        T(res.outcome != "VERIFIED" or f.text[6:12] == NEW, f"sweep VERIFIED with wrong text {faults}")
-        T(res.outcome != "RESTORED" or f.text[6:12] == OLD, f"sweep RESTORED with wrong text {faults}")
+        T(res.outcome != "VERIFIED" or body == "Hello привет ", f"sweep VERIFIED with wrong text {faults}")
+        T(res.outcome != "RESTORED" or body == BASE, f"sweep RESTORED with wrong text {faults}")
         T(res.outcome != "ABORTED" or body == BASE, f"sweep ABORTED changed the field {faults}")
         T(res.outcome != "UNRECOVERED" or (res.incident and res.quarantine), f"sweep UNRECOVERED without incident {faults}")
         T(f.user == ["x"] * len(f.user), "user keys are exactly the scripted ones")
         T(body.count("привет") + body.count("ghbdtn") <= 1 or res.outcome == "UNRECOVERED", f"sweep duplicated text {faults}")
-T(sweep == 387, f"sweep size {sweep}")
+M1_SWEEP = sweep
+
+# The same sweep for M2 (the hotkey path): events 1 to 14 are the plan (7 Backspace, 6 characters, the Space).
+# Invariants: a user key seen before the first event means nothing is sent; whatever is written, the user's own
+# keys are never lost or duplicated by the plan (G-EVENT) and a wrong text is never VERIFIED.
+M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward"]),
+            ("read", 1, ["none", "stale", "raise", "user:x"]), ("read", 2, ["none", "stale", "raise", "user:x"]),
+            ("read", 3, ["none", "stale", "raise"])] + [("event", k, ["raise", "user:x", "drop"]) for k in range(1, 15)]
+for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_SLOTS[:6] + M2_SLOTS[6:9] + M2_SLOTS[-3:], 2)):
+    for picks in itertools.product(*[[(op, k, v) for v in vs] for op, k, vs in combo]):
+        faults = {(op, k): v for op, k, v in picks}
+        f = L.SimField(BASE, M2, faults)
+        res = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+        sweep += 1
+        body = f.text.replace("x", "")
+        T(res.outcome in L.OUTCOMES, "M2 vocabulary")
+        T(res.outcome != "VERIFIED" or body == "Hello привет ", f"M2 sweep VERIFIED with wrong text {faults}")
+        T(res.outcome != "ABORTED" or (f.sent == 0 and body == BASE), f"M2 sweep ABORTED wrote something {faults}")
+        T(res.outcome != "UNRECOVERED" or (res.incident and res.quarantine), f"M2 sweep UNRECOVERED without incident {faults}")
+        T(f.sent in (0, 14) or any(k == "event" for (k, _) in faults) or res.outcome == "UNRECOVERED", f"M2 sweep partial plan {faults}")
+        T(f.user == ["x"] * len(f.user), "M2 user keys are exactly the scripted ones")
+        if faults.get(("read", 1)) == "user:x":                  # the key came before the first event: nothing may be sent
+            T(f.sent == 0 and res.outcome == "ABORTED", f"M2 sweep: key before the write {faults}")
+T((M1_SWEEP, sweep) == (497, 1184), f"sweep size {M1_SWEEP} / {sweep}")
 
 # ---- P10 engine: undo snapshot lifecycle, modes, outcomes, stream gap ---------------------------------------
 scorer = lambda ids: [-3, 9, -2]
@@ -360,20 +395,21 @@ T(L.layout_fingerprint(ru_e) == "3aced72548d6d46da951f06cdbed60aac96487c338ad7b8
 # ---- P12 hook health -------------------------------------------------------------------------------------
 h = L.HookHealth(canary=True)
 for t in (0, 100, 200):
-    h.raw_key(t); h.hook_key(t + 5)
+    h.raw_key(t, ("a", t)); h.hook_key(t + 5, ("a", t))
 T(h.check(250) and h.ok and not h.take_gap(), "healthy stream")
-h.raw_key(1000)                                                       # the hook does not see this key
+h.raw_key(1000, "x")                                                  # the hook does not see this key
 T(h.check(1000 + L.HookHealth.CANARY_MS) and h.ok, "exactly at the limit is still healthy")
 T(not h.check(1000 + L.HookHealth.CANARY_MS + 1) and h.take_gap() and not h.take_gap(), "canary loses the hook, one gap")
+T(h.reason == "canary_missing", "a physical key the hook never reported")
 T(L.engine_mode(M1, "AUTO", hook_ok=h.ok) == "MANUAL_ONLY", "a lost hook limits the mode")
 for t in (2000, 2100, 2200, 2300):                                    # keys typed while the hook is still not installed again
-    h.raw_key(t); h.check(t + 10)
+    h.raw_key(t, t); h.check(t + 10)
 T(not h.ok, "still lost")
 h.reinstalled()
 for i in range(L.HookHealth.REARM_PAIRS - 1):
-    h.raw_key(3000 + i); h.hook_key(3000 + i)
+    h.raw_key(3000 + i, i); h.hook_key(3000 + i, i)
 T(not h.ok, "re-arm needs the full number of pairs")
-h.raw_key(3100); h.hook_key(3100)
+h.raw_key(3100, 9); h.hook_key(3100, 9)
 T(h.ok and h.reason is None, "re-armed after three matched pairs")
 m = L.HookHealth(canary=False)                                        # macOS
 T(m.ok, "mac healthy")
@@ -451,5 +487,323 @@ for rnd in range(max(1, N // 20_000)):
                       "undo returns the recorded keys rendered with the recorded layout")
                     checked_undo += 1
 T(conv > N // 4000 and checked_undo > N // 20000, f"fuzz coverage: {conv} conversions, {checked_undo} undos")
+
+# ---- P14 boundaries, defaults and format errors: every threshold is tested on both sides of its edge ---------
+# (written against the survivors of the mutation run, audit line L3: a constant that nothing pins is a defect)
+T([L.bucket(n) for n in (0, 1, 2, 3, 4, 5, 7, 8, 20)] == [None, None, "2", "3-4", "3-4", "5-7", "5-7", "8+", "8+"], "bucket edges")
+
+
+def accepts(path, value):
+    try:
+        L.check_calibration_package(mutated(path, value))
+        return True
+    except L.CalibrationError:
+        return False
+
+
+# closed and open bounds of every numeric field of the calibration package
+T(accepts(["temperature", "network"], 20.0) and accepts(["temperature", "network"], 15.0) and accepts(["temperature", "ngram"], 1e-9),
+  "T: 1e-9, 15 and 20 are valid")
+T(not accepts(["temperature", "network"], 20.001) and not accepts(["temperature", "ngram"], 21.0), "T above 20 is refused")
+T(accepts(["o_lat"], 0.6) and accepts(["o_lat"], 0.999999) and accepts(["o_lat"], 1e-9), "o_lat valid values")
+T(not accepts(["o_lat"], 0.0) and not accepts(["o_lat"], 1.0) and not accepts(["o_lat"], -0.1), "o_lat 0 and 1 are refused")
+T(not accepts(["o_lat"], 1.5) and not accepts(["o_lat"], 2.0), "o_lat above 1 is refused")
+
+
+def accepts_counts(counts):
+    c = copy.deepcopy(ok_cal)
+    c["pi_train_counts"] = counts
+    c["pi_train"] = L.pi_from_counts(counts)
+    try:
+        L.check_calibration_package(c)
+        return True
+    except L.CalibrationError:
+        return False
+
+
+T(accepts_counts([60000, 30000, 10000]) and accepts_counts([1, 1, 1]) and accepts_counts([98, 1, 1]),
+  "a class share above one half is a valid training mix")
+T(accepts(["w", "en", "default"], 0.0005) and not accepts(["w", "en", "default"], 0.0004), "w lower edge is closed")
+T(accepts(["w", "ru", "after_switch"], 0.5) and not accepts(["w", "ru", "after_switch"], 0.51), "w upper edge is closed")
+T(accepts(["w", "en", "run"], 0.3) and not accepts(["w", "en", "run"], 0.3000001), "w[run] cap is 0.3, inclusive")
+T(accepts(["lambda_nats", "network", "en2ru", "3-4"], 4.0) and not accepts(["lambda_nats", "network", "en2ru", "3-4"], 3.99),
+  "lambda lower edge 4 nats is closed")
+T(accepts(["lambda_nats", "ngram", "ru2en", "8+"], 16.0) and accepts(["lambda_nats", "ngram", "ru2en", "8+"], 9.0)
+  and not accepts(["lambda_nats", "ngram", "ru2en", "8+"], 16.01), "lambda upper edge 16 nats is closed")
+raises(L.CalibrationError, lambda: L.check_calibration_package(mutated(["pi_train"], ok_cal["pi_train"] + [1e-12])), "pi_train too long")
+p0, p1, p2 = ok_cal["pi_train"]
+T(not accepts(["pi_train"], [p0 + 1.5e-9, p1 - 1.5e-9, p2]), "pi_train element 1.5e-9 off its count is refused")
+T(accepts(["pi_train"], [p0 + 0.8e-9, p1 - 0.8e-9, p2]), "pi_train element 0.8e-9 off its count is accepted")
+T(not accepts(["pi_train"], [p0 + 0.4e-9, p1 + 0.4e-9, p2 + 0.4e-9]), "pi_train sum 1.2e-9 off 1 is refused")
+T(accepts(["pi_train"], [p0 + 0.3e-9, p1 + 0.3e-9, p2 + 0.3e-9]), "pi_train sum 0.9e-9 off 1 is accepted")
+
+# defaults of decide(): the two-key rule is closed unless a run is active
+KEYS2 = L.keys_from_text("yf", "en")                                   # 'на' on the Russian layout, in the allow list
+cal0 = L.example_cal()
+T(L.decide(KEYS2, "en", cal0, scorer).reason == "two_key_rule", "two keys without a run: kept")
+T(L.decide(KEYS2, "en", cal0, scorer, run_active=True).reason == "two_key_allow_list", "two keys inside a run: converted")
+# the scorer sees BOS ... EOS
+seen = []
+L.decide(L.keys_from_text("ghbdtn", "en"), "en", cal0, lambda ids: seen.append(list(ids)) or [-3, 9, -2])
+T(seen and seen[0][0] == L.BOS and seen[0][-1] == L.EOS and len(seen[0]) == 8, "the scorer input is BOS, 6 key tokens, EOS")
+# a margin of exactly zero converts (the rule is s >= lambda)
+G = L.keys_from_text("ghbdtn", "en")
+s_exact = L.score([-3, 9, -2], "en", cal0, cal0["w"]["en"]["default"], "network")
+cal_edge = copy.deepcopy(cal0); cal_edge["lambda_nats"]["network"]["en2ru"]["5-7"] = s_exact
+T(L.decide(G, "en", cal_edge, scorer).action == "CONVERT" and L.decide(G, "en", cal_edge, scorer).margin == 0.0, "margin 0 converts")
+cal_edge["lambda_nats"]["network"]["en2ru"]["5-7"] = s_exact + 1e-9
+T(L.decide(G, "en", cal_edge, scorer).action == "KEEP", "margin -1e-9 abstains")
+
+
+def word(e, text, lay, ts):
+    for k in L.keys_from_text(text, lay):
+        e.on_event(L.Event("key", k, lay, ts))
+    return e.on_event(L.Event("space", None, lay, ts))
+
+
+# buffer bound: 64 keys are decided, the 65th makes the word an overflow
+e = L.Engine(L.example_cal(), scorer, LEX)
+for _ in range(64):
+    e.on_event(L.Event("key", L.Key(11), "en", 0))
+T(len(e.run) == 64 and not e.overflow and e.on_event(L.Event("space", None, "en", 1)).reason != "overflow", "64 keys")
+for _ in range(65):
+    e.on_event(L.Event("key", L.Key(11), "en", 2))
+T(len(e.run) == 64 and e.overflow and e.on_event(L.Event("space", None, "en", 3)).reason == "overflow", "65 keys")
+# the lexicon is used when it is given
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "hello", "en", 0).reason == "lexicon_active", "the lexicon of the engine is consulted")
+# evidence for the active language ends the run credit
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "ghbdtn", "en", 0).action == "CONVERT" and e.credit == 3, "credit after a conversion")
+T(word(e, "hello", "en", 10).reason == "lexicon_active" and e.credit == 0, "a word of the active language resets the credit")
+# two keys: the allow list opens only while the run credit lives
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "yf", "en", 0).reason == "two_key_rule", "no credit: two keys are kept")
+word(e, "ghbdtn", "en", 10)
+T(word(e, "yf", "en", 20).reason == "two_key_allow_list", "credit: two keys are converted")
+# cool-down: three words and 10 s, each edge
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "ghbdtn", "en", 1000).action == "CONVERT" and e.undo(2000) == "ghbdtn", "setup cool-down")
+T([word(e, "ytdtyj", "en", 20_000 + 100 * i).reason for i in range(3)] == ["cooldown"] * 3, "three words are suppressed")
+T(word(e, "ytdtyj", "en", 20_300).action == "CONVERT", "the fourth word is decided")
+for ts, reason in ((11_999, "cooldown"), (12_000, "score_above_threshold")):
+    e = L.Engine(L.example_cal(), scorer, LEX)
+    word(e, "ghbdtn", "en", 1000); e.undo(2000); e.cool_words = 0
+    T(word(e, "ytdtyj", "en", ts).reason == reason, f"cool-down time edge at {ts} ms")
+# the clock of every event expires the snapshot
+for dt, alive in ((10_000, True), (10_001, False)):
+    e = L.Engine(L.example_cal(), scorer, LEX); word(e, "ghbdtn", "en", 1000)
+    e.on_event(L.Event("key", L.Key(5), "en", 1000 + dt))
+    T((e.snapshot is not None) == alive, f"snapshot age {dt} ms seen by an ordinary event")
+# a layout change inside a word, and the tail that follows
+e = L.Engine(L.example_cal(), scorer, LEX)
+for k in L.keys_from_text("gh", "en"):
+    e.on_event(L.Event("key", k, "en", 0))
+e.on_event(L.Event("key", L.Key(3), "ru", 1))
+T(e.run == [] and e.skip, "a layout change inside a word empties the buffer and skips the rest")
+for k in L.keys_from_text("bdtn", "en"):
+    e.on_event(L.Event("key", k, "en", 2))
+T(e.run == [], "the tail of a dropped word is not recorded")
+T(e.on_event(L.Event("space", None, "en", 3)) is None and not e.skip, "the Space ends the skipped word")
+e.on_event(L.Event("layout", None, "ru"))
+e.on_event(L.Event("key", L.Key(5), "en", 4)); e.on_event(L.Event("break"))
+T(not e.skip and e.credit == 0, "a break clears the skip")
+T(word(e, "ghbdtn", "en", 5) is not None, "the word after a break is decided (not skipped)")
+# a manual layout change marks the next word, once
+e = L.Engine(L.example_cal(), lambda ids: [9, -3, -2], LEX)
+e.on_event(L.Event("layout", None, "ru"))
+T(e.after_switch, "layout event arms after_switch")
+d = word(e, "руддщ", "ru", 10)
+ref = L.decide(L.keys_from_text("руддщ", "ru"), "ru", L.example_cal(), lambda ids: [9, -3, -2], "after_switch", False, e.exceptions, LEX)
+dflt = L.decide(L.keys_from_text("руддщ", "ru"), "ru", L.example_cal(), lambda ids: [9, -3, -2], "default", False, e.exceptions, LEX)
+T(d.margin == ref.margin and ref.margin != dflt.margin and not e.after_switch, "after_switch is used once")
+# manual conversion: direction rule
+T(L.manual_convert("а")[0] == "ru2en" and L.manual_convert("я")[0] == "ru2en" and L.manual_convert("ё")[0] == "ru2en", "a, ya, yo")
+T(L.manual_convert("яa")[0] == "en2ru", "a tie goes English to Russian")
+T(L.manual_convert("яяabc")[0] == "en2ru" and L.manual_convert("яяабc")[0] == "ru2en", "letter counts decide")
+T(L.manual_convert("12 !") == (None, "12 !"), "no letters: no direction")
+
+# EV-1 edges (each condition is tested alone)
+fc = lambda n: [("u%d" % i, "d%d" % i) for i in range(n)]
+T(L.ev1_pass([], 100_000, 20, 100), "EV-1 passes at its minimum sizes")
+T(not L.ev1_pass([], 99_999, 20, 100) and not L.ev1_pass([], 100_000, 19, 100) and not L.ev1_pass([], 100_000, 20, 99), "each size limit")
+T(L.ev1_pass(fc(12), 250_000, 30, 200) and not L.ev1_pass(fc(13), 250_000, 30, 200), "point estimate edge 4.8e-5")
+T(L.ev1_bound(fc(12), 250_000) <= 1e-4 < L.ev1_bound(fc(30), 250_000), "bound is monotone in the number of clusters")
+big = [("u1", "d1")] * 10 + fc(1)[1:]                                   # one cluster of ten: the bound is ten times larger
+T(L.ev1_bound(big, 1_000_000) == L.poisson_upper(1) * 10 / 1_000_000, "cluster size multiplies the bound")
+for k in range(0, 31):                                                  # the exact Poisson limit, checked by its definition
+    mu = L.poisson_upper(k)
+    T(abs(sum(math.exp(-mu + i * math.log(mu) - math.lgamma(i + 1)) for i in range(k + 1)) - 0.05) < 1e-9, f"Poisson limit k={k}")
+T(abs(L.poisson_upper(0) - (-math.log(0.05))) < 1e-9, "rule of three, exact")
+
+# Witten-Bell pruning: only orders 1 and 2, only counts below min_count
+rows_p = [[L.BOS, 5, 6, L.EOS]] * 2 + [[L.BOS, 7, 8, L.EOS]]
+pr = L.WittenBell(min_count=2).fit(rows_p)
+T(pr.cnt[0][()][5] == 2 and pr.cnt[0][()][7] == 1, "order 0 is never pruned")
+T((L.BOS,) in pr.cnt[1] and pr.cnt[1][(L.BOS,)] == {5: 2}, "order 1: the count of exactly min_count stays, 1 is pruned")
+T((L.BOS, 7) not in pr.cnt[2] and pr.cnt[2][(L.BOS, 5)] == {6: 2}, "order 2 pruned")
+T(L.WittenBell().fit(rows_p).cnt[1][(L.BOS,)] == {5: 2, 7: 1}, "min_count 1 prunes nothing")
+
+# binary files: round trips with distinct values, and every damage is a FormatError
+lp = [-1.5, -2.25, -3.125]
+msb = [L.WittenBell().fit(rows[i::3]) for i in range(3)]
+bb = L.lfb_pack(msb, lp)
+T(L.lfb_load(bb)["log_prior"] == lp, "LFB1 log priors survive")
+lex_in = {"lex_en": ["hello", "World"], "lex_ru": ["привет"], "acr_en": ["usb"], "acr_ru": ["ржд"], "exc_en2ru": ["ghbdtn"], "exc_ru2en": ["руддщ"]}
+lb = L.lfl_pack(lex_in)
+lt = L.lfl_load(lb)
+T(all(w.casefold() in lt[n] for n, ws in lex_in.items() for w in ws) and "hello" not in lt["lex_ru"], "LFL1 round trip")
+TAGS = {"lex_en": 1, "lex_ru": 2, "acr_en": 3, "acr_ru": 4, "exc_en2ru": 5, "exc_ru2en": 6}
+T(L.LEX_TAGS == TAGS, "tag numbers are part of the format")
+
+
+def fnv(data):                                                          # an independent FNV-1a, 64 bit
+    h = 0xCBF29CE484222325
+    for x in data:
+        h = ((h ^ x) * 0x100000001B3) % (1 << 64)
+    return h
+
+
+T(all(L.lex_key(t, "слово") == fnv(bytes([0xE0 + t]) + "слово".encode()) for t in TAGS.values()), "lex_key = FNV-1a(tag byte + UTF-8)")
+T(L.fnv1a64(b"") == 0xCBF29CE484222325 and L.fnv1a64(b"a") == 0xAF63DC4C8601EC8C, "FNV-1a test vectors")
+for name, blob, loader in (("LFB1", bb, L.lfb_load), ("LFL1", lb, L.lfl_load), ("LFW1", tw, L.lfw_load)):
+    raises(L.FormatError, lambda b=blob, f=loader: f(b"XXXX" + b[4:]), name + " wrong magic")
+    raises(L.FormatError, lambda b=blob, f=loader: f(b + b"\0"), name + " trailing byte")
+    raises(L.FormatError, lambda b=blob, f=loader: f(b[:-1]), name + " truncated by one byte")
+    raises(L.FormatError, lambda b=blob, f=loader: f(b[:9]), name + " truncated header")
+    raises(L.FormatError, lambda f=loader: f(b""), name + " empty")
+_old_ctx = L.ctx_key
+L.ctx_key = lambda k, c: 1                                              # force a 64-bit collision of contexts
+try:
+    raises(L.FormatError, lambda: L.lfb_pack(msb, lp), "LFB1 hash collision is refused")
+finally:
+    L.ctx_key = _old_ctx
+
+# the replacement transaction: edges of the typed-ahead window, a word at the field start, M2 success, no silent VERIFIED
+for ahead, outcome, final in (("abc", "VERIFIED", "Hello привет abc"), ("abcd", "ABORTED", "Hello ghbdtn abcd")):
+    f = L.SimField("Hello ghbdtn " + ahead, M1)
+    r = L.run_transaction(f, OLD, NEW, ahead)
+    T((r.outcome, f.text) == (outcome, final), f"typed ahead {ahead!r}")
+f = L.SimField("Hello ghbdtn a", M1)
+T(L.run_transaction(f, OLD, NEW, "ab").outcome == "VERIFIED" and f.text == "Hello привет a", "the engine recorded more than the field has")
+f = L.SimField("ghbdtn ", M1)
+T(L.run_transaction(f, OLD, NEW).outcome == "VERIFIED" and f.text == "привет ", "a word at offset 0")
+f = L.SimField("Hello ghbdtn ", M2)
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.method, f.text) == ("VERIFIED", "M2", "Hello привет "), "M2 on the hotkey path verifies")
+f = L.SimField("Hello ghbdtn  tail", M2)
+f.pos = len("Hello ghbdtn ")
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, f.text) == ("VERIFIED", "Hello привет  tail"), "M2 inside a text: the verification range ends at the Space, not beyond it")
+f = L.SimField("Hello ghbdtn ", M1_NOROLL, {("caret", 2): "back"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.incident, r.quarantine, f.text) == ("UNRECOVERED", True, True, "Hello привет "),
+  "right text with a wrong caret and no rollback is not VERIFIED")
+f = L.SimField("", M2); f.send([("bs", ""), ("ch", "a"), ("ch", "b")])
+T((f.text, f.pos) == ("ab", 2), "the test double: backspace at 0 is a no-op, insertion moves the caret by one")
+
+# Q-2 of plan 1.2: SendInput facts. A physically pressed modifier aborts M2 before anything is written;
+# a silently dropped batch (UIPI) leaves the typed text (RESTORED); a partly delivered batch is UNRECOVERED.
+f = L.SimField("Hello ghbdtn ", M2); f.modifiers = True
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.reason, f.text, f.sent) == ("ABORTED", "modifier_down", "Hello ghbdtn ", 0), "M2 with a modifier down writes nothing")
+f = L.SimField("Hello ghbdtn ", M1); f.modifiers = True
+T(L.run_transaction(f, OLD, NEW).outcome == "VERIFIED", "a pressed modifier is irrelevant to M1")
+f = L.SimField("Hello ghbdtn ", M2, {("event", k): "drop" for k in range(1, 2 * len(OLD) + 3)})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.incident, r.quarantine, f.text) == ("RESTORED", True, True, "Hello ghbdtn "), "UIPI drops the whole batch: the field is unchanged")
+f = L.SimField("Hello ghbdtn ", M2, {("event", len(OLD) + 2): "drop"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.incident, r.quarantine) == ("UNRECOVERED", True, True), "a partly delivered batch is UNRECOVERED and quarantined")
+
+# R-1 and R-2 of plan 1.3. M2 deletes by count, so a user key that arrives after the read (or while it runs) makes the
+# plan wrong: the last look before the first synthetic event aborts and nothing is written. The race that remains
+# (a key between that look and the first event) is a field-level fact, not an event-level one, and ends UNRECOVERED.
+f = L.SimField("Hello ghbdtn ", M2, {("read", 1): "user:x"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.reason, f.text, f.sent, r.incident) == ("ABORTED", "typed_ahead", "Hello ghbdtn x", 0, False), "M2: a key during the read aborts before anything is sent")
+f = L.SimField("Hello ghbdtn ", M2, {("event", 1): "user:x"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.reason, f.sent, f.user, r.incident, r.quarantine) == ("UNRECOVERED", "verify_failed", 14, ["x"], True, True),
+  "M2: a key after the last look is the residual race: UNRECOVERED, quarantine, the plan is still sent exactly once")
+f = L.SimField("Hello ghbdtn ", M1, {("caret", 2): "forward"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, r.reason, f.text, r.incident) == ("RESTORED", "verify_failed", "Hello ghbdtn ", True),
+  "M1: a caret that moved forward although no user key came is a failure; the rollback restores the field")
+f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, f.text, f.pos) == ("VERIFIED", "Hello привет x", 14), "M1: one user key may move the caret by one")
+f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x", ("caret", 2): "forward"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, r.reason) == ("RESTORED", "verify_failed"), "M1: one user key explains a caret one place forward, not two")
+f = L.SimField("Hello ghbdtn ", M1, {("replace", 1): "spill"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, r.reason, f.text, r.incident, r.quarantine) == ("UNRECOVERED", "verify_failed", "Hello ghbdtn?", True, True),
+  "M1: damage to the Space after the range is seen by the whole-range read-back; the rollback cannot repair it")
+f = L.SimField("Hello ghbdtn a", M1, {("replace", 1): "spill"})
+r = L.run_transaction(f, OLD, NEW, "a")
+T((r.outcome, f.text) == ("UNRECOVERED", "Hello ghbdtn?a"), "M1 with a typed-ahead key: the whole fragment is verified and rolled back")
+f = L.SimField("Hello ghbdtn a", M1, {("replace", 1): "autocorrect"})
+r = L.run_transaction(f, OLD, NEW, "a")
+T((r.outcome, f.text) == ("RESTORED", "Hello ghbdtn a"), "M1 with a typed-ahead key: a restored fragment is RESTORED")
+T(L.classify_outcome(True, "ab c", "xy c", "ab c", False) == "RESTORED" and L.classify_outcome(True, "ab c", "xy c", "ab?c", False) == "UNRECOVERED"
+  and L.classify_outcome(True, "ab c", "xy c", "xy c", True) == "VERIFIED", "classification works on the whole fragment")
+M2_RACE = []
+for k in range(1, 15):                                                 # a user key before every synthetic event of M2
+    f = L.SimField("Hello ghbdtn ", M2, {("event", k): "user:x"})
+    r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+    T(f.sent == 14 and f.user == ["x"] and r.incident and r.quarantine and r.outcome in ("UNRECOVERED", "VERIFIED"), f"M2 race at event {k}")
+    M2_RACE.append(r.outcome)
+T(M2_RACE == ["UNRECOVERED"] * 14, "a user key anywhere inside the plan always ends UNRECOVERED, never a wrong VERIFIED")
+
+# hook health: states cannot be re-armed by luck
+h = L.HookHealth()
+T(h.canary is True, "canary is the default")
+h.raw_key(0, 0); h.check(10_000)                                      # lost
+for t in (1, 2, 3, 4):
+    h.raw_key(20_000 + t, t); h.hook_key(20_000 + t, t)
+T(not h.ok, "matched pairs without a re-installed hook do not re-arm")
+h.reinstalled()
+for t in (1, 2):
+    h.raw_key(30_000 + t, t); h.hook_key(30_000 + t, t)
+h.tap_disabled("timeout")                                              # lost again before the re-arm finished
+for t in (1, 2, 3):
+    h.raw_key(40_000 + t, t); h.hook_key(40_000 + t, t)
+T(not h.ok, "a second loss resets the re-arm: pairs count only after the next reinstall")
+h.reinstalled()
+for t in (1, 2):
+    h.raw_key(50_000 + t, t); h.hook_key(50_000 + t, t)
+h.reinstalled()                                                        # installed once more: the count starts again
+h.raw_key(60_000, 0); h.hook_key(60_000, 0)
+T(not h.ok, "reinstall resets the pair count")
+for t in (1, 2):
+    h.raw_key(70_000 + t, t); h.hook_key(70_000 + t, t)
+T(h.ok, "three pairs after the last reinstall re-arm")
+
+# R-3 of plan 1.3: the canary compares events, not counts. One lost key and one extra key must not cancel out.
+A, B, C = ("scan", 0x1E, False), ("scan", 0x30, False), ("scan", 0x2E, False)
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(3, A)                                      # healthy
+h.raw_key(100, B)                                                      # the hook never reports B ...
+h.hook_key(105, C)                                                     # ... and reports C, which the observer never saw
+T(h.check(100 + h.CANARY_MS) and h.ok, "inside the window nothing is decided")
+T(not h.check(100 + h.CANARY_MS + 1) and h.reason == "canary_missing" and h.take_gap(),
+  "lost B and extra C: the counts are equal, the signatures are not; the older unmatched event names the reason")
+h = L.HookHealth()
+h.hook_key(0, C)                                                       # a hook key the observer never saw
+T(h.check(300) and h.ok and not h.check(301) and h.reason == "canary_extra", "an extra hook key alone is a loss")
+h = L.HookHealth()
+h.hook_key(10, A); h.raw_key(12, A)                                    # the hook event may come first
+h.raw_key(20, B); h.hook_key(22, B)
+T(h.check(10_000) and h.ok and h.hook_only == [] and h.raw_only == [], "either order matches")
+h.hook_key(30, C, injected=True)                                       # our own SendInput, or another program's
+T(h.check(10_000) and h.ok and h.hook_only == [], "an injected event has no physical counterpart and is not compared")
+h = L.HookHealth()
+h.raw_key(0, A); h.raw_key(50, A); h.hook_key(55, A)                   # two physical presses, one reported
+T(h.check(350) and not h.check(351) and h.reason == "canary_missing", "equal signatures are matched one to one; the second press is the unmatched one")
+h = L.HookHealth(canary=False)
+h.raw_key(0, A); h.hook_key(1, B)
+T(h.check(10_000) and h.ok, "without a canary (macOS) nothing is compared")
+
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

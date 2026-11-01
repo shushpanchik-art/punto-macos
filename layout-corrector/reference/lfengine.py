@@ -297,8 +297,11 @@ def check_calibration_package(cal: dict) -> None:
     _exact_keys(cal["two_key_allow"], DIRECTIONS, "two_key_allow")
     for d in DIRECTIONS:
         words = cal["two_key_allow"][d]
-        if not (isinstance(words, (set, frozenset)) and words and all(isinstance(x, str) and x for x in words)):
-            raise CalibrationError(f"two_key_allow[{d}]: a non-empty set of non-empty strings")
+        if not (isinstance(words, (set, frozenset)) and words):
+            raise CalibrationError(f"two_key_allow[{d}]: a non-empty set of words")
+        for x in words:         # a word is compared with the case-folded rendering of exactly two keys (20.6)
+            if not (isinstance(x, str) and len(x) == 2 and x == x.casefold() and not any(ch.isspace() for ch in x)):
+                raise CalibrationError(f"two_key_allow[{d}]: {x!r} is not a case-folded word of two characters")
 
 
 RU_ALLOW = "на не но да по из за то ты мы вы он ли ну во со до от ни же бы".split()
@@ -363,10 +366,14 @@ def cal_from_json(text: str) -> dict:
         raise CalibrationError(f"not valid JSON: {e}") from None
     if not isinstance(cal, dict) or not isinstance(cal.get("two_key_allow"), dict):
         raise CalibrationError("package: not an object with a two_key_allow object")
-    try:
-        cal["two_key_allow"] = {d: set(v) for d, v in cal["two_key_allow"].items()}
-    except TypeError:
-        raise CalibrationError("two_key_allow: values must be lists of strings") from None
+    allow = {}
+    for d, v in cal["two_key_allow"].items():           # a JSON array of strings; a bare string would be split into letters
+        if not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+            raise CalibrationError(f"two_key_allow[{d}]: must be an array of strings")
+        if len(set(v)) != len(v):
+            raise CalibrationError(f"two_key_allow[{d}]: duplicate words")
+        allow[d] = set(v)
+    cal["two_key_allow"] = allow
     check_calibration_package(cal)
     return cal
 
@@ -743,6 +750,24 @@ def baseline_logits(models: Sequence[WittenBell], log_prior: Sequence[float], ro
 
 
 import struct
+import functools
+
+
+class FormatError(ValueError):
+    """A binary table file (LFB1, LFL1, LFW1) is damaged, truncated, has a wrong magic or trailing bytes. The runtime
+    reacts with row 6 of the failure table (13.5) exactly as for a refused calibration package."""
+
+
+def _format_guard(fn):
+    """struct.error and IndexError of a truncated file become FormatError: a loader raises one exception type."""
+    @functools.wraps(fn)
+    def wrapper(b):
+        try:
+            return fn(b)
+        except (struct.error, IndexError, KeyError) as e:
+            raise FormatError(f"{fn.__name__}: {e}") from None
+    return wrapper
+
 
 FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
 
@@ -772,14 +797,17 @@ def lfb_pack(models: Sequence[WittenBell], log_prior: Sequence[float]) -> bytes:
         for k in range(WittenBell.ORDER):
             ctxs = sorted((ctx_key(k, c), sum(d.values()), len(d)) for c, d in m.cnt[k].items())
             pairs = sorted((pair_key(k, c, w), n) for c, d in m.cnt[k].items() for w, n in d.items())
-            assert len({r[0] for r in ctxs}) == len(ctxs) and len({a for a, _ in pairs}) == len(pairs), "hash collision"
+            if len({r[0] for r in ctxs}) != len(ctxs) or len({a for a, _ in pairs}) != len(pairs):
+                raise FormatError("hash collision: two contexts or pairs share a 64-bit key")
             out.append(struct.pack("<I", len(ctxs)) + b"".join(struct.pack("<QII", *r) for r in ctxs))
             out.append(struct.pack("<I", len(pairs)) + b"".join(struct.pack("<QII", a, n, 0) for a, n in pairs))
     return b"".join(out)
 
 
+@_format_guard
 def lfb_load(b: bytes) -> dict:
-    assert b[:4] == b"LFB1"
+    if b[:4] != b"LFB1":
+        raise FormatError("not an LFB1 file")
     order, vocab, ncls = struct.unpack_from("<III", b, 4)
     log_prior = list(struct.unpack_from("<%dd" % ncls, b, 16))
     off, classes = 16 + 8 * ncls, []
@@ -800,7 +828,8 @@ def lfb_load(b: bytes) -> dict:
             off += 16 * npair
             per_order.append((ctx, pair))
         classes.append(per_order)
-    assert off == len(b), "trailing bytes"
+    if off != len(b):
+        raise FormatError("trailing bytes")
     return {"order": order, "V": vocab, "log_prior": log_prior, "classes": classes}
 
 
@@ -852,8 +881,10 @@ class HashedSet:
         return lex_key(self.tag, text) in self.keys
 
 
+@_format_guard
 def lfl_load(b: bytes) -> Dict[str, HashedSet]:
-    assert b[:4] == b"LFL1"
+    if b[:4] != b"LFL1":
+        raise FormatError("not an LFL1 file")
     (nt,) = struct.unpack_from("<I", b, 4)
     off, res, by_tag = 8, {}, {v: k for k, v in LEX_TAGS.items()}
     for _ in range(nt):
@@ -861,7 +892,8 @@ def lfl_load(b: bytes) -> Dict[str, HashedSet]:
         off += 5
         res[by_tag[tag]] = HashedSet(tag, struct.unpack_from("<%dQ" % n, b, off))
         off += 8 * n
-    assert off == len(b), "trailing bytes"
+    if off != len(b):
+        raise FormatError("trailing bytes")
     return res
 
 
@@ -884,12 +916,15 @@ def lfw_size(ch: int, emb_dim: int, kernels: Sequence[int]) -> int:
     return n + 3 * 2 * ch + 3
 
 
+@_format_guard
 def lfw_load(b: bytes) -> dict:
-    assert b[:4] == LFW_MAGIC
+    if b[:4] != LFW_MAGIC:
+        raise FormatError("not an LFW1 file")
     ch, e, nc = struct.unpack_from("<III", b, 4)
     kernels = list(struct.unpack_from("<" + "I" * nc, b, 16))
     off = 16 + 4 * nc
-    assert len(b) - off == 4 * lfw_size(ch, e, kernels), "size mismatch"
+    if len(b) - off != 4 * lfw_size(ch, e, kernels):
+        raise FormatError("size mismatch")
 
     def take(n):
         nonlocal off
@@ -974,8 +1009,9 @@ def engine_mode(caps, support: str, *, models_ok: bool = True, layout_ok: bool =
 
 
 def classify_outcome(started: bool, original: str, new: str, final: Optional[str], verified: bool) -> str:
-    """The outcome of a replacement, from observations only. `final` is the text of the range as last read
-    (None when it could not be read); `verified` is the result of the step-5 check (content and caret)."""
+    """The outcome of a replacement, from observations only. `original`, `new` and `final` are texts of the WHOLE
+    range that the transaction reads (the word, the Space and the typed-ahead keys), `final` as last read (None when
+    it could not be read); `verified` is the result of the step-5 check (content and caret)."""
     if not started:
         return "ABORTED"                                 # nothing was written
     if verified and final == new:
@@ -998,6 +1034,9 @@ class Adapter:
     def read(self, start: int, end: int) -> Optional[str]: raise NotImplementedError    # None: not readable
     def replace(self, start: int, end: int, text: str) -> None: raise NotImplementedError   # M1, one operation
     def send(self, events: Sequence[Tuple[str, str]]) -> None: raise NotImplementedError    # M2: ("bs","") / ("ch",c)
+    def modifier_down(self) -> bool: return False     # M2 only: Shift, Ctrl, Alt or a Windows key is physically down
+    def mark(self) -> int: raise NotImplementedError  # an opaque token: "from now on, count the user's key events"
+    def keys_since(self, mark: int) -> int: raise NotImplementedError   # user key events seen since that token
 
 
 @dataclass
@@ -1015,7 +1054,8 @@ TYPED_AHEAD_MAX = 3
 def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: str = "AUTO",
                     context_break: bool = False, layout_changed: bool = False) -> TxResult:
     """The replacement transaction of 13.2 for the word `old` (as typed; the user's Space is already in the field),
-    replaced by `new` of the same length. `ahead`: the characters typed after the Space that the engine recorded."""
+    replaced by `new` of the same length. `ahead`: the characters typed after the Space that the engine recorded.
+    The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys."""
     n = len(old)
     if len(new) != n:
         raise ValueError("a replacement keeps the length")
@@ -1031,6 +1071,12 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
         return TxResult("ABORTED", "context_break", method)
     if len(ahead) > TYPED_AHEAD_MAX or (method == "M2" and ahead):
         return TxResult("ABORTED", "typed_ahead", method)
+    if method == "M2" and ad.modifier_down():            # SendInput: pressed keys "might interfere" (13.7)
+        return TxResult("ABORTED", "modifier_down", method)
+    try:
+        m = ad.mark()                                    # every user key from here on is counted (13.2, steps 3 to 5)
+    except AdapterError:
+        return TxResult("ABORTED", "adapter_error", method)
     # 2 gate
     try:
         g = ad.gate()
@@ -1048,13 +1094,23 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
                 continue
             t = ad.read(start, start + n + 1 + a)
             if t is not None and t == old + " " + ahead[:a]:
-                found = start
+                found = (start, a)
                 break
     except AdapterError:
         return TxResult("ABORTED", "adapter_error", method)
     if found is None:
         return TxResult("ABORTED", "echo_mismatch", method)
-    start = found
+    start, a = found
+    end = start + n + 1 + a
+    before, after = old + " " + ahead[:a], new + " " + ahead[:a]
+    # 3b the last look before the first write. M2 is a sequence of events that user keys can enter, and it
+    # deletes by count, so a key that arrived since the freeze makes the plan wrong: nothing is written.
+    if method == "M2":
+        try:
+            if ad.keys_since(m) > 0:
+                return TxResult("ABORTED", "typed_ahead", method)
+        except AdapterError:
+            return TxResult("ABORTED", "adapter_error", method)
     # 4 replace
     failed = False
     try:
@@ -1064,12 +1120,15 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
             ad.send([("bs", "")] * (n + 1) + [("ch", ch) for ch in new] + [("ch", " ")])
     except AdapterError:
         failed = True
-    # 5 verify: the range and the caret
+    # 5 verify the whole range and the caret. Without user keys the caret is exactly where it was; with k user
+    # keys it may have moved forward by at most k. Backwards, or any other change of the range, is a failure.
     ok = False
     if not failed:
         try:
-            end = start + n + (1 if method == "M2" else 0)
-            ok = ad.read(start, end) == new + (" " if method == "M2" else "") and ad.caret() >= c
+            got = ad.read(start, end)
+            cur = ad.caret()
+            k = ad.keys_since(m)
+            ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)
         except AdapterError:
             ok = False
     if ok:
@@ -1079,24 +1138,28 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
     try:
         if method == "M1" and ROLLBACK in ad.caps:
             ad.replace(start, start + n, old)
-        final = ad.read(start, start + n)
+        final = ad.read(start, end)
     except AdapterError:
         try:
-            final = ad.read(start, start + n)
+            final = ad.read(start, end)
         except AdapterError:
             final = None
-    outcome = classify_outcome(True, old, new, final, False)
+    outcome = classify_outcome(True, before, after, final, False)
     return TxResult(outcome, "write_error" if failed else "verify_failed", method, True, True)
 
 
 class SimField(Adapter):
     """In-memory text field with fault injection, the test double of the replacement transaction.
     `faults` maps (operation, k) to a fault name, k = the 1-based number of the call of that operation:
-      gate: 'DENY' | 'UNKNOWN' | 'raise'      caret: 'back' | 'raise'      read: 'none' | 'stale' | 'raise' | 'user:<c>'
+      gate: 'DENY' | 'UNKNOWN' | 'raise'      caret: 'back' | 'forward' | 'raise'      read: 'none' | 'stale' | 'raise' | 'user:<c>'
       replace: 'raise' (nothing written) | 'partial' (half written, then error) | 'applied_error' (written, then error)
                | 'autocorrect' (the application changes the last character) | 'ignored' (silently not written)
+               | 'spill' (the character after the range, the Space, is damaged as well)
                | 'user:<c>' (the user types <c> just before the write)
-      event k (M2 only): 'raise' | 'user:<c>' (the user types <c> just before synthetic event k)."""
+      event k (M2 only): 'raise' | 'user:<c>' (the user types <c> just before synthetic event k; a documented
+               impossibility inside one SendInput call on Windows, possible between CGEventPost calls on macOS)
+               | 'drop' (event k is silently not delivered: UIPI, or a partial insertion).
+      modifiers: True when a modifier key is physically down."""
 
     def __init__(self, text: str, caps, faults=None, gate: str = GATE_ALLOW):
         self.text, self.pos = text, len(text)
@@ -1104,6 +1167,7 @@ class SimField(Adapter):
         self.count: Dict[str, int] = {}
         self.user: List[str] = []         # every character the user typed, in order (evidence for G-EVENT)
         self.sent = 0                     # synthetic events delivered
+        self.modifiers = False            # a modifier key is physically down
 
     def _hit(self, op: str) -> Optional[str]:
         k = self.count[op] = self.count.get(op, 0) + 1
@@ -1124,7 +1188,7 @@ class SimField(Adapter):
         f = self._hit("caret")
         if f == "raise":
             raise AdapterError("caret")
-        return self.pos - 1 if f == "back" else self.pos
+        return self.pos - 1 if f == "back" else self.pos + 1 if f == "forward" else self.pos
 
     def read(self, start: int, end: int) -> Optional[str]:
         f = self._hit("read")
@@ -1148,9 +1212,21 @@ class SimField(Adapter):
         w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == "partial" else text
         if f == "autocorrect":
             w = text[:-1] + "?"
-        self.text = self.text[:start] + w + self.text[end:]
+        tail = self.text[end:]
+        if f == "spill" and tail:
+            tail = "?" + tail[1:]
+        self.text = self.text[:start] + w + tail
         if f in ("partial", "applied_error"):
             raise AdapterError("timeout")
+
+    def modifier_down(self) -> bool:
+        return self.modifiers
+
+    def mark(self) -> int:
+        return len(self.user)
+
+    def keys_since(self, mark: int) -> int:
+        return len(self.user) - mark
 
     def send(self, events: Sequence[Tuple[str, str]]) -> None:
         for k, (kind, ch) in enumerate(events, 1):
@@ -1159,6 +1235,8 @@ class SimField(Adapter):
                 self.type_user(f[5:])
             if f == "raise":
                 raise AdapterError("timeout")
+            if f == "drop":
+                continue
             if kind == "bs":
                 if self.pos > 0:
                     self.text, self.pos = self.text[:self.pos - 1] + self.text[self.pos:], self.pos - 1
@@ -1193,11 +1271,16 @@ def identify_layout(entries: Sequence[str]) -> Optional[str]:
 class HookHealth:
     """Is the key-event stream complete? (13.5 row 13) An incomplete stream means a word can be missing its first
     keys, so the engine must treat it as a break (Event 'gap') and the mode drops to MANUAL_ONLY until re-armed.
-    Windows: an independent Raw Input observer is the canary; a key it sees must reach the hook within CANARY_MS,
-    otherwise the hook is lost (the OS removes a slow hook silently); after the hook is installed again, REARM_PAIRS
-    matched pairs are required. macOS: tapDisabledByTimeout and tapDisabledByUserInput, or a poll that finds the
-    tap disabled, mark the loss; after the tap is enabled again the stream is trusted at once (no canary exists)
-    and the engine's gap event discards the interrupted word."""
+    Windows: an independent Raw Input observer is the canary. Both sides report every physical key event with a
+    signature `sig` (any hashable value that identifies the event: scan code, extended flag, press or release).
+    An event of one side must meet an event with the SAME signature from the other side within CANARY_MS, in either
+    order; matching counts are not enough, because one lost and one extra event would cancel each other. A raw key
+    the hook never reports is "canary_missing" (the OS removed a slow hook silently); a hook key the observer never
+    saw is "canary_extra" (the observer or the stream is not what the engine thinks it is). Events the hook marks as
+    injected (the engine's own SendInput, other programs) have no physical counterpart and are not compared.
+    After the hook is installed again, REARM_PAIRS matched pairs are required. macOS: tapDisabledByTimeout and
+    tapDisabledByUserInput, or a poll that finds the tap disabled, mark the loss; after the tap is enabled again
+    the stream is trusted at once (no canary exists) and the engine's gap event discards the interrupted word."""
     CANARY_MS = 300
     REARM_PAIRS = 3
 
@@ -1205,8 +1288,9 @@ class HookHealth:
         self.canary = canary
         self.ok = True
         self.reason: Optional[str] = None
-        self.pending: List[int] = []     # timestamps of canary keys not yet seen by the hook
-        self.pairs = 0                   # matched canary/hook pairs since the hook was installed again
+        self.raw_only: List[Tuple[int, object]] = []     # (time, sig) of physical keys the hook has not reported yet
+        self.hook_only: List[Tuple[int, object]] = []    # (time, sig) of hook keys the observer has not reported yet
+        self.pairs = 0                                   # matched pairs since the hook was installed again
         self.reinstalled_flag = False
         self.gap_pending = False
 
@@ -1215,25 +1299,38 @@ class HookHealth:
             self.gap_pending = True
         self.ok, self.reason = False, reason
         self.pairs, self.reinstalled_flag = 0, False
-        self.pending.clear()
+        self.raw_only.clear()
+        self.hook_only.clear()
 
-    def raw_key(self, ts: int):
-        """The independent observer saw a physical key (Windows only)."""
-        self.pending.append(ts)
+    def _meet(self, mine: List[Tuple[int, object]], other: List[Tuple[int, object]], ts: int, sig):
+        for i, (_, s) in enumerate(other):
+            if s == sig:                                 # the oldest event of the other side with this signature
+                del other[i]
+                if not self.ok and self.reinstalled_flag:
+                    self.pairs += 1
+                    if self.pairs >= self.REARM_PAIRS:
+                        self.ok, self.reason = True, None
+                return
+        mine.append((ts, sig))
 
-    def hook_key(self, ts: int):
-        """The hook saw a key."""
-        if self.pending:
-            self.pending.pop(0)
-            if not self.ok and self.reinstalled_flag:
-                self.pairs += 1
-                if self.pairs >= self.REARM_PAIRS:
-                    self.ok, self.reason = True, None
+    def raw_key(self, ts: int, sig):
+        """The independent observer saw a physical key event (Windows only)."""
+        if self.canary:
+            self._meet(self.raw_only, self.hook_only, ts, sig)
+
+    def hook_key(self, ts: int, sig, injected: bool = False):
+        """The hook saw a key event; `injected` is the hook's own flag for synthetic events."""
+        if self.canary and not injected:
+            self._meet(self.hook_only, self.raw_only, ts, sig)
 
     def check(self, now_ms: int) -> bool:
         """Called by the runtime timer; returns the current health."""
-        if self.canary and self.pending and now_ms - self.pending[0] > self.CANARY_MS:
-            self._lose("canary")
+        if self.canary:
+            waiting = [(q[0][0], r) for q, r in ((self.raw_only, "canary_missing"), (self.hook_only, "canary_extra")) if q]
+            if waiting:
+                ts, reason = min(waiting, key=lambda w: w[0])
+                if now_ms - ts > self.CANARY_MS:
+                    self._lose(reason)
         return self.ok
 
     def tap_disabled(self, reason: str):
@@ -1247,7 +1344,8 @@ class HookHealth:
 
     def reinstalled(self):
         """The runtime installed the hook again (Windows) or enabled the tap again (macOS)."""
-        self.pending.clear()
+        self.raw_only.clear()
+        self.hook_only.clear()
         self.pairs = 0
         if self.canary:
             self.reinstalled_flag = True
