@@ -803,6 +803,34 @@ T(h.check(10_000) and h.ok and h.hook_only == [], "an injected event has no phys
 h = L.HookHealth()
 h.raw_key(0, A); h.raw_key(50, A); h.hook_key(55, A)                   # two physical presses, one reported
 T(h.check(350) and not h.check(351) and h.reason == "canary_missing", "equal signatures are matched one to one; the second press is the unmatched one")
+# Review of the code, P1: the watchdog timer may be late. A counterpart that arrives later than CANARY_MS must not
+# hide the loss, whatever the order of arrival and whether or not check() has run in between.
+M = L.HookHealth.CANARY_MS
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(M, A)
+T(h.ok and h.raw_only == [] and h.hook_only == [] and not h.take_gap(), "a counterpart exactly CANARY_MS later still meets the event")
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(M + 1, A)
+T(not h.ok and h.reason == "canary_missing" and h.take_gap() and not h.take_gap(), "raw first, hook one ms too late: lost at once, one gap")
+h = L.HookHealth()
+h.hook_key(0, A); h.raw_key(M + 1, A)
+T(not h.ok and h.reason == "canary_extra" and h.take_gap(), "hook first, raw one ms too late: lost at once")
+h = L.HookHealth()
+h.raw_key(0, A); h.raw_key(M, B)
+T(h.ok and h.raw_only == [(0, A), (M, B)], "a later event exactly CANARY_MS after the first does not expire it")
+h = L.HookHealth()
+h.raw_key(0, A); h.raw_key(M + 1, B)
+T(not h.ok and h.reason == "canary_missing", "any later event of the same side shows that the first has expired")
+h = L.HookHealth()
+h.hook_key(1000, A); h.raw_key(600, A)                                 # the clocks disagree by 400 ms: not a pair
+T(h.ok and h.raw_only == [(600, A)] and h.hook_only == [(1000, A)], "events more than CANARY_MS apart in either direction do not meet")
+T(not h.check(M + 601) and h.reason == "canary_missing", "and the older one expires")
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(M + 1, A)                                  # lost by a late counterpart ...
+h.reinstalled()
+for i in range(L.HookHealth.REARM_PAIRS):
+    h.raw_key(5000 + i, ("scan", i)); h.hook_key(5000 + i, ("scan", i))
+T(h.ok and h.reason is None, "... and re-armed in the normal way")
 h = L.HookHealth(canary=False)
 h.raw_key(0, A); h.hook_key(1, B)
 T(h.check(10_000) and h.ok, "without a canary (macOS) nothing is compared")

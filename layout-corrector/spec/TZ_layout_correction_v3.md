@@ -1127,7 +1127,7 @@ The engine is always in exactly one of three modes, for each application separat
 | 10 | A replacement incident: the outcome of 13.2 is RESTORED or UNRECOVERED | The application is quarantined (OFF for it, automatic and manual) until restart or until the user re-enables it | A notice; a counter. After UNRECOVERED the notice says that the field may differ from what was typed and that the application's own undo is the way back |
 | 11 | An unhandled exception in the worker | The current word is KEEP; the worker restarts once; a second failure within 60 seconds gives MANUAL\_ONLY | A notice after the second failure |
 | 12 | A package update fails signature or hash verification | The previous package stays active | A notice |
-| 13 | The event stream is incomplete. Windows: the hook was removed or is not installed, or it lost or invented a key. The independent Raw Input observer compares the signature (scan code, extended flag, direction) of every physical key event with the event that the hook reported; either may come first, tagged and other injected events are not compared, and an event without its counterpart after 300 ms is a loss (canary\_missing: a key the hook did not report; canary\_extra: a hook key the observer did not see), even when the two counts are equal. macOS: the tap was disabled (`tapDisabledByTimeout`, `tapDisabledByUserInput`) or a poll finds it disabled | The word buffer, the run state and the undo snapshot are discarded (the engine receives a gap event); MANUAL\_ONLY until the stream is trusted again: Windows after the hook is installed again and 3 pairs of Raw Input and hook events with equal signatures; macOS after the tap is enabled again, at most 3 times in 60 seconds, after which MANUAL\_ONLY lasts until the user re-enables AUTO | A notice |
+| 13 | The event stream is incomplete. Windows: the hook was removed or is not installed, or it lost or invented a key. The independent Raw Input observer compares the signature (scan code, extended flag, direction) of every physical key event with the event that the hook reported; either may come first, tagged and other injected events are not compared, and an event without its counterpart within 300 ms is a loss, and a counterpart that comes later does not undo it even if the watchdog timer has not run yet (canary\_missing: a key the hook did not report; canary\_extra: a hook key the observer did not see), even when the two counts are equal. macOS: the tap was disabled (`tapDisabledByTimeout`, `tapDisabledByUserInput`) or a poll finds it disabled | The word buffer, the run state and the undo snapshot are discarded (the engine receives a gap event); MANUAL\_ONLY until the stream is trusted again: Windows after the hook is installed again and 3 pairs of Raw Input and hook events with equal signatures; macOS after the tap is enabled again, at most 3 times in 60 seconds, after which MANUAL\_ONLY lasts until the user re-enables AUTO | A notice |
 | 14 | A permission needed to observe keys is missing or is revoked while the tool runs (macOS Input Monitoring; the hook cannot be installed on Windows) | OFF: nothing is recorded | A notice that names the permission and the way to restore it |
 
 A notice is shown at most once per cause and per 24 hours, and never takes focus.
@@ -1164,7 +1164,7 @@ A notice is shown at most once per cause and per 24 hours, and never takes focus
 | Function | Windows 10 (1607+) and 11, x64 | macOS 13+ |
 | --- | --- | --- |
 | Event capture | `SetWindowsHookEx(WH_KEYBOARD_LL)` on a dedicated thread that has a message loop. The callback copies the event to a queue, calls `CallNextHookEx` and returns, far inside `LowLevelHooksTimeout` (at most 1000 ms; from Windows 7 a slower hook is removed silently). Events with `LLKHF_INJECTED` or `LLKHF_LOWER_IL_INJECTED` are not user keys: ours carry the tag, any other injected event is not recorded and is a context break. Whether Raw Input becomes the primary source is decided by spike S-1 | `CGEventTapCreate` with the **session** tap location (`kCGSessionEventTap`) and the **listen-only** option (`kCGEventTapOptionListenOnly`), for key down, key up, flags changed and mouse down (context breaks). Never an active (default) tap and never the HID location (root only). Permission: Input Monitoring |
-| Event-stream health | An independent observer: a message-only window registered with `RegisterRawInputDevices` for the keyboard with `RIDEV_INPUTSINK` (the window handle is required), which gets `WM_INPUT` for physical keys also in the background (`RIM_INPUTSINK`) and passes every `WM_INPUT` to `DefWindowProc`. Every physical key event is compared with the event of the hook by signature (scan code, extended flag, direction); either may come first, and injected events are not compared. An event without its counterpart after 300 ms, either a key the hook did not report or a hook key the observer never saw, means that the hook lost the stream: row 13 of 13.5 (reasons canary\_missing and canary\_extra, HookHealth of 20.14). Comparing counts would not do, because one lost and one extra event cancel. The hook is installed again and trusted after 3 pairs with equal signatures. This process registers the keyboard class in this one window only: Microsoft states that only one window per raw input device class may be registered to receive raw input within a process (confirmed in the audit report, card W5e), so no other component of the product registers Raw Input. If the registration fails, the mode is at most MANUAL\_ONLY. Spike S-3 measures the conflict rule and whether input of an elevated window is delivered | `tapDisabledByTimeout` and `tapDisabledByUserInput` arrive in the callback as out-of-band events. The handler discards buffer, run state and undo snapshot (a gap event) and calls `CGEventTapEnable(tap, true)`, at most 3 times in 60 seconds. A timer every 5 seconds checks `CGEventTapIsEnabled` and `CGPreflightListenEventAccess`; a failure is the same loss. Access can be revoked while the trust API still answers yes, so an inconclusive poll creates and releases a listen-only test tap |
+| Event-stream health | An independent observer: a message-only window registered with `RegisterRawInputDevices` for the keyboard with `RIDEV_INPUTSINK` (the window handle is required), which gets `WM_INPUT` for physical keys also in the background (`RIM_INPUTSINK`) and passes every `WM_INPUT` to `DefWindowProc`. Every physical key event is compared with the event of the hook by signature (scan code, extended flag, direction); either may come first, and injected events are not compared. An event without its counterpart within 300 ms (a counterpart that arrives later does not count, even if the watchdog timer has not run yet), either a key the hook did not report or a hook key the observer never saw, means that the hook lost the stream: row 13 of 13.5 (reasons canary\_missing and canary\_extra, HookHealth of 20.14). Comparing counts would not do, because one lost and one extra event cancel. The hook is installed again and trusted after 3 pairs with equal signatures. This process registers the keyboard class in this one window only: Microsoft states that only one window per raw input device class may be registered to receive raw input within a process (confirmed in the audit report, card W5e), so no other component of the product registers Raw Input. If the registration fails, the mode is at most MANUAL\_ONLY. Spike S-3 measures the conflict rule and whether input of an elevated window is delivered | `tapDisabledByTimeout` and `tapDisabledByUserInput` arrive in the callback as out-of-band events. The handler discards buffer, run state and undo snapshot (a gap event) and calls `CGEventTapEnable(tap, true)`, at most 3 times in 60 seconds. A timer every 5 seconds checks `CGEventTapIsEnabled` and `CGPreflightListenEventAccess`; a failure is the same loss. Access can be revoked while the trust API still answers yes, so an inconclusive poll creates and releases a listen-only test tap |
 | Physical key id | Scan code and extended flag of `KBDLLHOOKSTRUCT`, mapped to the 47 ids (section 19.1) | `kCGKeyboardEventKeycode`, mapped to the 47 ids. That these codes do not depend on the input source is checked on the Russian - PC layout by spike S-6 |
 | Shift and Caps Lock | Shift from the tracked key state. Caps Lock is the tool's own state: read once with the low-order bit of `GetKeyState(VK_CAPITAL)` at start, at every focus change and after resume, and flipped at every Caps Lock key-down the hook sees; `GetKeyState` follows the thread's message queue, not the hardware, so a mismatch with it at a word boundary drops the word | Event flags (shift, alpha-shift) |
 | Active layout and its identification | The HKL of the foreground thread is read for every key (`GetKeyboardLayout`). The language id in its low word names a language, never a layout, and `GetKeyboardLayoutName` answers only for the calling thread, so neither decides. The layout is **identified by its fingerprint**, computed on the worker thread the first time an HKL is seen: for each of the 94 key states (47 keys, Shift off and on; Caps Lock and every other modifier off) one call of `ToUnicodeEx` with the virtual key and scan code of that HKL, a key-state array built by the tool, `dwhkl` = the HKL and `wFlags` = 4 ("keyboard state is not changed"); a negative result is a dead key and gives the entry `\x00`. The fingerprint is the SHA-256 of the 94 entries joined by line feeds (`layout_fingerprint`, 20.14) and is compared with the fingerprints of the supported tables (`identify_layout`). No match: row 7 of 13.5. The result is cached by HKL value. That `GetKeyboardLayout` works for another process's thread, and that `ToUnicodeEx` accepts that HKL, are not documented: spike S-2; if either fails the layout is not identified and the pair stays OFF. KLID values (`00000409`, `00000419`) are for diagnostics only and take no part in any decision: the mode follows from the fingerprint alone | A cache updated by the selected-input-source notification (`TISCopyCurrentKeyboardInputSource` on the main thread). The source must be a keyboard layout; an input method or any other source gives OFF for the pair. A layout is supported only when its fingerprint (94 entries; the mechanism is selected by spike S-6, see below: from `UCKeyTranslate`, or from `NSEvent.characters(byApplyingModifiers:)` if spike S-6 shows that `UCKeyTranslate` must be replaced; Shift off and on; dead keys give `\x00`) equals the table of 19.1. The ids `com.apple.keylayout.US` and `.RussianWin` ("Russian - PC") are only a pre-filter and never grant support. The macOS layout "Russian" has a different punctuation table and is **not supported** in the first release |
@@ -1713,28 +1713,28 @@ On the rare-word tail (ranks 100,000 to 200,000; 86,839 English and 94,648 Russi
 
 **Question.** EV-1 (11.3, 20.9) accepts a system when the point estimate of the false-positive rate is at most 4.8e-5 and the 95% upper bound, computed over error clusters, is at most 1e-4. Errors are not independent: a few users and a few documents produce most of them. Does the rule still refuse a system whose true rate is twice the limit when the errors cluster, and does it still accept a good system with the planned data size?
 
-**Method.** The test is a simulation with synthetic errors; it uses no real text and says nothing about the network. The criteria, the generator and the number of runs were written down before the first run (`spec/FIX_AND_AUDIT_PLAN_v3.1.md`, section L6) and the script `audit/L6_ev1_simulation.py` was not changed after a result was seen. It imports `ev1_pass` of 20.9, so the rule under test is the reference rule and not a copy. Each scenario has 10,000 runs, the run *i* uses the generator `numpy.random.default_rng(1000 + i)`, and the number of correct words is n = 100,000. Per user there are D = ceil(120 / U) documents, so there are at least 100 documents. The number of words per user and per document is log-normal (sigma 0.7 and 0.5) with the caps of 8.5 (one user at most 10% of the words, one document at most 2%), applied by clipping and renormalising until stable. The errors of a document are Poisson with the mean r · words · f\_user · f\_doc, where the factors f are gamma distributed with mean 1: *none* means f = 1; *moderate* means a dispersion of 2 (variance = mean + 2 · mean²) at both levels; *strong* means a dispersion of 10 at the document level and ceil(2% of U) heavy users who produce half of the expected errors. The true rate r is 2e-4, 1e-4, 5e-5 or 2e-5, and the number of users U is 20, 50 or 200.
+**Method.** The test is a simulation with synthetic errors; it uses no real text and says nothing about the network. The criteria, the scenarios and the number of runs were written down before the first run (`spec/FIX_AND_AUDIT_PLAN_v3.1.md`, section L6) and the script `audit/L6_ev1_simulation.py` was changed once after a result was seen, and only in its generator of the weights: the first version clipped the documents at 2% and then renormalised by the sum, which could push documents above 2% and users above 10% again (an external review found this), so that generator was replaced and every run was repeated; the results of the first version were discarded, and the criteria and the scenarios were not touched. The script imports `ev1_pass` of 20.9, so the rule under test is the reference rule and not a copy. Each scenario has 10,000 runs, the run *i* uses the generator `numpy.random.default_rng(1000 + i)`, and the number of correct words is n = 100,000. Per user there are D = ceil(120 / U) documents, so there are at least 100 documents. The number of words per user and per document is log-normal (sigma 0.7 and 0.5) with the caps of 8.5 (one user at most 10% of the words, one document at most 2%), enforced by clipping and then adding the missing mass only to documents that still have room, repeated until the total is 1; every run checks the caps again on the integer word counts (over all 360,000 runs the largest user share is 10.000% and the largest document share 2.000%, with no violation). The errors of a document are Poisson with the mean r · words · f\_user · f\_doc, where the factors f are gamma distributed with mean 1: *none* means f = 1; *moderate* means a dispersion of 2 (variance = mean + 2 · mean²) at both levels; *strong* means a dispersion of 10 at the document level and ceil(2% of U) heavy users who produce half of the expected errors. The true rate r is 2e-4, 1e-4, 5e-5 or 2e-5, and the number of users U is 20, 50 or 200.
 
 **Criteria, fixed in advance.** *False acceptance:* at r = 2e-4 the share of accepted runs is at most 5% and its Clopper-Pearson 95% upper bound at most 7%, for every U and every kind of clustering. *Power:* at r = 2e-5, moderate clustering, U of 50 or more and n = 100,000, the share of accepted runs is at least 80%; if it were not, the smallest n of the grid that reaches 80% would be reported, and the rule would stay as it is. The rates 1e-4 and 5e-5 are diagnostic: their shares are published and there is no criterion, because the point estimate edge of the rule is 4.8e-5 and a system that sits on it is accepted about half of the time by construction.
 
 | True rate | Users | none | moderate | strong |
 | --- | --- | --- | --- | --- |
-| 2e-4 | 20 | 0.0% | 0.9% | 2.3% |
-| 2e-4 | 50 | 0.0% | 0.2% | 3.5% |
+| 2e-4 | 20 | 0.0% | 1.0% | 2.1% |
+| 2e-4 | 50 | 0.0% | 0.2% | 3.3% |
 | 2e-4 | 200 | 0.0% | 0.1% | 2.3% |
-| 1e-4 | 20 | 2.9% | 10.6% | 15.2% |
-| 1e-4 | 50 | 3.0% | 7.8% | 18.9% |
+| 1e-4 | 20 | 3.0% | 10.3% | 15.1% |
+| 1e-4 | 50 | 2.9% | 7.7% | 18.9% |
 | 1e-4 | 200 | 2.8% | 4.9% | 17.8% |
-| 5e-5 | 20 | 42.6% | 43.0% | 43.8% |
-| 5e-5 | 50 | 43.5% | 40.9% | 48.7% |
-| 5e-5 | 200 | 42.9% | 40.3% | 49.0% |
-| 2e-5 | 20 | 93.3% | 85.8% | 79.5% |
-| 2e-5 | 50 | 94.2% | 86.2% | 80.8% |
-| 2e-5 | 200 | 94.0% | 88.3% | 80.6% |
+| 5e-5 | 20 | 42.9% | 42.8% | 43.8% |
+| 5e-5 | 50 | 43.6% | 41.0% | 48.8% |
+| 5e-5 | 200 | 43.0% | 40.3% | 48.9% |
+| 2e-5 | 20 | 93.6% | 86.3% | 79.6% |
+| 2e-5 | 50 | 94.3% | 86.2% | 80.9% |
+| 2e-5 | 200 | 94.1% | 88.4% | 80.5% |
 
 Share of accepted runs in each scenario (10,000 runs each).
 
-**Result.** The false-acceptance criterion is met: at twice the limit the largest share of accepted runs is 3.5% (strong clustering, 50 users) with an upper bound of 3.85%. The power criterion is met: with moderate clustering and 50 or 200 users the share is 86.2% and 88.3%; with strong clustering it is 80.8% and 80.6%. With 20 users and strong clustering it is 79.5%, which is outside the criterion (U of 50 or more) and is the reason the minimum of 20 users in EV-1 is a minimum and not a target. A system that sits exactly at the limit of 1e-4 is accepted in 3% to 19% of the runs, depending on the clustering, and a system at 5e-5 in about 40% to 49%.
+**Result.** The false-acceptance criterion is met: at twice the limit the largest share of accepted runs is 3.3% (strong clustering, 50 users) with an upper bound of 3.64%. The power criterion is met: with moderate clustering and 50 or 200 users the share is 86.2% and 88.4%; with strong clustering it is 80.9% and 80.5%. With 20 users and strong clustering it is 79.6%, which is outside the criterion (U of 50 or more) and is the reason the minimum of 20 users in EV-1 is a minimum and not a target. A system that sits exactly at the limit of 1e-4 is accepted in 3% to 19% of the runs, depending on the clustering, and a system at 5e-5 in about 40% to 49%.
 
 **What this does and does not show.** It shows that the rule, with the data sizes of 11.3, does not accept a system at twice the limit more than a few times in a hundred even when the errors cluster strongly, and that it accepts a system at 2e-5 in most runs. It does not show that the real errors of the real system follow any of these distributions, that the corpus R-ACC has the cluster structure assumed here, or that the network passes EV-1; those are measured only by EV-1 itself on R-ACC (16.1). If a later change makes a larger n necessary, the false-acceptance criterion is run again for the new n before the rule is used with it. The results are in `audit/L6_ev1_simulation.json`; the script is run with `python3 L6_ev1_simulation.py` (about 5 minutes).
 
@@ -1983,7 +1983,7 @@ int main(int argc,char**argv){
 
 **What is not here.** The operating-system adapters themselves (event capture, layout detection, the context gate, the text interface of each application) cannot be written as portable code. Sections 13.1, 13.2, 13.7 and 13.8 specify them; the event machine of 20.7 and the contract of 20.14 (`Adapter`, `run_transaction`, `HookHealth`) are the interface they drive, and the algorithm of the replacement transaction is part of this reference. What the reference proves is the algorithm (evidence level REFERENCE\_VERIFIED, 16.1); what a real application does is proved only by the integration tests RT-1 to RT-18 on the real operating systems. Training is specified in section 9. The forward pass of the network in 20.11 is a slow reference for tests; the production runtime uses a native implementation that is checked against it.
 
-**Assembling the files.** The code blocks of 20.2 to 20.11 and the code block of 20.14 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them into one file in the order 20.2, 20.3, and so on up to 20.11, then 20.14 (20.12 and 20.13 hold other files and are skipped); each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. The property, negative and fault-injection tests of 20.13 are the third file, `conformance.py`; it is printed in three code blocks, which are written into the file one after the other. `python conformance.py` prints OK, and so does `python -O conformance.py`: neither the engine nor the tests rely on the `assert` statement, so no check disappears when Python is run optimised. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
+**Assembling the files.** The code blocks of 20.2 to 20.11 and the code block of 20.14 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them into one file in the order 20.2, 20.3, and so on up to 20.11, then 20.14 (20.12 and 20.13 hold other files and are skipped), with exactly two empty lines between one block and the next; each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. The property, negative and fault-injection tests of 20.13 are the third file, `conformance.py`; it is printed in three code blocks, which are written into the file one after the other with exactly one empty line between one part and the next. All files are UTF-8 with LF line ends; a file is the reference file when it is identical to it byte for byte. `python conformance.py` prints OK, and so does `python -O conformance.py`: neither the engine nor the tests rely on the `assert` statement, so no check disappears when Python is run optimised. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
 
 | Function or class | Part | Purpose |
 | --- | --- | --- |
@@ -3377,6 +3377,14 @@ def build():
     c = L.HookHealth(); c.raw_key(0, "a"); c.raw_key(50, "a"); c.hook_key(55, "a")
     hh.append(["two physical presses, one reported, at the limit of the unmatched press", c.check(350), c.take_gap(), c.reason])
     hh.append(["two physical presses, one reported, past the limit of the unmatched press", c.check(351), c.take_gap(), c.reason])
+    c = L.HookHealth(); c.raw_key(0, "a"); c.hook_key(300, "a")
+    hh.append(["counterpart exactly at the limit, the watchdog has not run", c.ok, c.take_gap(), c.reason])
+    c = L.HookHealth(); c.raw_key(0, "a"); c.hook_key(301, "a")
+    hh.append(["hook event one ms too late, the watchdog has not run", c.ok, c.take_gap(), c.reason])
+    c = L.HookHealth(); c.hook_key(0, "a"); c.raw_key(301, "a")
+    hh.append(["raw event one ms too late, the watchdog has not run", c.ok, c.take_gap(), c.reason])
+    c = L.HookHealth(); c.raw_key(0, "a"); c.raw_key(301, "b")
+    hh.append(["a later event of the same side shows that the first has expired", c.ok, c.take_gap(), c.reason])
     m = L.HookHealth(canary=False); m.tap_disabled("timeout"); hh.append(["macOS tapDisabledByTimeout", m.ok, m.take_gap(), m.reason])
     m.reinstalled(); hh.append(["macOS tap enabled again", m.ok, m.take_gap(), m.reason])
     m.tap_disabled("user_input"); hh.append(["macOS tapDisabledByUserInput", m.ok, m.take_gap(), m.reason])
@@ -3746,6 +3754,10 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
  ["hook event first, injected event ignored", true, false, null],
  ["two physical presses, one reported, at the limit of the unmatched press", true, false, null],
  ["two physical presses, one reported, past the limit of the unmatched press", false, true, "canary_missing"],
+ ["counterpart exactly at the limit, the watchdog has not run", true, false, null],
+ ["hook event one ms too late, the watchdog has not run", false, true, "canary_missing"],
+ ["raw event one ms too late, the watchdog has not run", false, true, "canary_extra"],
+ ["a later event of the same side shows that the first has expired", false, true, "canary_missing"],
  ["macOS tapDisabledByTimeout", false, true, "tap_timeout"],
  ["macOS tap enabled again", true, false, null],
  ["macOS tapDisabledByUserInput", false, true, "tap_user_input"]
@@ -3768,7 +3780,7 @@ An implementation of the engine, in any language and on any platform, is conform
 
 CT-1 to CT-3 need only the files of this section. CT-4 needs the lexicon built by D3, so it belongs to the build of the tables, not to the unit tests of the engine.
 
-**`conformance.py`, part 1 of 3 (P1 to P6: tokens, priors, the calibration package, the binary formats, Caps Lock).** The three parts are one file: write them into `conformance.py` one after the other, in this order.
+**`conformance.py`, part 1 of 3 (P1 to P6: tokens, priors, the calibration package, the binary formats, Caps Lock).** The three parts are one file: write them into `conformance.py` one after the other, in this order, with one empty line between them.
 
 ```python
 """conformance.py - property, negative and fault-injection tests of section 20.13 (standard library only).
@@ -4584,6 +4596,34 @@ T(h.check(10_000) and h.ok and h.hook_only == [], "an injected event has no phys
 h = L.HookHealth()
 h.raw_key(0, A); h.raw_key(50, A); h.hook_key(55, A)                   # two physical presses, one reported
 T(h.check(350) and not h.check(351) and h.reason == "canary_missing", "equal signatures are matched one to one; the second press is the unmatched one")
+# Review of the code, P1: the watchdog timer may be late. A counterpart that arrives later than CANARY_MS must not
+# hide the loss, whatever the order of arrival and whether or not check() has run in between.
+M = L.HookHealth.CANARY_MS
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(M, A)
+T(h.ok and h.raw_only == [] and h.hook_only == [] and not h.take_gap(), "a counterpart exactly CANARY_MS later still meets the event")
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(M + 1, A)
+T(not h.ok and h.reason == "canary_missing" and h.take_gap() and not h.take_gap(), "raw first, hook one ms too late: lost at once, one gap")
+h = L.HookHealth()
+h.hook_key(0, A); h.raw_key(M + 1, A)
+T(not h.ok and h.reason == "canary_extra" and h.take_gap(), "hook first, raw one ms too late: lost at once")
+h = L.HookHealth()
+h.raw_key(0, A); h.raw_key(M, B)
+T(h.ok and h.raw_only == [(0, A), (M, B)], "a later event exactly CANARY_MS after the first does not expire it")
+h = L.HookHealth()
+h.raw_key(0, A); h.raw_key(M + 1, B)
+T(not h.ok and h.reason == "canary_missing", "any later event of the same side shows that the first has expired")
+h = L.HookHealth()
+h.hook_key(1000, A); h.raw_key(600, A)                                 # the clocks disagree by 400 ms: not a pair
+T(h.ok and h.raw_only == [(600, A)] and h.hook_only == [(1000, A)], "events more than CANARY_MS apart in either direction do not meet")
+T(not h.check(M + 601) and h.reason == "canary_missing", "and the older one expires")
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(M + 1, A)                                  # lost by a late counterpart ...
+h.reinstalled()
+for i in range(L.HookHealth.REARM_PAIRS):
+    h.raw_key(5000 + i, ("scan", i)); h.hook_key(5000 + i, ("scan", i))
+T(h.ok and h.reason is None, "... and re-armed in the normal way")
 h = L.HookHealth(canary=False)
 h.raw_key(0, A); h.hook_key(1, B)
 T(h.check(10_000) and h.ok, "without a canary (macOS) nothing is compared")
@@ -4603,7 +4643,7 @@ print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conve
 | `run_transaction` | The steps of 13.2: freeze, gate, read and match, the last look of M2, replace, verify, outcome. The range that is read, verified and rolled back is always the whole fragment: the word, the Space and the typed-ahead keys (at most 3). M2 is refused when any key is typed ahead or a modifier key is down. For M2 the last look comes after the match and before the first synthetic event: a user key counted since the freeze means `ABORTED` (`typed_ahead`) and nothing is written. After the write the whole fragment must read back as the new word, the Space and the typed-ahead keys, and the caret must be exactly where it was (no user key seen) or at most as many positions further as user keys were seen; a caret that moved backwards is a failure. One rollback only, and only for M1. Any failure after step 4 began is a `replacement_incident` and puts the application in quarantine. The one race that remains for M2 (a key that arrives after the last look) is not hidden: the text is classified from what is in the field, usually `UNRECOVERED`, and its frequency is measured by RT-4. This is why M2 is never `AUTO`. |
 | `Adapter`, `SimField`, `AdapterError` | The contract that an OS adapter implements (`gate`, `caret`, `read`, `replace`, `send`, `modifier_down`, `mark`, `keys_since`) and the test double with fault injection that stands in for it. `SimField` injects a failure at the n-th call of an operation: a gate that changes, a caret that moves, a read that returns nothing or stale text, a write that raises, is partial, is ignored, is changed by autocorrection, damages the Space after the range, or meets a user key (a character or a key that types nothing). Every fault row of 13.5 and every step of 13.2 has at least one scenario in `conformance.py` (20.13). |
 | `layout_fingerprint`, `identify_layout` | A layout is identified by the SHA-256 of its 94 characters (key by key, without and with Shift, Caps Lock off), never by the language id or the layout name. A layout that does not read exactly as the supported English or Russian layout is `OFF` for that layout. |
-| `HookHealth` | The completeness of the stream of key events. On Windows an independent Raw Input observer reports every physical key event with a signature (scan code, extended flag, press or release); each event of one side must meet an event with the same signature from the other side within 300 ms, in either order. A raw key that the hook never reports is `canary_missing`; a hook key that the observer never saw is `canary_extra`; events that the hook marks as injected are not compared. Equal counts prove nothing, because one lost and one extra event cancel each other. After a loss the engine receives one `gap` event and the mode is `MANUAL_ONLY` until three pairs with equal signatures are seen after the hook is installed again. On macOS the loss is a tap that the system disabled (timeout or user input) or a poll that finds the tap disabled; no canary exists there. |
+| `HookHealth` | The completeness of the stream of key events. On Windows an independent Raw Input observer reports every physical key event with a signature (scan code, extended flag, press or release); each event of one side must meet an event with the same signature from the other side within 300 ms, in either order; a counterpart that arrives later is too late, and the loss is declared when it arrives or at the next check, whichever comes first, even if the watchdog timer has not run yet. A raw key that the hook never reports is `canary_missing`; a hook key that the observer never saw is `canary_extra`; events that the hook marks as injected are not compared. Equal counts prove nothing, because one lost and one extra event cancel each other. After a loss the engine receives one `gap` event and the mode is `MANUAL_ONLY` until three pairs with equal signatures are seen after the hook is installed again. On macOS the loss is a tap that the system disabled (timeout or user input) or a poll that finds the tap disabled; no canary exists there. |
 
 ```python
 # ==== 20.14 Adapter contract: capabilities, modes, replacement transaction, layout identity, hook health =====
@@ -4917,6 +4957,10 @@ class HookHealth:
     the hook never reports is "canary_missing" (the OS removed a slow hook silently); a hook key the observer never
     saw is "canary_extra" (the observer or the stream is not what the engine thinks it is). Events the hook marks as
     injected (the engine's own SendInput, other programs) have no physical counterpart and are not compared.
+    `ts` is the arrival time in ms on one monotonic clock of the runtime, the same for both sources. Two events
+    meet only when their times differ by at most CANARY_MS; an event that arrives later than that finds its
+    counterpart already expired, so the loss is declared at once, even if the watchdog timer has not run yet
+    (`raw_key`, `hook_key` and `check` can each declare it; the runtime calls `take_gap` after each of them).
     After the hook is installed again, REARM_PAIRS matched pairs are required. macOS: tapDisabledByTimeout and
     tapDisabledByUserInput, or a poll that finds the tap disabled, mark the loss; after the tap is enabled again
     the stream is trusted at once (no canary exists) and the engine's gap event discards the interrupted word."""
@@ -4942,8 +4986,11 @@ class HookHealth:
         self.hook_only.clear()
 
     def _meet(self, mine: List[Tuple[int, object]], other: List[Tuple[int, object]], ts: int, sig):
-        for i, (_, s) in enumerate(other):
-            if s == sig:                                 # the oldest event of the other side with this signature
+        self.check(ts)                                   # the watchdog may be late: a waiting event that is already
+        #                                                  older than CANARY_MS at this moment is a loss now, it is
+        #                                                  never matched by a late counterpart
+        for i, (t, s) in enumerate(other):
+            if s == sig and abs(ts - t) <= self.CANARY_MS:   # the oldest event of the other side with this signature
                 del other[i]
                 if not self.ok and self.reinstalled_flag:
                     self.pairs += 1

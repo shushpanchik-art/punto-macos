@@ -1285,6 +1285,10 @@ class HookHealth:
     the hook never reports is "canary_missing" (the OS removed a slow hook silently); a hook key the observer never
     saw is "canary_extra" (the observer or the stream is not what the engine thinks it is). Events the hook marks as
     injected (the engine's own SendInput, other programs) have no physical counterpart and are not compared.
+    `ts` is the arrival time in ms on one monotonic clock of the runtime, the same for both sources. Two events
+    meet only when their times differ by at most CANARY_MS; an event that arrives later than that finds its
+    counterpart already expired, so the loss is declared at once, even if the watchdog timer has not run yet
+    (`raw_key`, `hook_key` and `check` can each declare it; the runtime calls `take_gap` after each of them).
     After the hook is installed again, REARM_PAIRS matched pairs are required. macOS: tapDisabledByTimeout and
     tapDisabledByUserInput, or a poll that finds the tap disabled, mark the loss; after the tap is enabled again
     the stream is trusted at once (no canary exists) and the engine's gap event discards the interrupted word."""
@@ -1310,8 +1314,11 @@ class HookHealth:
         self.hook_only.clear()
 
     def _meet(self, mine: List[Tuple[int, object]], other: List[Tuple[int, object]], ts: int, sig):
-        for i, (_, s) in enumerate(other):
-            if s == sig:                                 # the oldest event of the other side with this signature
+        self.check(ts)                                   # the watchdog may be late: a waiting event that is already
+        #                                                  older than CANARY_MS at this moment is a loss now, it is
+        #                                                  never matched by a late counterpart
+        for i, (t, s) in enumerate(other):
+            if s == sig and abs(ts - t) <= self.CANARY_MS:   # the oldest event of the other side with this signature
                 del other[i]
                 if not self.ok and self.reinstalled_flag:
                     self.pairs += 1

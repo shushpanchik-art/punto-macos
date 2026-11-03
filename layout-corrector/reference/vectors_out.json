@@ -341,6 +341,10 @@
  ["hook event first, injected event ignored", true, false, null],
  ["two physical presses, one reported, at the limit of the unmatched press", true, false, null],
  ["two physical presses, one reported, past the limit of the unmatched press", false, true, "canary_missing"],
+ ["counterpart exactly at the limit, the watchdog has not run", true, false, null],
+ ["hook event one ms too late, the watchdog has not run", false, true, "canary_missing"],
+ ["raw event one ms too late, the watchdog has not run", false, true, "canary_extra"],
+ ["a later event of the same side shows that the first has expired", false, true, "canary_missing"],
  ["macOS tapDisabledByTimeout", false, true, "tap_timeout"],
  ["macOS tap enabled again", true, false, null],
  ["macOS tapDisabledByUserInput", false, true, "tap_user_input"]

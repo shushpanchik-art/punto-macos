@@ -1,0 +1,50 @@
+name: layout-corrector reference engine
+
+# Checks of the specification v3.1 and its reference engine (folder layout-corrector/).
+# The old workflow "Punto CI Tests" belongs to the earlier application (punto.py) and is not related to this one.
+
+on:
+  push:
+    paths: ['layout-corrector/**', '.github/workflows/layout-corrector.yml']
+  pull_request:
+    paths: ['layout-corrector/**', '.github/workflows/layout-corrector.yml']
+  workflow_dispatch:
+
+jobs:
+  reference:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.11', '3.13']
+    defaults:
+      run:
+        working-directory: layout-corrector/reference
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: conformance.py (property, negative and fault-injection tests of section 20.13)
+        run: python conformance.py 200000
+      - name: conformance.py under python -O (no check may disappear when asserts are removed)
+        run: python -O conformance.py 200000
+      - name: same number of checks with and without -O
+        run: |
+          a=$(python conformance.py 20000 | tail -1)
+          b=$(python -O conformance.py 20000 | tail -1)
+          echo "$a"; echo "$b"; test "$a" = "$b"
+      - name: vectors.py output equals the expected JSON, for ten hash seeds
+        run: |
+          for seed in 0 1 2 3 4 5 42 1337 2147483647 4294967295; do
+            PYTHONHASHSEED=$seed python vectors.py > /tmp/vectors_$seed.json
+            cmp /tmp/vectors_$seed.json vectors_out.json
+          done
+      - name: test_ref.py (key tables and Russian word round trips)
+        run: |
+          pip install wordfreq
+          python test_ref.py
+      - name: the code blocks of section 20 of the specification are byte-identical to the reference files
+        working-directory: layout-corrector/audit
+        run: python L7_check_spec_blocks.py
