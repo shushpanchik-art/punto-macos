@@ -352,6 +352,8 @@ raises(ValueError, lambda: e.on_outcome("MAYBE"), "outcome vocabulary")
 # modes
 e = L.Engine(L.example_cal(), scorer, LEX); e.set_mode("MANUAL_ONLY")
 T(feed(e, "ghbdtn", "en", 0) is None and e.snapshot is None, "MANUAL_ONLY never decides")
+e.on_event(L.Event("key", L.Key(5), "en", 0))
+T(e.run == [] and e.snapshot is None, "MANUAL_ONLY records nothing (13.5)")
 e.set_mode("OFF"); e.on_event(L.Event("key", L.Key(5), "en", 0))
 T(e.run == [], "OFF records nothing")
 e.set_mode("AUTO")
@@ -473,7 +475,7 @@ for rnd in range(max(1, N // 20_000)):
                 T(e.snapshot is None and e.run == [], f"{ev.kind} must leave no buffer and no snapshot")
         T(len(e.run) <= L.MAX_BUF, "buffer bound")
         T(e.gate == "ALLOW" or (e.run == [] and e.snapshot is None), "no state under DENY or UNKNOWN")
-        T(e.mode != "OFF" or (e.run == [] and e.snapshot is None), "no state in OFF")
+        T(e.mode == "AUTO" or (e.run == [] and e.snapshot is None), "no state outside AUTO (13.5)")
         s = e.snapshot
         if s is not None:
             T(s.after <= L.UNDO_MAX_CHARS, "snapshot character bound")

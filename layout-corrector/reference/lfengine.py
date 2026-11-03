@@ -500,8 +500,8 @@ class Engine:
         self.snapshot = None
 
     def set_mode(self, mode: str):
-        """Mode from `engine_mode` (20.14). Only AUTO classifies; MANUAL_ONLY keeps the recorder but never decides;
-        OFF records nothing. Any change of mode empties the buffer and destroys the snapshot and the run credit."""
+        """Mode from `engine_mode` (20.14). Only AUTO records and classifies; MANUAL_ONLY and OFF record nothing (13.5).
+        Any change of mode empties the buffer and destroys the snapshot and the run credit."""
         if mode not in ("AUTO", "MANUAL_ONLY", "OFF"):
             raise ValueError(mode)
         if mode != self.mode:
@@ -547,7 +547,7 @@ class Engine:
         return render(s.keys, s.layout)
 
     def on_event(self, ev: Event) -> Optional[Decision]:
-        if self.gate != GATE_ALLOW or self.mode == "OFF":
+        if self.gate != GATE_ALLOW or self.mode != "AUTO":
             return None                                   # not stored, not counted, not classified
         if ev.ts_ms:
             self.tick(ev.ts_ms)
@@ -609,7 +609,7 @@ class Engine:
         run, layout, overflow, skip = self.run, self.run_layout, self.overflow, self.skip
         self._flush()
         self.skip = False
-        if skip or not run or self.mode != "AUTO":
+        if skip or not run:
             return None
         if overflow:
             return Decision("KEEP", "overflow")

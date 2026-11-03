@@ -1,4 +1,4 @@
-# Keyboard Layout Auto-Correction Model — Technical Specification v3
+# Keyboard Layout Auto-Correction Model — Technical Specification v3.1
 
 Oct 19, 2026 · @Thomas
 
@@ -114,7 +114,7 @@ The product is an on-device tool that notices a word typed on the wrong layout (
 
 ### 4.1 In scope
 
-- Language pair RU ↔ EN: US QWERTY and Russian ЙЦУКЕН (Windows "Russian", macOS "Russian - PC" and "Russian"; Linux, deferred to a later release (13.7): XKB `ru`). The layout-pair table is a parameter, so further pairs can be added without changing the architecture.
+- Language pair RU ↔ EN: US QWERTY and Russian ЙЦУКЕН (Windows "Russian", macOS "Russian - PC" (the macOS layout "Russian" is not supported in the first release); Linux, deferred to a later release (13.7): XKB `ru`). The layout-pair table is a parameter, so further pairs can be added without changing the architecture.
 - Automatic replacement of the last word when Space is typed; optional early detection inside a word (off by default).
 - Manual convert hotkey, undo, learned exceptions, per-application and per-field blacklists.
 - Fully local inference. No network call is allowed on the typing path.
@@ -148,11 +148,11 @@ The task is binary at heart: for the word just typed, decide whether the user me
 
 ### 5.1 Input is a key sequence, not text
 
-Each keystroke event carries: physical key position `k` (one of 47 printable keys of the main block), Shift state, Caps Lock state, active layout id, and timestamp. The model input is the sequence of key tokens `1 + 2k + shift` (94 tokens) plus PAD, BOS and EOS: a vocabulary of 97.
+Each keystroke event carries: physical key position `k` (one of 47 printable keys of the main block), raw Shift state, raw Caps Lock state, active layout id, and timestamp. The model input is the sequence of key tokens `1 + 2k + s` (94 tokens), where the shift bit is `s = raw_shift XOR (caps AND k ∈ L)` and `L` is the set of the 33 keys that are a letter in at least one of the two layouts (the Caps Lock bullet below and 20.2 define it exactly), plus PAD, BOS and EOS: a vocabulary of 97.
 
 - **Why keys.** `ghbdtn` typed on an English layout and `привет` typed on a Russian layout are the same keys. With keys as input, the two readings of a word (EN and RU) are always available and exactly aligned, and the layout tables carry no learnable burden.
 - **Why not characters.** A character-based model must memorise the permutation (`g→п`) for every context, wasting capacity, and its labels `en` / `en_from_ru` differ only by an input the model never sees directly.
-- **Caps Lock.** Store raw Shift and Caps separately. The effective case of a key is `shift XOR (caps AND key_is_letter_in_target_layout)`. This matters for `;` `'` `[` `]` `,` `.`: on an English layout Caps Lock does not capitalise them, but on a Russian layout it capitalises `Ж Э Х Ъ Б Ю`. The mapper must re-apply Caps per target layout.
+- **Caps Lock.** Store raw Shift and Caps separately, and apply two different rules. (1) **The token** is layout-independent and is computed by one rule for both readings: `s = raw_shift XOR (caps AND k ∈ L)`. `L` has 33 keys: the 26 letter keys of the English layout and the seven keys that are letters only on the Russian layout (the keys of `` ` `` `[` `]` `;` `'` `,` `.`, ids 0, 23, 24, 35, 36, 44, 45). With Caps Lock on, the Russian reading capitalises exactly these keys, so the token carries the case the word would have as Russian text. On the English reading these seven keys do not change with Caps Lock, so the token bit differs there from the surface shift; the training data (8.3) and the vectors of 20.12 use the same function, so the model has seen it, and a Caps Lock vector exists for each of the seven keys. (2) **Rendered text** applies Caps Lock per target layout: `raw_shift XOR (caps AND the key is a letter in that layout)`. On an English layout Caps Lock does not capitalise `;` `'` `[` `]` `,` `.`, but on a Russian layout it capitalises `Ж Э Х Ъ Б Ю`. The mapper re-applies Caps Lock per target layout (`render`, 20.2); the token is never used to render text.
 
 ### 5.2 Model output and action
 
@@ -250,7 +250,7 @@ Shifted digit-row symbols also differ between layouts (`@ # $ ^ &` against `" �
 - Generate layout tables from the OS (`UCKeyTranslate` on macOS, keyboard layout files on Windows, XKB on Linux) for each supported layout pair, and store them versioned. Hand-typed tables are a test oracle only.
 - Verify round trips: for every key and shift state, `map(map(c, A→B), B→A) = c`, with the exceptions listed explicitly. My table check for Windows "Russian" against US QWERTY has 0 round-trip failures over all 94 key states.
 - Characters with no counterpart (dead keys, combining marks, emoji, anything outside the 47 keys) make the candidate ineligible: no action.
-- macOS "Russian" and "Russian - PC" differ in punctuation placement; Windows, macOS and XKB tables must not be assumed equal.
+- macOS "Russian" and "Russian - PC" differ in punctuation placement, so only "Russian - PC" is supported in the first release; Windows, macOS and XKB tables must not be assumed equal, and a layout is accepted only when its fingerprint equals the table (13.7).
 
 ### 5.5 Decision rule and why base rates dominate
 
@@ -383,6 +383,20 @@ The gates apply to each reference device (section 12.3) and are measured by the 
 | CPU share while typing at 5 words per second |  |  | 0.5% of one core | 5 words per second at 150 µs is 0.08% |
 
 The decision runs once per word, about every 0.2 to 0.5 seconds of typing, and not once per key (except in the optional early mode of section 10.5). One millisecond is therefore the correct order of magnitude for a budget, and nothing in the product gets better by being faster than that.
+
+**End-to-end latency by phase.** The time from the Space to a corrected field is the sum of the phases below. The product gates the sum (the row "Boundary key to corrected text" above), but every phase is measured and reported on its own, per device, per application and per method (reports D6 and D7), so that nobody optimises a stage that is not the bottleneck. The network is not shrunk, quantised or replaced by a more complex model until the report shows that phase P3 holds the largest share of the end-to-end p95; the proxy figures suggest the opposite, since a network call costs microseconds and an operating-system call costs milliseconds, and the report either confirms that or contradicts it.
+
+| Phase | What it covers | Budget | Reported as |
+| --- | --- | --- | --- |
+| P1 | The key event from the OS callback to the queued event (13.2, RT-1) | 1 ms at p99 | Per OS; with and without the hook-health observer of 13.7 |
+| P2 | The fresh gate query at the decision point (13.1) | 20 ms at p99 | Per application class |
+| P3 | The decision, stages 2 to 7, one candidate | The rows of the table above | Per scorer kind and key-length bucket |
+| P4 | Read and match: caret and range read through the text interface (13.2, step 3) | P4 + P5 + P6 within the row "Boundary key to corrected text" | Per application and method |
+| P5 | Write: the replacement, M1 as one operation or M2 as one batch | Idem | Per application and method |
+| P6 | Verify: read-back of the whole fragment and the caret (13.2, step 5) | Idem | Per application and method |
+| P7 | Rollback: the second write and read, on failure only | Not in the sum; its share is reported with the failure rate | Per application and method |
+
+The end-to-end time is P2 + P3 + P4 + P5 + P6 and must meet the 50 ms p95 and 150 ms p99 of the row above; the hard deadline of the transaction is 250 ms (13.2). A phase that exceeds its budget in some application lowers that application's status (13.8), because a slow replacement is a replacement the user can type into.
 
 **The requester's 0.0001 ms target.** The target is 100 ns. It is met by the stage that needs it and cannot be met by the network:
 
@@ -650,8 +664,8 @@ The classifier is trained to separate three kinds of text; the policy turns its 
 ### 10.1 From logits to an action
 
 - **Logits** `z` (3 values: EN, RU, OTHER) from the network, or the class log-posteriors of the statistical stage (section 7.7), which enter the same path. Each scorer has its own temperature and its own threshold table, selected by `kind` (`network` or `ngram`); the two are never mixed.
-- **Temperature scaling.** `p = softmax(z / T)`, with one scalar `T` fitted on the calibration data by minimum negative log-likelihood. It does not change the arg-max, so it cannot change accuracy. Fit `T` per class if the per-class reliability diagrams disagree.
-- **Prior-shift correction.** `p'(c) ∝ p(c) · π_dep(c) / π_train(c)`, renormalised. `π_train` is the class mix of the training set (in the proxy experiment 0.39 EN, 0.40 RU, 0.22 OTHER). `π_dep` is the complete three-class deployment prior, a vector over (EN, RU, OTHER) that sums to 1, for the active layout `A` and the word state (section 10.2). Without this step a classifier trained on a balanced mix converts far too often in real use (section 5.5).
+- **Temperature scaling.** `p = softmax(z / T)`, with one scalar `T` per scorer kind (`network`, `ngram`), fitted on the calibration data by minimum negative log-likelihood. It does not change the arg-max, so it cannot change accuracy. The first release uses the scalar only: a temperature per class is not used, and a calibration package that carries any other shape of `T`, or a `T` that is not finite and positive, is refused whole (CA-9, 20.5). A per-class temperature is a possible later change that would need a new schema version.
+- **Prior-shift correction.** `p'(c) ∝ p(c) · π_dep(c) / π_train(c)`, renormalised. `π_train` is the class mix of the training rows. The package D5 stores it as three **integer counts** `pi_train_counts` (EN, RU, OTHER) taken from the build manifest, and the runtime derives `π_train(c) = count(c) / sum(counts)` and checks the stored vector against it (20.5); a vector that does not sum to 1 within 1e-9 is refused. The mix of the proxy experiment was about 38% EN, 40% RU and 22% OTHER, a rounded figure used only as the example of 20.5, because the exact counts of that experiment cannot be recomputed here. `π_dep` is the complete three-class deployment prior, a vector over (EN, RU, OTHER) that sums to 1, for the active layout `A` and the word state (section 10.2). Without this step a classifier trained on a balanced mix converts far too often in real use (section 5.5).
 - **Score.** The decision is "Russian or not" in both directions, so the score is a two-way marginal, a log-odds in nats (natural logarithm). Active layout English: `s = ln p'(RU) − ln(p'(EN) + p'(OTHER))`, which is `logit(p'(RU))`. Active layout Russian: `s = ln(p'(EN) + p'(OTHER)) − ln p'(RU)`, which is `logit(1 − p'(RU))`. Here `logit(p) = ln(p / (1 − p))`. Both are computed from log-probabilities (log-sum-exp) so that values near 1 do not saturate. Scoring the Russian-layout direction as `EN` against `RU + OTHER` instead is the symmetric reading (the target class against all others), and it cut recall by a factor of 2 to 5 at a matched false-positive rate on the rare-word tail, because English words and Latin-script technical strings cannot be told apart from keys alone and are converted by the same action (section 18.8).
 - **Decision and units.** CONVERT if `s ≥ λ(kind, direction, bucket)`, where the bucket is the key-count bucket of section 10.3. **Thresholds are stored and compared in nats.** A probability threshold `t` such as 0.999 is converted once, when the table is built, by `λ = logit(t)` (0.999 → 6.907, 0.997 → 5.806, 0.995 → 5.293 nats). The runtime never compares `s` with a probability: the literal test `s ≥ 0.995` would accept a word at a posterior of only 73%, and 5.293 nats is a posterior of 99.5%. The calibration package holds nats only, and a load-time check rejects any threshold outside 4 to 16 nats (CA-9). Otherwise the outcome is ABSTAIN, which behaves as KEEP.
 - **Incumbent margin (optional ablation, not in the first release).** A soft form of the dictionary rule of section 10.4: if the as-typed reading is a frequent word of the active language and the converted reading is not an equally frequent word, add a margin of 1 to 2 nats to `λ`. The first release uses the hard rule of section 10.4 instead; this margin is a phase-2 candidate evaluated as an ablation.
@@ -689,7 +703,7 @@ The `run` state lowers the evidence needed by 3.5 nats (the log-odds of 25% agai
 
 **Feedback cap.** Only a conversion made without the run prior refills the credit. A wrong automatic correction therefore raises the prior of at most the next three words, a chain of run-assisted conversions cannot renew itself (after three, the next word must clear the default threshold alone), and an undo clears the credit at once. `w` is validated at load time: 0.0005 to 0.5 for every state, and at most 0.3 for `run` (CA-9).
 
-**Estimation.** These are starting points. Before release they are replaced by values measured on the real calibration set R-CAL (section 8.4), never on the locked acceptance set R-ACC. `w[default]` is, per layout, the number of wrong-layout words divided by the words typed on that layout, where a wrong-layout word is one the user converted by hotkey or kept after an automatic conversion (section 11.5). `w[after_switch]` is the same rate for the first word after a manual layout change. `w[run]` is the probability that a word is wrong-layout given that the previous one was; with a mean run length of `m` words in the data it is `1 − 1/m`. `o_lat` is the OTHER share among Latin-script words. Each estimate is reported with a cluster-bootstrap interval by user, and the stored value is the point estimate, clipped to the ranges the load check allows. An overestimated `w` raises false corrections, which EV-1 on R-ACC would expose; an underestimated `w` only costs recall. The package D5 stores the numbers `w` and `o_lat`, not free vectors, so that every vector sums to 1, and the table is versioned with the model.
+**Estimation.** These are starting points. Before release they are replaced by values measured on the real calibration set R-CAL (section 8.4), never on the locked acceptance set R-ACC. What R-CAL and R-NAT give is an **observed rate, a proxy for the true rate**, not the true rate itself. A *wrong-layout event* is a manual conversion of the last word by the hotkey, recorded with its mode (last word, selection or bulk; section 11.5); only last-word events count, and bulk conversions and selections do not. The denominator is the number of words typed on the same layout in the same context class (application class and layout). The proxy undercounts when the user does not notice a wrong word or converts it later by hand, it overcounts when the hotkey is pressed for another reason, and it depends on the habits of the people in the sample. `w[default]` is therefore the number of last-word events divided by the words typed on that layout, `w[after_switch]` is the same rate for the first word after a manual layout change, and `w[run]` is the probability that a word is wrong-layout given that the previous one was; with a mean run length of `m` words in the data it is `1 − 1/m`. `o_lat` is the OTHER share among Latin-script words. Each estimate is reported with a 90% cluster-bootstrap interval by user. **Which value goes into D5:** `w_ship`, the **lower end** of that interval, clipped to the ranges the load check allows, because a `w` that is too low only costs recall and a `w` that is too high raises false corrections. The point estimate and the upper end appear in the report D6, not in the package. EV-1 is evaluated with `w_ship`; the same evaluation with the point estimate and with the upper end is a stress report, not a gate (11.7). If the upper end of an interval is more than 4 times its lower end, the estimate is not used, the starting value stays, and D6 labels it "default, not estimated". The package D5 stores the numbers `w` and `o_lat`, not free vectors, so that every vector sums to 1, and the table is versioned with the model.
 
 ### 10.3 Thresholds by word length and direction
 
@@ -768,7 +782,7 @@ A convert decision is worth it when `p' ≥ C_FP / (C_FP + C_FN)`, where `C_FP` 
 | CA-6 | Thresholds, temperature and priors MUST be frozen before the locked synthetic test and R-ACC are evaluated. |
 | CA-7 | If label smoothing is used in training, calibration MUST be re-fitted afterwards, and the tail check (CA-4) repeated. |
 | CA-8 | Early detection MUST be off by default and MUST have its own acceptance gate. |
-| CA-9 | The calibration package MUST be validated when it is loaded: every threshold within 4 to 16 nats; `w` within 0.0005 to 0.5 for every state and at most 0.3 for `run`; `π_train` sums to 1 and `0 < o_lat < 1`; a temperature for every scorer kind; the model hash in the package equals the hash of the loaded model or table file. On any failure the automatic mode is off (13.5). |
+| CA-9 | The calibration package MUST be validated against the strict schema LFC1 (20.5) before an engine is created, and refused whole on any failure: exactly the fields of the schema, none missing, none unknown, none duplicated; both scorer kinds with a complete threshold table (both directions, all three length buckets); every threshold within 4 to 16 nats; `w` within 0.0005 to 0.5 for every state and at most 0.3 for `run`; `π_train` sums to 1 and `0 < o_lat < 1`; a scalar temperature for every scorer kind, finite and above 0 (at most 20); three positive integer class counts (pi\_train\_counts) from which pi\_train is derived and with which it agrees within 1e-9; the model hash in the package equals the hash of the loaded model or table file. A refused package never produces an engine: the mode is MANUAL\_ONLY, or the previous valid package stays active when the refusal comes from an update (13.5, rows 6 and 12). The tests of 20.13 give one negative case per rule and check the resulting mode, not only the exception. |
 | CA-10 | The word-state machine of 10.2 (credit, feedback cap, resets) and the priority matrix of 10.4 MUST be implemented as specified; the reference code and traces of section 20 are the tests. |
 | CA-11 | Adaptive thresholds (10.6) MUST NOT be enabled in the first release. |
 
@@ -790,10 +804,10 @@ The product is accepted on the rate of false corrections measured on realistic t
 
 | ID | Metric | Gate | Measured on |
 | --- | --- | --- | --- |
-| EV-1 | False-positive rate on correct words | Pass rule of 11.3: at least 100,000 correct words from at least 20 users and 100 documents; point estimate ≤ 4.8e-5 (at most 4 false corrections at n = 100,000) and cluster-adjusted 95% upper bound ≤ 1e-4 (precision ≥ 99.5% at π = 1%, R = 0.95) | `R-ACC`, real correct words (8.4) |
+| EV-1 | False-positive rate on correct words | Pass rule of 11.3: at least 100,000 correct words from at least 20 users and 100 documents; point estimate ≤ 4.8e-5 (at most 4 false corrections at n = 100,000) and conservative cluster criterion ≤ 1e-4 (a decision rule, not an exact confidence interval; 11.3) (precision ≥ 99.5% at π = 1%, R = 0.95) | `R-ACC`, real correct words (8.4); frozen, and used for this gate only at G4 (16.1) |
 | EV-2 | False corrections on protected content (every OTHER category of section 8.3) | 0 in at least 100,000 items, each category at least 5,000; upper bound ≤ 3e-5 | Protected regression set |
 | EV-3 | Precision at π = 0.3%, 1%, 3% | Reported; ≥ 99.5% at π = 1% | Derived from EV-1 and EV-4 |
-| EV-4 | Recall for words of 5 or more keys at the operating point of EV-1 | ≥ 95% EN→RU and ≥ 90% RU→EN. These values are changed only at gate G2 (16.1) by a recorded decision, as set out in 11.3, and are frozen after it | `R-ACC` positives (synthetic re-layout of real sentences, 11.7) |
+| EV-4 | Recall for words of 5 or more keys at the operating point of EV-1 | ≥ 95% EN→RU and ≥ 90% RU→EN. These values are changed only at the proxy gate G2-proxy (16.1) by a recorded decision, as set out in 11.3, and are frozen after it | `R-ACC` positives (synthetic re-layout of real sentences, 11.7) |
 | EV-5 | Recall for 3–4 keys | ≥ 60%, changed and frozen as EV-4 | `R-ACC` positives (synthetic re-layout of real sentences, 11.7) |
 | EV-6 | Token-weighted recall, all lengths | Reported | `R-ACC` positives (synthetic re-layout of real sentences, 11.7) |
 | EV-7 | Calibration | ECE ≤ 0.02 per class and per length bucket; tail check CA-4 passed | Fitted on `R-CAL`, checked on `R-ACC` |
@@ -804,7 +818,7 @@ The product is accepted on the rate of false corrections measured on realistic t
 | EV-12 | Neural model versus statistical baseline | The model ships only if, at the EV-1 operating point, token-weighted recall is at least 2 points higher (paired cluster bootstrap, 95% interval excludes 0) or the false-positive rate is at least 30% lower at equal recall. Otherwise the statistical baseline ships | `R-ACC`, both candidates frozen first (CA-6), in the same evaluation as EV-1 |
 | EV-13 | Seed stability | At least 3 seeds; report mean and standard deviation; a difference smaller than the seed deviation is not a finding | `S-VAL`, `S-TEST` |
 | EV-14 | Latency, size, memory | Gates of section 7.5 and section 12 | Reference devices |
-| EV-15 | Text integrity | 0 lost or duplicated characters (RT-4) | End-to-end suite |
+| EV-15 | Text integrity | G-EVENT: 0 lost or duplicated physical key events in 1,000,000 events per OS (RT-16); G-FIELD: 0 UNRECOVERED outcomes and 0 silent divergences in 100,000 replacements per application (RT-4, 13.2) | End-to-end suite |
 
 ### 11.3 How many words are enough
 
@@ -818,7 +832,7 @@ To prove a false-positive rate you need many correct words, because the errors a
 | 3 | 7.75 | 77,537 | 258,456 | 775,366 |
 | 4 | 9.15 | 91,536 | 305,118 | 915,352 |
 
-The second draft's realistic test (5–20K words) can only demonstrate a rate near 1 in 1,000, which is 10 times too lax for this product; the third draft's 300,000 synthetic negatives are the right size, but synthetic text does not show the real rate. Words from one text are correlated, so the effective sample is smaller than the word count. The table is therefore a sizing guide only; the pass condition of EV-1 is the cluster-adjusted rule below.
+The second draft's realistic test (5–20K words) can only demonstrate a rate near 1 in 1,000, which is 10 times too lax for this product; the third draft's 300,000 synthetic negatives are the right size, but synthetic text does not show the real rate. Words from one text are correlated, so the effective sample is smaller than the word count. The table is therefore a sizing guide only; the pass condition of EV-1 is the conservative cluster criterion below.
 
 For recall, a 95% interval of ±1 point needs about 1,830 positives at R = 0.95, 1,120 at R = 0.97 and 380 at R = 0.99; ±0.5 point needs 7,300, 4,470 and 1,520. Collect at least 20,000 positives per direction so that each length bucket has several thousand.
 
@@ -829,11 +843,11 @@ For recall, a 95% interval of ±1 point needs about 1,830 positives at R = 0.95,
 3. `U(c) · m / n` ≤ 1e-4, where `U(c)` is the exact one-sided 95% Poisson upper limit for `c` observed events: 2.9957, 4.7439, 6.2958, 7.7537, 9.1535 and 10.5130 for `c` = 0 to 5 (the function `poisson_upper` of 20.9 computes it for any `c`).
 4. The evaluation is the one that the log of `R-ACC` records (8.4); a pass found in a repeated, tuned or extended evaluation does not count.
 
-If every false correction sits in a different cluster, then `c` = `k`, `m` = 1 and condition 3 is the independent-words bound of the table above. If the errors bunch together, `c` falls (the errors are one problem seen several times) and `m` rises, and the bound rises with `m`: the rule assumes that every independent source of error could produce as many errors as the worst one that was observed. This is conservative on purpose, and it is a decision rule, not a confidence interval with exact coverage. A cluster bootstrap is not used as the gate because with 4 or fewer events most resamples contain none of them and the interval degenerates; it stays in the report as a diagnostic.
+If every false correction sits in a different cluster, then `c` = `k`, `m` = 1 and condition 3 is the independent-words bound of the table above. If the errors bunch together, `c` falls (the errors are one problem seen several times) and `m` rises, and the bound rises with `m`: the rule assumes that every independent source of error could produce as many errors as the worst one that was observed. This is conservative on purpose, and it is a decision rule, not a confidence interval with exact coverage. How often it accepts a system of a given true error rate, with errors spread or bunched, is simulated in section 18.9 with pre-registered scenarios and seeds; that simulation is evidence about the rule, and not a proof of coverage. A cluster bootstrap is not used as the gate because with 4 or fewer events most resamples contain none of them and the interval degenerates; it stays in the report as a diagnostic.
 
 Worked cases, all reproduced by the code of 20.12: 4 false corrections in 4 different clusters at `n` = 100,000 give a bound of 9.15e-5 and pass. The same 4 in one document give 1.90e-4 and fail. Two clusters with 2 errors each give 1.26e-4 and fail. 0 errors at `n` = 99,999, or 0 errors from 19 users, fail on condition 1. 5 errors in 5 clusters at `n` = 150,000 give 7.01e-5 and pass.
 
-**Freezing EV-4 and EV-5.** The provisional recall values stand unless they are changed at gate G2 (16.1) by a written decision that contains the baseline recall at the EV-1 operating point on the `R-CAL` positives. The values may be lowered only to that measured recall minus 2 points, rounded down to a whole number, and may never be raised above the provisional ones to fit a result. They are frozen when G2 is passed. A change after the first evaluation on `R-ACC` makes that `R-ACC` retired (8.4).
+**Freezing EV-4 and EV-5.** The provisional recall values stand unless they are changed at gate G2-proxy (16.1) by a written decision that contains the baseline recall at the EV-1 operating point on the `R-CAL` positives. The values may be lowered only to that measured recall minus 2 points, rounded down to a whole number, and may never be raised above the provisional ones to fit a result. They are frozen when G2-proxy is passed. A change after the first evaluation on `R-ACC` makes that `R-ACC` retired (8.4).
 
 ### 11.4 Required slices in every report
 
@@ -847,7 +861,7 @@ Worked cases, all reproduced by the code of 20.12: 4 false corrections in 4 diff
 
 ### 11.5 Measuring the wrong-layout rate π
 
-The false-positive budget depends on π, which is unknown (section 5.5). Estimate it in the opt-in study as `(corrections not undone + manual conversions) / words typed`, per user, with a cluster bootstrap interval, and record the distribution of wrong-layout run lengths (words typed before the user notices). The estimate feeds the priors of section 10.2 and the precision table of EV-3.
+The false-positive budget depends on π, which is unknown (section 5.5). Estimate it in the opt-in study as `(corrections not undone + manual conversions) / words typed`, per user, with a cluster bootstrap interval, and record the distribution of wrong-layout run lengths (words typed before the user notices). The estimate feeds the priors of section 10.2 (which events count, the denominator, the interval and the value that goes into D5 are fixed there) and the precision table of EV-3.
 
 The events used for this estimate form `R-NAT` (8.4): words that the user converted by hand, and automatic corrections that were not undone. They are real errors in real contexts, so they are the only check that the synthetic positives of `R-ACC` are not misleading. Report the recall on `R-NAT` beside the recall on the `R-ACC` positives; if the `R-NAT` figure is lower by more than 10 points, the synthesis of 8.3 goes back for review. `R-NAT` never gates a release: it holds only errors that someone noticed, and it contains the tool's own hits, so a recall computed on it is biased in both directions.
 
@@ -864,7 +878,7 @@ The acceptance numbers do not all rest on the same kind of data. The table says,
 
 | Result | Negatives | Positives | It shows | It does not show |
 | --- | --- | --- | --- | --- |
-| EV-1 false-positive rate | Real, `R-ACC` | none | The rate of false corrections on the correct typing of the enrolled users, with the bound of 11.3 | The rate for other users, applications, topics or languages; the sample has at least 20 users |
+| EV-1 false-positive rate | Real, `R-ACC` | none | The rate of false corrections on the correct typing of the enrolled users, with the conservative criterion of 11.3 | The rate for other users, applications, topics or languages; the sample has at least 20 users |
 | EV-2 protected content | Synthetic generators and packages of 8.3 | none | Code, URLs, paths, hashes and similar shapes are not converted | How often such strings occur in a real day |
 | EV-3 precision | Real | Synthetic, with an assumed π | Precision if the wrong-layout rate is 0.3%, 1% or 3% | The true π of any user; it stays an assumption until `R-NAT` and dogfooding measure it |
 | EV-4, EV-5, EV-6 recall | none | Synthetic re-layout of real sentences, `R-ACC` | That wrong-layout words in realistic sentences are recognised and converted | How often, where and in which words users really err; `R-NAT` is a biased check (11.5) |
@@ -873,7 +887,7 @@ The acceptance numbers do not all rest on the same kind of data. The table says,
 | EV-10 early detection | Real prefixes | Synthetic prefixes | The false-positive gate inside a word | Nothing about the user's tolerance for text changing mid-word |
 | EV-11 undo rate | Real | Real | What enrolled users accept in daily use | A different population |
 | EV-12 network or baseline | Real | Synthetic | Which candidate is better on the same data; any optimism of the set is shared | An absolute quality figure |
-| EV-14, EV-15 | none | none | Latency, size and text integrity on the reference devices and the end-to-end suite | Other devices or applications than those listed in 13.8 |
+| EV-14, EV-15 | none | none | Latency, size, delivery of physical key events (G-EVENT) and integrity of the field (G-FIELD) on the reference devices and in the end-to-end suite | Other devices or applications than those listed in 13.8 |
 
 The experiments of section 18 are a different class again. They are word lists scored by form, with synthetic `OTHER` strings, and most are single runs. They justify the design and the starting values; they are not release evidence, and nothing in section 18 is a gate.
 
@@ -1040,22 +1054,32 @@ Context breaks, which empty the buffer, are listed with the other events in 13.2
 
 A **context break** empties the word buffer, clears the drop flag (the next word starts clean) and sets `c := 0` (10.2). A word starts with the first printable key after a Space or a break. The layout id is part of every recorded key, and the rule for a layout change inside a word is the single one in the table: the word is dropped, so the raw keys of two layouts are never mixed.
 
-**Replacement transaction.** A CONVERT verdict starts a transaction on the worker thread, with a hard deadline of 250 ms from the Space.
+**Replacement transaction.** A CONVERT verdict starts a transaction on the worker thread, with a hard deadline of 250 ms from the Space. Automatic transactions exist only in mode AUTO, which an application reaches only when its adapter has the four capabilities `READ_RANGE`, `REPLACE_RANGE`, `READBACK` and `ROLLBACK` and its support status is AUTO (13.5, 13.7, 13.8). The hotkey (13.3) runs the same transaction in mode MANUAL\_ONLY, where M2 is also allowed. The transaction works on one fragment: the word as typed, the Space that the user typed and the typed-ahead characters. That fragment is matched in step 3, verified in step 5 and rolled back in step 6, and nothing outside it is ever written. The reference model of the transaction, with its fault injection, is section 20.14.
 
-1. **Freeze.** Count `a`, the printable keys typed after the Space so far, and note any other event since the Space. More than 3 such keys, any context break or any layout change aborts with reason `typed_ahead` or `context_break`; the verdict becomes KEEP.
-2. **Gate.** Query the gate afresh. Anything but ALLOW aborts with `gate_changed`.
-3. **Read and match.** Read the text before the caret through the OS text interface, with an empty selection. The last `n + 1 + a'` characters must equal the recorded run rendered on the active layout, then a Space, then the `a'` typed-ahead characters, for some `a' ≤ a` (`n` is the number of keys in the run). The range to replace is thus fixed from the content, not from remembered offsets. If the text cannot be read, or differs because the application autocorrected, autocompleted or reformatted it, abort with `echo_mismatch`.
+1. **Freeze.** Count `a`, the printable keys typed after the Space so far, and note any other event since the Space. More than 3 such keys, any context break or any layout change aborts with reason `typed_ahead` or `context_break`; the verdict becomes KEEP. With M2 (which runs only with `a = 0`) any typed-ahead key aborts with `typed_ahead`, and a Shift, Ctrl, Alt or Windows key that is physically down aborts with `modifier_down` (13.7). Then take the key counter `m` (`Adapter.mark`): from this moment every user key event is counted, including a key that types nothing (Shift, an arrow, Caps Lock). An adapter that cannot count aborts with `adapter_error`.
+2. **Gate.** Query the gate afresh. Anything but ALLOW, including an error of the query, aborts with `gate_changed`.
+3. **Read and match.** Read the caret `c` and the text before it through the OS text interface; the selection must be empty (an adapter reports a caret only for an empty selection and raises an error otherwise, 13.7). For `a'` from `a` down to 0, read the range of `n + 1 + a'` characters that ends at `c`; the first `a'` for which it equals `old + " " + ahead[:a']` fixes the **fragment**: the word as typed, the Space the user typed and the `a'` typed-ahead characters (`n` is the number of keys in the run). The range to replace is thus fixed from the content, not from remembered offsets. If the text cannot be read, or differs because the application autocorrected, autocompleted or reformatted it, abort with `echo_mismatch`; any other error of the adapter aborts with `adapter_error`.
+   - **3b. Last look (M2 only).** Immediately before the first synthetic event, read the key counter again. M2 deletes by count, so a user key that arrived since the freeze makes the plan wrong: if `keys_since(m) > 0`, abort with `typed_ahead` and send nothing. A key that arrives after this look cannot be detected in advance; it is the residual M2 race described below.
 4. **Replace** exactly the `n` characters of the run by the same keys read on the target layout (`Ghbdtn?` becomes `Привет,`; the Space the user typed is not touched). The new text has the same length as the old, so the caret and any typed-ahead characters stay where they are.
-   - **M1, range replace** (preferred): one operation through the text interface, then the caret and selection are restored.
-   - **M2, tagged synthetic keystrokes**: only for applications marked M2 in 13.8, and only when `a' = 0`. Send `n + 1` Backspaces, then the new text and a Space, as tagged Unicode events in one batch.
+   - **M1, range replace** (the only method of mode AUTO): one operation through the text interface that the application cannot interleave with user keys, then the caret and selection are restored. It needs the capability `REPLACE_RANGE` (13.7).
+   - **M2, tagged synthetic keystrokes** (the hotkey only, never automatic): only when `a' = 0`. Send `n + 1` Backspaces, then the new text and a Space, as tagged Unicode events in one batch (one `SendInput` call on Windows; a sequence of posted events on macOS).
    - The clipboard is not used in the first release.
-5. **Verify.** Read the range back. It must equal the new text, and the caret must be where it was expected.
-6. **On any mismatch, timeout or API error after step 4 began:** make one rollback attempt (M1 writes the original text back; M2 cannot be undone safely and is only reported), show a notice, increment `replacement_incident`, and quarantine the application (gate DENY for it until restart or until the user re-enables it in the settings).
-7. **Record the undo information**: the original keys with their layout id, the range and the time (13.3).
+5. **Verify the whole fragment and the caret.** Read the fragment back: it must equal `new + " " + ahead[:a']`, so the Space and the typed-ahead characters are checked together with the word. Read the caret and the number `k` of user keys counted since the freeze. If `k = 0` the caret must be exactly where it was (`c`); if `k > 0` it may have moved forward by at most `k` (`c ≤ caret ≤ c + k`). A caret that moved backwards, or forward without a user key to explain it, is a failure, and so is a selection that is no longer empty. A word that is right with a wrong neighbour or a wrong caret is therefore never `VERIFIED`.
+6. **Outcome.** The transaction ends in exactly one outcome, decided by what is read from the field and never by what the tool meant to write (reference function `classify_outcome`, section 20.14). It compares three texts of the whole fragment: the original, the new one and the one that is read last.
+   - `VERIFIED`: step 5 passed.
+   - `RESTORED`: an operation failed or step 5 failed after step 4 began, and the whole fragment holds the text the user typed. M1 makes one rollback attempt (it writes the original word back over the same `n` characters and reads the fragment again); a write that changed nothing also ends here.
+   - `UNRECOVERED`: anything else, including a fragment that cannot be read and damage outside the `n` written characters (the Space, a typed-ahead key) that the rollback cannot repair. A failed M2 transaction that changed the field ends here, because M2 has no rollback.
+   - `ABORTED`: steps 1 to 3 refused, nothing was written.
 
-**What happens to the user's keys.** Before step 4 they pass through and are never held. With M1 a key typed during steps 3 to 5 lands after the range and is unaffected, because the replacement has the same length. With M2 a key that arrives between the first and the last synthetic event is a race the tool cannot prevent without holding keys, which it must not do; the race is detected in step 5, repaired by the rollback where possible, and otherwise counted as an incident and followed by the quarantine. This is why M2 is granted per application, after the 100,000-replacement test of RT-4, and why M1 is preferred.
+   Any outcome after step 4 began other than `VERIFIED` is a *replacement incident*: the tool shows one notice, increments `replacement_incident` (a counter, never text) and quarantines the application (gate DENY for it until restart or until the user re-enables it in the settings). After `UNRECOVERED` the notice says that the text in the field may differ from what was typed and that the application's own undo is the way back.
+7. **Record the undo snapshot** (13.3) only for a `VERIFIED` outcome: the original keys with their layout id, in a store that is separate from the word buffer (13.4). For any other outcome the engine drops the snapshot and the run credit (`Engine.on_outcome`, 20.7).
 
-**Guarantee, stated precisely.** The tool never loses or duplicates a user key, because it never holds, replays or repeats one. The only text it writes is the replacement of the recorded word, and every replacement is verified by reading it back. RT-4 measures this as silent corruption (a divergence that step 5 did not detect), which must be zero.
+**What happens to the user's keys.** Before step 4 they pass through and are never held. With M1 a key typed during steps 3 to 5 lands after the fragment and is unaffected, because the replacement has the same length; the key counter of step 1 explains a caret that moved forward by that key, and a key that lands inside the fragment makes the read-back of step 5 differ, so the rollback applies. M2 is a sequence of separate key events, and its races are different. On Windows one `SendInput` call inserts its events "not interspersed with other keyboard or mouse input events inserted either by the user … or by calls to keybd\_event, mouse\_event, or other calls to SendInput" (Microsoft Learn), so a user key cannot fall inside the batch. A user key can still fall between the read of step 3 and the write of step 4 (the last look of step 3b catches a key that arrived before it, but not one that arrives between that look and the first event of the batch, a window that is short but not zero), a key that is already physically down "might interfere with the events that this function generates", UIPI can block the input without the return value or `GetLastError` saying so, a partial insertion is visible only in the returned count, and the application can change focus or text meanwhile. On macOS a user key can follow any posted event. The tool cannot close these races without holding keys, which it must not do, and a failed M2 transaction can leave the field in a state with no rollback. The race that remains is not hidden: it ends in UNRECOVERED and a quarantine, never in a silent VERIFIED (the reference model puts a user key before each of the 14 events of a six-letter word and checks this, 20.13), and its real frequency, including a held key that repeats, is measured on devices (RT-4, RT-16) and not assumed to be zero. This is the reason for the rule of 13.7: **M2 never runs automatically.** It exists only for the hotkey, where the user chose the moment and has the application's own undo as the way back.
+
+**Two guarantees, stated precisely.**
+
+- **G-EVENT (by design).** The tool never loses, duplicates, holds, delays or replays a physical user key, because the hook only observes (RT-8). The reference model checks this property for the algorithm (invariant I1, 20.13); the delivery of real key events by the operating system is measured on devices (RT-16).
+- **G-FIELD (measured, not absolute).** The only text the tool writes is the replacement of the recorded word. After an automatic replacement the whole fragment (word, Space and typed-ahead keys) holds the new text (`VERIFIED`) or the text the user typed (`RESTORED`). `UNRECOVERED` is possible only when the write and the single rollback both fail, or when the field cannot be read afterwards, or when the write damaged text outside the characters it wrote (the Space, a typed-ahead key) and the rollback cannot repair it; it is always detected or reported, it quarantines the application, and its rate in RT-4 must be 0 in 100,000 replacements per application. The specification gives no unconditional promise about application text, because an application can change its own text at any moment; it promises detection by read-back, one repair attempt, quarantine and a count.
 
 ### 13.3 Undo, exceptions and manual control
 
@@ -1070,37 +1094,41 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 | The gate is DENY or UNKNOWN | No action and a short notice: the tool does not read text it is not allowed to read |
 
 - **Defaults and conflicts.** Proposed defaults, to be confirmed by the requester (16.3): Windows `Pause`, macOS `⌃⌥⌘Space`. The chord is registered through the OS hotkey interface (`RegisterHotKey` on Windows, `RegisterEventHotKey` on macOS), which keeps it from the application. If registration fails the tool tries the next chord of its fallback list (Windows `Ctrl+Alt+Pause`, `Ctrl+Alt+Space`; macOS `⌃⌥⌘L`, `⌃⌥⌘K`), tells the user which chord is active, and never binds silently to a chord the OS reports as taken. Esc is not bound by default, because it has its own meaning in many applications; "Esc also undoes" is an opt-in setting per application.
-- **Manual conversion of a selection** converts key for key, with no model and no threshold. Direction: a selection with more Cyrillic than Latin letters is read as Russian-layout text and converted to the English layout, otherwise the reverse; a selection with no letters is left unchanged and the user is told. Punctuation goes through the layout table as in 5.3 (`Ghbdtn? Rfr ltkf?` becomes `Привет, Как дела,`). A character that is not on the source layout (emoji, accented letters, other scripts) is copied unchanged, and the length never changes. At most 10,000 characters. The replacement uses M1 and the verification of 13.2, and afterwards the same range is selected again; if the selection cannot be restored, the caret is placed after the text. The reference function is in section 20.8.
-- **Undo window.** 10 seconds and up to 100 following characters. It is invalidated by every context break of 13.2, a manual layout change and the timeout.
+- **Manual conversion of a selection** converts key for key, with no model and no threshold. Direction: a selection with more Cyrillic than Latin letters is read as Russian-layout text and converted to the English layout, otherwise the reverse; a selection with no letters is left unchanged and the user is told. Punctuation goes through the layout table as in 5.3 (`Ghbdtn? Rfr ltkf?` becomes `Привет, Как дела,`). A character that is not on the source layout (emoji, accented letters, other scripts) is copied unchanged, and the length never changes. At most 10,000 characters. The replacement follows the transaction of 13.2 (M1 where the application has REPLACE\_RANGE; otherwise M2, typed over the selection in batches of at most 20 UTF-16 code units, an engineering limit that spike S-7 checks), with its outcomes, the quarantine rule and the verification of 13.2, and afterwards the same range is selected again; if the selection cannot be restored, the caret is placed after the text. The reference function is in section 20.8.
+- **Undo window.** The undo snapshot (13.4) lives for at most 10 seconds and 100 further printable keys and Spaces, whichever comes first. It is destroyed by every context break of 13.2, a manual layout change, a gap in the event stream, a change of the gate or of the mode, the undo itself and the timeout; after that the chord no longer undoes anything.
 - **Learned exceptions.** One undo of a word adds it (case-folded, with its direction) to a local exception list, as Rekey and KeyboardSwitcher do. Limit: 10,000 entries, least-recently-used eviction, encrypted at rest with the OS key store, with a "clear all" command and export.
 - **Adaptive thresholds.** Not part of the first release (10.6).
 
 ### 13.4 Privacy and security
 
 - All inference is local. No network call is allowed on the typing path.
-- Key and text buffers live in memory only, hold at most 64 keys, and are zeroed at every word boundary and context break.
+- The **word buffer** lives in memory only, holds at most 64 keys, and is zeroed at every word boundary and context break.
+- The **undo snapshot** (13.3) is the only text-derived state that outlives a word boundary. It is kept in a store that is separate from the word buffer, in memory only, for one converted word of at most 20 keys at a time. It is overwritten with zeros when it ends: at the end of the undo window (10 seconds or 100 further printable keys and Spaces), at every context break, gate change, mode change, manual layout change and gap in the event stream, at the undo itself, and at sleep, lock, logout and exit. It is never logged and never written to a file, and the product's own crash handler does not include it (RT-17).
+- **Crash dumps.** The product's own crash reports contain stack traces and counters only (AP-7). Memory dumps made by the operating system or enabled by an administrator are outside the product's control; the privacy notice says so, and RT-17 tests the product's own handler.
 - No raw keystrokes, words or screenshots are written to logs. Optional diagnostics contain only counters and reason codes (converted, abstained, guard name, undone), are off by default and are shown to the user before they are enabled.
 - The exception list never leaves the device.
 - Required OS permissions (macOS Accessibility and Input Monitoring, code signing and notarisation) are part of the release checklist, because keystroke observers are commonly flagged by security software.
 
 ### 13.5 Failure behaviour
 
-The engine is always in exactly one of three modes. **AUTO**: automatic correction and the hotkey. **MANUAL\_ONLY**: no automatic correction, the hotkey works. **OFF**: nothing is recorded. Every failure maps to one row of the table below, each row has a test (RT-12), and no failure is ever resolved by guessing.
+The engine is always in exactly one of three modes, for each application separately. **AUTO**: automatic correction and the hotkey. **MANUAL\_ONLY**: no automatic correction and nothing is recorded; the hotkey works through the text interface. **OFF**: nothing is recorded and the hotkey only shows a notice. The mode is a pure function of the facts in the table below (reference function `engine_mode`, section 20.14): AUTO needs the capabilities `READ_RANGE`, `REPLACE_RANGE`, `READBACK` and `ROLLBACK` of the adapter (13.7), the support status AUTO of the application (13.8), valid models and calibration package, a complete event stream, a healthy watchdog, an identified layout, all permissions, and no quarantine. Every failure maps to one row of the table, each row has a test (RT-12), and no failure is ever resolved by guessing.
 
 | # | Component state | Mode | What the user sees |
 | --- | --- | --- | --- |
-| 1 | All components valid; the network was accepted by EV-12 | AUTO, scorer `network` | Nothing |
-| 2 | The network is not shipped because EV-12 chose the baseline | AUTO, scorer `ngram` | Nothing; this is a normal configuration |
+| 1 | All components valid; the network was accepted by EV-12 | AUTO, scorer `network`, in an application whose capabilities and support status allow it (otherwise MANUAL\_ONLY) | Nothing |
+| 2 | The network is not shipped because EV-12 chose the baseline | AUTO, scorer `ngram`, under the same condition | Nothing; this is a normal configuration |
 | 3 | The network file is missing, unreadable, differs from the hash in D5, or fails the load-time self-test (the reference logits of section 20.11 within 1e-3) | AUTO with scorer `ngram` when rows 4 to 6 are clear for it, otherwise MANUAL\_ONLY | A one-time notice that the basic mode is in use; a counter |
 | 4 | The n-gram tables are missing or corrupt | MANUAL\_ONLY if the network is not usable either, otherwise AUTO with the network | A notice |
 | 5 | The lexicon, the acronym list or the allow-lists are missing or corrupt (rows 9 to 11 of 10.4 cannot be evaluated) | MANUAL\_ONLY | A notice |
-| 6 | The calibration package is missing, fails the validation of CA-9, or its model hash does not match the loaded file | AUTO with the other scorer if that one passes, otherwise MANUAL\_ONLY | A notice |
-| 7 | The layout table of the active pair is missing or fails its round-trip self-test, or the active layout is unsupported (13.7) | OFF for that layout | The status icon says "layout not supported" |
+| 6 | The calibration package is missing, is refused by the validation of CA-9 (schema `LFC1`, 20.5), or its model hash does not match the loaded file. One package serves both scorers, so there is no fallback to the other scorer | MANUAL\_ONLY: no `Engine` is created, so nothing is classified; manual conversion needs no calibration. A failed update leaves the previous valid package active (row 12) | A notice |
+| 7 | The layout of the active pair is not identified: its fingerprint (13.7) matches no supported table, the table of the pair is missing or fails its round-trip self-test, the input source is not a keyboard layout, or the layout cannot be read | OFF for that layout, and for the pair until a supported layout is active again | The status icon says "layout not supported" |
 | 8 | The text interface is unavailable (permission revoked, API error) or the gate cannot be established | The gate is UNKNOWN: nothing is recorded; the hotkey only shows a notice | A notice with the way to restore the permission |
 | 9 | Watchdog: the p99 compute time of the decision exceeds its budget (7.5) for 100 consecutive words | MANUAL\_ONLY until restart or until the user re-enables AUTO | A notice |
-| 10 | A replacement incident (13.2, step 6) | The application is quarantined (DENY) | A notice; a counter |
+| 10 | A replacement incident: the outcome of 13.2 is RESTORED or UNRECOVERED | The application is quarantined (OFF for it, automatic and manual) until restart or until the user re-enables it | A notice; a counter. After UNRECOVERED the notice says that the field may differ from what was typed and that the application's own undo is the way back |
 | 11 | An unhandled exception in the worker | The current word is KEEP; the worker restarts once; a second failure within 60 seconds gives MANUAL\_ONLY | A notice after the second failure |
 | 12 | A package update fails signature or hash verification | The previous package stays active | A notice |
+| 13 | The event stream is incomplete. Windows: the hook was removed or is not installed, or it lost or invented a key. The independent Raw Input observer compares the signature (scan code, extended flag, direction) of every physical key event with the event that the hook reported; either may come first, tagged and other injected events are not compared, and an event without its counterpart after 300 ms is a loss (canary\_missing: a key the hook did not report; canary\_extra: a hook key the observer did not see), even when the two counts are equal. macOS: the tap was disabled (`tapDisabledByTimeout`, `tapDisabledByUserInput`) or a poll finds it disabled | The word buffer, the run state and the undo snapshot are discarded (the engine receives a gap event); MANUAL\_ONLY until the stream is trusted again: Windows after the hook is installed again and 3 pairs of Raw Input and hook events with equal signatures; macOS after the tap is enabled again, at most 3 times in 60 seconds, after which MANUAL\_ONLY lasts until the user re-enables AUTO | A notice |
+| 14 | A permission needed to observe keys is missing or is revoked while the tool runs (macOS Input Monitoring; the hook cannot be installed on Windows) | OFF: nothing is recorded | A notice that names the permission and the way to restore it |
 
 A notice is shown at most once per cause and per 24 hours, and never takes focus.
 
@@ -1108,57 +1136,84 @@ A notice is shown at most once per cause and per 24 hours, and never takes focus
 
 | ID | Requirement |
 | --- | --- |
-| RT-1 | The key-event callback MUST return within 1 ms (p99), MUST pass the event on unchanged and at once (observe only), and MUST NOT call the model, the accessibility API or the clipboard, allocate memory, or block. It reads the cached gate verdict (one atomic read) and nothing else from the OS. |
+| RT-1 | The key-event callback MUST return within 1 ms (p99), MUST pass the event on unchanged and at once (observe only), and MUST NOT call the model, the accessibility API or the clipboard, compute a layout fingerprint, allocate memory, or block. Besides the key it reads only constant-time, non-blocking state: the cached gate verdict (one atomic read) and the cached layout. On Windows it reads the HKL of the foreground thread (`GetForegroundWindow`, `GetWindowThreadProcessId`, `GetKeyboardLayout`) and looks it up in a cache keyed by the HKL value; an HKL without a cache entry is an unidentified layout (the key is not recorded) and the worker thread identifies it (13.7). On macOS the layout cache is updated by the input-source notification. |
 | RT-2 | No key MUST be stored, counted, classified or logged while the cached gate verdict is not ALLOW, and a word MUST be discarded unclassified if the fresh verdict at the decision point is not ALLOW (13.1). A test per supported OS and application class MUST demonstrate it with an instrumented build that counts stored keys, including a focus race (typing into a password field within 5 ms of focusing it) and a field whose type changes while typing. |
 | RT-3 | Guards in 13.1 MUST take priority over any model output and MUST be unit-tested one by one, and the priority matrix of 10.4 MUST be tested row by row. |
-| RT-4 | Every replacement MUST follow the transaction of 13.2 and MUST be verified. The end-to-end suite MUST show, in at least 100,000 automated replacements per OS across the verified applications, with typed-ahead keys and scripted bursts at three CPU load levels: 0 silent corruptions (divergences that step 5 did not detect), 0 unrepaired incidents, and at most 0.1% repaired incidents, all of them reported. |
-| RT-5 | Undo MUST restore the original keys exactly and MUST be invalidated by every context break of 13.2. |
+| RT-4 | Every replacement MUST follow the transaction of 13.2 and end in exactly one of its outcomes. **Automatic mode:** at least 100,000 automated replacements per OS across the applications with status AUTO (13.8), with typed-ahead keys, a selection made before the replacement, scripted bursts at three CPU load levels and the fault injection of RT-12, with the field read by an independent reader after each one: 0 UNRECOVERED, 0 silent corruptions (a divergence that step 5 did not detect), and at most 0.1% RESTORED, all reported. **Manual mode:** at least 10,000 replacements per application with status MANUAL (13.8), with the method that application uses (M1 or M2): 0 UNRECOVERED and 0 silent corruptions (the 95% upper bound of the rate is then 3.0e-4); otherwise the application stays UNKNOWN. For M2 the report also gives, per application, how many user keys the test injected between the last look of step 3b and the first synthetic event, how many held-key repeats were present, and the outcome of each (the expected one is UNRECOVERED with a quarantine, never a silent VERIFIED), so that the width of the residual race of 13.2 is a measured number and not an assumption. The reference model of the transaction and its fault matrix are in section 20.14. |
+| RT-5 | Undo MUST restore the original keys exactly, rendered with the layout recorded with them, MUST add the word to the exception list, and MUST be invalidated by every context break of 13.2. The undo snapshot MUST end at 10 seconds, at 100 further printable keys and Spaces, at a gap in the event stream, at a change of the gate, the mode or the layout, at sleep, lock, logout and exit, and at the undo itself (13.3, 13.4); each is a test. |
 | RT-6 | No raw typed content MUST be persisted or transmitted; diagnostics MUST be opt-in and content-free. |
-| RT-7 | An unhandled error before step 4 of the transaction MUST result in no action. An error after step 4 began MUST end in verification and rollback, and if that fails in an incident report and quarantine; it MUST NOT leave partial text silently. |
-| RT-8 | The decision MUST be made on a worker thread. The hook MUST NOT delay, hold, swallow or replay a user key, and the tool MUST NOT inject a key except as part of a tagged replacement. |
-| RT-9 | The gate MUST default to deny: ALLOW only for an element positively established as in 13.1, and only in an application on the verified list of 13.8. |
+| RT-7 | An unhandled error before step 4 of the transaction MUST result in no action. An error after step 4 began MUST end in the outcome RESTORED or UNRECOVERED of 13.2 with the notice, the incident counter and the quarantine; it MUST NOT leave partial text without a report. No outcome other than VERIFIED is ever silent. |
+| RT-8 | The decision MUST be made on a worker thread. The hook MUST NOT delay, hold, swallow or replay a user key, and the tool MUST NOT inject a key except as part of a tagged replacement in MANUAL\_ONLY mode. |
+| RT-9 | The gate MUST default to deny: ALLOW only for an element positively established as in 13.1, and only in an application whose status in 13.8 is MANUAL or AUTO. |
 | RT-10 | Every synthetic event of the tool MUST carry the tag of 13.7, the recorder MUST ignore tagged events, and a test MUST show that the output of a replacement never re-enters the recorder. |
 | RT-11 | The hotkey MUST be registered through the OS hotkey interface, MUST NOT reach the application, and a registration conflict MUST follow the fallback procedure of 13.3 and be shown to the user. |
-| RT-12 | Every row of the failure table of 13.5 MUST be implemented and tested. |
-| RT-13 | The release MUST ship a support matrix (13.8) in which every ALLOW application has a passing RT-4 suite on the release candidate; every other application is UNKNOWN. |
+| RT-12 | Every row of the failure table of 13.5 (14 rows) MUST be implemented and tested, and every cell of the fault matrix of section 20.14 MUST have a test with its expected outcome and safe state. |
+| RT-13 | The release MUST ship a support matrix (13.8) in which every application with status AUTO has a passing automatic suite of RT-4 and every application with status MANUAL a passing manual suite on the release candidate; every other application is UNKNOWN. The release report states, for every OS, how many of the tested applications reached AUTO, how many MANUAL\_ONLY and how many OFF; testing the applications of 13.8 is not a claim that AUTO works in all of them, and the user-facing description of the product states the AUTO coverage actually measured. |
 | RT-14 | A layout change inside a word MUST drop the word, and no correction MUST be made for it (13.2). |
+| RT-15 | A layout MUST be identified by its fingerprint (13.7), computed on the worker thread with the call that leaves the keyboard state unchanged, and re-identified whenever the HKL of the foreground thread changes. Tests: (a) the fingerprints of the supported layouts equal the tables of 19.1; (b) other layouts of the same language (Russian - Mnemonic, Russian (Typewriter), United States-International) are not identified and give row 7 of 13.5; (c) the key-state array is built by the tool (Shift as needed, Caps Lock and all other modifiers off), the virtual key and the scan code are taken for the same HKL, and a negative return value is recorded as the entry `\x00`; (d) after the 94 calls of a fingerprint, a dead-key sequence typed by the user (for example `'` then `a` on United States-International) still gives `á` and the keyboard state is unchanged. |
+| RT-16 | Delivery of real key events MUST be measured on every OS: a generator of physical keystrokes that is not the tool's own injection sends at least 1,000,000 key events, and the events seen by the hook (Windows) or tap (macOS) and, on Windows, by the independent Raw Input observer, MUST show 0 lost and 0 extra events, compared one by one by signature (scan code, extended flag, direction) and not only by count, because one lost and one extra event cancel in a count. A hook deliberately made slower than `LowLevelHooksTimeout`, and a tap disabled by the system, MUST be detected within 300 ms and answered as in row 13 of 13.5. The reference model proves this property only for the algorithm (invariant I1 and the HookHealth tests of 20.13). |
+| RT-17 | The product's own crash handler MUST NOT contain the word buffer or the undo snapshot. A test crashes the process while a snapshot is alive, using a marker string that was typed, and searches the report and every dump the product wrote: 0 occurrences. Dumps made by the operating system or an administrator are outside the product (13.4). |
+| RT-18 | The mode of an application MUST be the value of `engine_mode` (20.14) for the facts of 13.5. The mode AUTO MUST NOT be reachable for an application whose adapter lacks any of `READ_RANGE`, `REPLACE_RANGE`, `READBACK`, `ROLLBACK`, whatever its status in 13.8 says, and M2 MUST NOT run automatically. A test enumerates all combinations of the five capabilities, the three statuses and the health facts against the reference function. |
 
 ### 13.7 Platforms, mechanisms and the first release
 
-**Scope of the first release:** Windows 10/11 x64 and macOS 13+ (Apple Silicon and Intel). **Linux is not in the first release.** It needs its own column in the table below and its own test matrix: Wayland restricts global key capture, X11 would use XInput2 or XRecord, and IBus or fcitx engines are a different architecture. The engine (sections 5 to 12 and 20) is OS-independent; only the adapter described here is per OS.
+**Scope of the first release:** Windows 10 version 1607 or newer, x64 (the layout fingerprint needs the `ToUnicodeEx` flag that leaves the keyboard state unchanged, documented from this version), and macOS 13+ (Apple Silicon and Intel). **Linux is not in the first release.** It needs its own column in the table below and its own test matrix: Wayland restricts global key capture, X11 would use XInput2 or XRecord, and IBus or fcitx engines are a different architecture. The engine (sections 5 to 12 and 20) is OS-independent; only the adapter described here is per OS. A cell that names a spike (S-1 to S-7, 16.1) is a hypothesis until the spike has a result, and the feature it supports stays off until then. The sources of the API statements, with quotes, are in the audit report `audit/L4_platform_api_audit.md` of the repository.
 
 **Integration type: a user-space background application** with a listen-only global key observer, an accessibility or UI-automation text adapter, and a hotkey registration. It is not an input method (TSF, Input Source, IBus): an input method changes which keys the application receives, which the observe-only rule of 13.2 rules out.
 
-| Function | Windows 10/11 x64 | macOS 13+ |
+| Function | Windows 10 (1607+) and 11, x64 | macOS 13+ |
 | --- | --- | --- |
-| Event capture | `SetWindowsHookEx(WH_KEYBOARD_LL)` on a dedicated thread with a message loop; the callback calls `CallNextHookEx` and returns | `CGEventTapCreate`, session tap, listen-only, for key down, key up, flags changed and mouse down (context breaks). Permission: Input Monitoring |
-| Physical key id | Scan code and extended flag of the hook structure, mapped to the 47 ids (section 19.1) | `kCGKeyboardEventKeycode` (ANSI position codes), mapped to the 47 ids |
-| Shift and Caps Lock | Shift from the tracked key state; Caps Lock toggle state from `GetKeyState(VK_CAPITAL)` | Event flags (shift, alpha-shift) |
-| Active layout | `GetKeyboardLayout` of the foreground thread, low word `0x0409` (English US) or `0x0419` (Russian), sampled at every key and at Space | `TISCopyCurrentKeyboardInputSource` on the main thread, kept in a cache updated by the selected-input-source-changed notification; ids `com.apple.keylayout.US`, `.Russian`, `.RussianWin` |
-| Gate and text interface | UI Automation: focused element, control type, `IsPassword`, `TextPattern` (read) around the caret, focus-changed event; Win32 edit and rich-edit controls through their messages | Accessibility API: focused element, role and subrole (`AXSecureTextField`), `AXSelectedTextRange`, `AXStringForRange`, focus-changed observer; `IsSecureEventInputEnabled()` |
-| M1, range replace | Only for Win32 edit and rich-edit controls (`EM_SETSEL`, `EM_REPLACESEL`); UI Automation text ranges are read-only | Set `AXSelectedTextRange`, then `AXSelectedText`, then restore the caret |
-| M2, synthetic keystrokes | `SendInput` with `KEYEVENTF_UNICODE` | `CGEventPost` with `CGEventKeyboardSetUnicodeString` |
-| Synthetic tag | The tool's 32-bit magic value in `dwExtraInfo` of every `INPUT` (the hook structure shows it, and the injected flag is set as well) | The tool's 64-bit magic value in `kCGEventSourceUserData` of every event |
-| Hotkey | `RegisterHotKey` | `RegisterEventHotKey` |
-| Privileges and distribution | Runs unelevated, so elevated windows and the secure desktop cannot be observed or edited and resolve to UNKNOWN; signed MSIX or MSI installer | Accessibility and Input Monitoring permissions (TCC), hardened runtime, notarised package; first-run flow of 13.9 |
-| Autostart | Per-user startup entry | Login item (`SMAppService`) |
+| Event capture | `SetWindowsHookEx(WH_KEYBOARD_LL)` on a dedicated thread that has a message loop. The callback copies the event to a queue, calls `CallNextHookEx` and returns, far inside `LowLevelHooksTimeout` (at most 1000 ms; from Windows 7 a slower hook is removed silently). Events with `LLKHF_INJECTED` or `LLKHF_LOWER_IL_INJECTED` are not user keys: ours carry the tag, any other injected event is not recorded and is a context break. Whether Raw Input becomes the primary source is decided by spike S-1 | `CGEventTapCreate` with the **session** tap location (`kCGSessionEventTap`) and the **listen-only** option (`kCGEventTapOptionListenOnly`), for key down, key up, flags changed and mouse down (context breaks). Never an active (default) tap and never the HID location (root only). Permission: Input Monitoring |
+| Event-stream health | An independent observer: a message-only window registered with `RegisterRawInputDevices` for the keyboard with `RIDEV_INPUTSINK` (the window handle is required), which gets `WM_INPUT` for physical keys also in the background (`RIM_INPUTSINK`) and passes every `WM_INPUT` to `DefWindowProc`. Every physical key event is compared with the event of the hook by signature (scan code, extended flag, direction); either may come first, and injected events are not compared. An event without its counterpart after 300 ms, either a key the hook did not report or a hook key the observer never saw, means that the hook lost the stream: row 13 of 13.5 (reasons canary\_missing and canary\_extra, HookHealth of 20.14). Comparing counts would not do, because one lost and one extra event cancel. The hook is installed again and trusted after 3 pairs with equal signatures. This process registers the keyboard class in this one window only: Microsoft states that only one window per raw input device class may be registered to receive raw input within a process (confirmed in the audit report, card W5e), so no other component of the product registers Raw Input. If the registration fails, the mode is at most MANUAL\_ONLY. Spike S-3 measures the conflict rule and whether input of an elevated window is delivered | `tapDisabledByTimeout` and `tapDisabledByUserInput` arrive in the callback as out-of-band events. The handler discards buffer, run state and undo snapshot (a gap event) and calls `CGEventTapEnable(tap, true)`, at most 3 times in 60 seconds. A timer every 5 seconds checks `CGEventTapIsEnabled` and `CGPreflightListenEventAccess`; a failure is the same loss. Access can be revoked while the trust API still answers yes, so an inconclusive poll creates and releases a listen-only test tap |
+| Physical key id | Scan code and extended flag of `KBDLLHOOKSTRUCT`, mapped to the 47 ids (section 19.1) | `kCGKeyboardEventKeycode`, mapped to the 47 ids. That these codes do not depend on the input source is checked on the Russian - PC layout by spike S-6 |
+| Shift and Caps Lock | Shift from the tracked key state. Caps Lock is the tool's own state: read once with the low-order bit of `GetKeyState(VK_CAPITAL)` at start, at every focus change and after resume, and flipped at every Caps Lock key-down the hook sees; `GetKeyState` follows the thread's message queue, not the hardware, so a mismatch with it at a word boundary drops the word | Event flags (shift, alpha-shift) |
+| Active layout and its identification | The HKL of the foreground thread is read for every key (`GetKeyboardLayout`). The language id in its low word names a language, never a layout, and `GetKeyboardLayoutName` answers only for the calling thread, so neither decides. The layout is **identified by its fingerprint**, computed on the worker thread the first time an HKL is seen: for each of the 94 key states (47 keys, Shift off and on; Caps Lock and every other modifier off) one call of `ToUnicodeEx` with the virtual key and scan code of that HKL, a key-state array built by the tool, `dwhkl` = the HKL and `wFlags` = 4 ("keyboard state is not changed"); a negative result is a dead key and gives the entry `\x00`. The fingerprint is the SHA-256 of the 94 entries joined by line feeds (`layout_fingerprint`, 20.14) and is compared with the fingerprints of the supported tables (`identify_layout`). No match: row 7 of 13.5. The result is cached by HKL value. That `GetKeyboardLayout` works for another process's thread, and that `ToUnicodeEx` accepts that HKL, are not documented: spike S-2; if either fails the layout is not identified and the pair stays OFF. KLID values (`00000409`, `00000419`) are for diagnostics only and take no part in any decision: the mode follows from the fingerprint alone | A cache updated by the selected-input-source notification (`TISCopyCurrentKeyboardInputSource` on the main thread). The source must be a keyboard layout; an input method or any other source gives OFF for the pair. A layout is supported only when its fingerprint (94 entries; the mechanism is selected by spike S-6, see below: from `UCKeyTranslate`, or from `NSEvent.characters(byApplyingModifiers:)` if spike S-6 shows that `UCKeyTranslate` must be replaced; Shift off and on; dead keys give `\x00`) equals the table of 19.1. The ids `com.apple.keylayout.US` and `.RussianWin` ("Russian - PC") are only a pre-filter and never grant support. The macOS layout "Russian" has a different punctuation table and is **not supported** in the first release |
+| Gate and text interface | UI Automation: focused element, control type, `IsPassword` (TRUE: DENY), `TextPattern` to read the text around the caret (the pattern is for reading; a change of text is another pattern), focus-changed event; Win32 edit and rich-edit controls through their messages | Accessibility API: focused element, role and subrole (`AXSecureTextField` is examined as both), `AXSelectedTextRange`, `AXStringForRange`, focus-changed observer. `IsSecureEventInputEnabled()` is a **global** signal: while any process has secure event input on, the OS stops passing keyboard events to event taps (Apple technical note TN2150), so every application is DENY. It does not say which field is secure, and its absence does not prove that a field is not secure |
+| M1, range replace (capability `REPLACE_RANGE`) | Win32 edit and rich-edit controls: `EM_SETSEL` and `EM_REPLACESEL` (the replacement can be made undoable), read-back with `EM_GETTEXTRANGE` or `WM_GETTEXT`, rollback with the same messages; their behaviour across processes is checked by spike S-4. UI Automation `ValuePattern.SetValue` "sets the value of the element" and needs an enabled, not read-only element; it is **not** a range replacement by itself (table below) | Set `AXSelectedTextRange`, then `AXSelectedText`, then restore the caret: three calls, and the API gives no atomicity against user keys. `REPLACE_RANGE` is declared for a control class only when its RT-4 suite passes with concurrent typing |
+| M2, synthetic keystrokes (hotkey only, never automatic) | One `SendInput` call with `KEYEVENTF_UNICODE` events (a `VK_PACKET` keystroke, `wVk` = 0, the character in `wScan`). Within one call the events are not interspersed with other input. Not guaranteed: that all events are inserted (the return value is the count), that an elevated window accepts them (UIPI blocks them without saying so), that pressed keys do not interfere (Shift, Ctrl, Alt or a Windows key down aborts with `modifier_down`) | `CGEventPost` with `CGEventKeyboardSetUnicodeString`, at most 20 UTF-16 code units per event (an engineering limit, spike S-7). The events are separate, so a user key can fall between them |
+| Synthetic tag | The tool's 32-bit magic value in `dwExtraInfo` of every `INPUT` (the hook structure carries `dwExtraInfo`, and the injected flag is set as well) | The tool's 64-bit magic value in `kCGEventSourceUserData` (a documented 64-bit field). Whether the tap callback sees it for the tool's own events is checked by spike S-7 |
+| Hotkey | `RegisterHotKey`; registration can fail when the combination is taken, and `WM_HOTKEY` is posted to the registering thread. The page does not say that the key is withheld from the application: spike S-5 | `RegisterEventHotKey`; needs the declaration from a named SDK and a test of registration, conflict and release on each release version (spike S-5) |
+| Privileges and distribution | Runs unelevated, so elevated windows and the secure desktop cannot be observed or edited and resolve to UNKNOWN; signed MSIX or MSI installer | Input Monitoring (observing), Post Event (M2), Accessibility (AX text interface): three permissions, requested one by one (AP-1); hardened runtime, notarised package; first-run flow of 13.9 |
+| Autostart | Per-user startup entry | Login item (`SMAppService`, macOS 13+) |
 
-Each cell has a test in the end-to-end suite. On Windows the common path is M2 with verification through UI Automation, because most modern controls do not allow range replacement; on macOS M1 is the common path. A function that cannot be provided in some application or OS version makes the gate UNKNOWN for it (13.1); it is never emulated by guessing.
+Each cell has a test in the end-to-end suite. The caret query reports the position of an empty selection and fails with an error when the selection is not empty; the reference model has the position only, so what real controls do with a selection is covered by the integration tests of RT-4. The mechanism of the macOS fingerprint is not fixed here but selected by spike S-6: Apple's page on UCKeyTranslate is reported to advise against its use in applications and to name NSEvent.characters(byApplyingModifiers:) as the alternative (status UNVERIFIED in the audit report, card M7), while that method translates the characters of an existing key event with other modifiers (card M7b), so S-6 must show for each candidate that all 94 characters of the layout of the pair, and not only of the active input source, can be obtained. A function that cannot be provided in some application or OS version makes the gate UNKNOWN for it (13.1) or lowers its mode (13.5); it is never emulated by guessing. On macOS M1 is the usual path and the automatic one. On Windows automatic correction is expected to be possible in few applications at first (classic edit controls, and the control classes that pass the table below); most modern controls will be MANUAL until a range replacement with a verified rollback is shown for them, and the evaluation report D6 says so openly, with the number of applications per OS in each of the modes AUTO, MANUAL\_ONLY and OFF. The 15 applications of 13.8 are the test set and not a promise that AUTO works in all of them.
+
+**Capabilities.** An adapter declares, per control class, which of five capabilities it has. The mode of an application follows from them (reference function `engine_mode`, section 20.14).
+
+| Capability | Meaning |
+| --- | --- |
+| `READ_RANGE` | The text of a character range of the focused element can be read |
+| `REPLACE_RANGE` | A range can be replaced by one adapter operation (M1) with the caret and selection kept. Whether the application can interleave a user key with it is measured by RT-4, not assumed |
+| `READBACK` | The whole fragment, the caret and the selection can be read again after the write |
+| `ROLLBACK` | The original text can be written back by the same operation as the replacement |
+| `SYNTHETIC_INPUT` | Tagged synthetic keystrokes can be sent (M2) |
+
+**Mode rule.** AUTO needs `READ_RANGE`, `REPLACE_RANGE`, `READBACK` and `ROLLBACK` and the support status AUTO (13.8). M2 never gives AUTO: it has no rollback and a user key can follow any of its events. An application with `SYNTHETIC_INPUT` and `READ_RANGE` but without `REPLACE_RANGE` is MANUAL\_ONLY at best; an application that can write by neither method is OFF.
+
+**Write results by control class (spike S-4, and the evidence of the support matrix).** Each control class of each verified application is tested for five results, and only some of them grant a capability.
+
+| Result of the test | Meaning | Capability |
+| --- | --- | --- |
+| 1. The full value can be set | For example `ValuePattern.SetValue` succeeds | None by itself: a whole-field write can lose the caret, the selection and the formatting |
+| 2. A range can be replaced | An operation replaces exactly the recorded range and nothing else | `REPLACE_RANGE`, only together with result 3 and a rollback verified by test |
+| 3. Caret and selection are kept | After the replacement the caret and the selection are where they must be | Needed for result 2 |
+| 4. Read only | The text can be read, a write is refused or not supported | `READ_RANGE`; MANUAL through M2 only if the manual suite of RT-4 passes, otherwise UNKNOWN |
+| 5. Not supported | No text interface | None: UNKNOWN |
 
 ### 13.8 Support matrix and verified applications
 
-ALLOW is granted per application, identified by bundle identifier or by executable path and signature, and only for applications whose status is VERIFIED. A row becomes VERIFIED when the RT-2 and RT-4 suites pass in that application, on the release candidate, on the OS versions named in the report. Every other application is UNKNOWN. The list below is the proposed target list (open question 16.3); the evaluation report D6 fills in the status.
+The status is granted per application, identified by bundle identifier or by executable path and signature, never by window title. There are three statuses. **UNKNOWN** (the default): nothing is recorded, and the hotkey only shows a notice. **MANUAL**: the gate, the text interface and the replacement work in that application and its manual suite of RT-4 passed; the hotkey converts, and nothing is corrected automatically. **AUTO**: additionally the adapter has the four capabilities `READ_RANGE`, `REPLACE_RANGE`, `READBACK` and `ROLLBACK` for that control class (13.7) and its automatic suite of RT-4 passed. A status is set on the release candidate and names the OS versions of the report. It can never exceed what the capabilities allow (`engine_mode`, 20.14): an application whose only write method is M2 is at most MANUAL. A quarantine (13.5, row 10) takes the application to OFF until the user re-enables it. The list below is the proposed target list (open question 16.3); the evaluation report D6 fills in the status of each row.
 
 | Class | macOS targets | Windows targets | What the verification covers |
 | --- | --- | --- | --- |
-| Native editors | TextEdit, Notes, Pages | Notepad | Gate by text interface; M1 on macOS, M1 or M2 on Windows |
+| Native editors | TextEdit, Notes, Pages | Notepad | Gate by text interface; M1 on macOS (the usual AUTO path); on Windows M1 in Win32 edit controls and M2 for the hotkey elsewhere |
 | Mail and office | Mail, Microsoft Word, Microsoft Outlook | Microsoft Word, Outlook, OneNote, LibreOffice Writer | Text interface readable; password and ordinary fields told apart |
 | Browsers | Safari, Chrome, Firefox | Chrome, Edge, Firefox | Accessibility active; three reference pages per browser (plain textarea, rich-text editor, login form with a password field); `IsPassword` or `AXSecureTextField` reported |
 | Chat and notes | Messages, Telegram, Slack, Discord, Obsidian, Notion | Telegram Desktop, Slack, Discord, Microsoft Teams, Obsidian, Notion, WhatsApp Desktop | Same as browsers for Electron applications; native chat windows by text interface |
 
-That is 15 applications per OS. A release needs at least 10 VERIFIED per OS; with fewer, it does not ship for that OS. Always UNKNOWN or DENY, whatever the tests say: terminals, IDEs, remote-desktop and VM clients, password managers, games, editors that draw their own text without a text interface, and elevated windows.
+That is 15 applications per OS. A release needs at least 10 applications with status MANUAL or AUTO per OS; with fewer, it does not ship for that OS. For every OS the report gives next to it the number of applications with status AUTO (mode AUTO), with status MANUAL (mode MANUAL\_ONLY) and UNKNOWN or quarantined (mode OFF). The number with status AUTO is not promised: on Windows it may be small at first (13.7), and the product description states the figure that was measured. Always UNKNOWN or OFF, whatever the tests say: terminals, IDEs, remote-desktop and VM clients, password managers, games, editors that draw their own text without a text interface, and elevated windows.
 
-**Fail-safe summary.** A missing permission, an unreadable element, an unlisted application, an unresolved focus change and a failed query all produce UNKNOWN, and UNKNOWN records nothing. The only way to get automatic correction in an application is a passing test in that application.
+**Fail-safe summary.** A missing permission, an unreadable element, an unlisted application, an unresolved focus change and a failed query all produce UNKNOWN, and UNKNOWN records nothing. The only way to get the hotkey in an application is a passing manual suite there, and the only way to get automatic correction is a passing automatic suite there with an adapter that has all four capabilities.
 
 ### 13.9 The application layer
 
@@ -1168,7 +1223,7 @@ The runtime library (D8) is not the product. The requirements below cover what t
 | --- | --- | --- |
 | AP-1 | First run and permissions | The first screen says what is observed (keystrokes in text fields, processed on the device, never stored or sent, 13.4) and asks for the OS permissions one at a time, each with a link to the right system settings pane. Until all are granted the state is OFF and the status icon names the missing permission. The user can quit from this screen |
 | AP-2 | Status and control | A menu-bar or tray icon always shows one of Active, Paused, Manual only, Off. One click pauses (the gate becomes DENY, so nothing is recorded). "Pause for this application" adds it to the application list |
-| AP-3 | Layout pair | Detected from the installed input sources: when exactly one supported English layout and one supported Russian layout are installed, that pair is used; otherwise the user chooses; an unsupported variant switches the tool off for it with the notice of failure row 7 |
+| AP-3 | Layout pair | Detected from the installed input sources, where supported means that the fingerprint equals the table (13.7): when exactly one supported English layout and one supported Russian layout are installed, that pair is used; otherwise the user chooses; an unsupported variant switches the tool off for it with the notice of failure row 7 |
 | AP-4 | Settings | Automatic correction on or off; hotkey (with the conflict procedure of 13.3); "Esc also undoes" per application; application list with the reason for each entry (blacklist, quarantine) and a re-enable button; exception list (view, delete one entry, clear all, export); start at login; diagnostics opt-in; update channel; reset |
 | AP-5 | Storage and migration | Settings and the exception list live per user in the OS's application-data directory as one versioned file with a `schema_version`. A newer version migrates an older file forward after making a backup copy; an unreadable file is renamed and replaced by defaults with a notice. "Reset" restores defaults; "Delete all data" removes settings, exceptions and diagnostics. The exception list is encrypted with the OS key store (13.3) |
 | AP-6 | Install and uninstall | A signed installer or package, per user and without elevation where the OS allows. The uninstaller removes the application, its login item or startup entry and, on request, all user data, and leaves no hook or helper process running |
@@ -1186,13 +1241,13 @@ The seven questions in the brief cover the model; the parameters below decide wh
 
 | Parameter | Specified default | Why it matters and how it is verified |
 | --- | --- | --- |
-| Layout variants | Tables generated per OS and variant: Windows "Russian"; macOS "Russian" and "Russian - PC"; Linux (deferred, section 13.7) XKB `ru`; US QWERTY. ISO keyboards add one key | Punctuation placement differs between variants (section 5.4). A round-trip test per variant, and a golden test of the seven punctuation keys that carry Russian letters |
+| Layout variants | Tables generated per OS and variant: Windows "Russian"; macOS "Russian - PC" only (the macOS layout "Russian" is not supported in the first release); Linux (deferred, section 13.7) XKB `ru`; US QWERTY. ISO keyboards add one key | Punctuation placement differs between variants (section 5.4). A round-trip test per variant, and a golden test of the seven punctuation keys that carry Russian letters. A variant is identified by its fingerprint, not by its name (13.7, RT-15); a variant that matches no table is detected and the tool is OFF for it |
 | Latin layouts other than US QWERTY | Out of scope. Detected and the tool is disabled for that layout pair | Dvorak, Colemak, AZERTY and QWERTZ change the physical position of Latin letters, so key tokens trained on QWERTY positions would be wrong. Supporting them needs a per-pair canonical key table and its own training run |
 | Cyrillic layouts other than ЙЦУКЕН | Out of scope (phonetic Russian, Ukrainian, Belarusian). Detected and disabled | Not a key-for-key permutation of QWERTY. The layout abstraction allows adding a pair later |
-| Caps Lock and Shift | Store both raw; apply case per target layout (section 5.1) | On the Russian layout Caps Lock capitalises `ж э х ъ б ю`; on the English layout it does not capitalise `; ' [ ] , .`. Test cases for `GHBDTN`, `Ghbdtn`, `gHBDTN` |
+| Caps Lock and Shift | Store both raw; the token bit is raw Shift XOR (Caps Lock AND key in the 33-key set L), and the case of rendered text is applied per target layout (sections 5.1 and 20.2) | On the Russian layout Caps Lock capitalises `ж э х ъ б ю`; on the English layout it does not capitalise `; ' [ ] , .`. Test cases for `GHBDTN`, `Ghbdtn`, `gHBDTN` |
 | Dead keys, AltGr, compose | Candidate is ineligible | Not representable as one of 47 key positions |
 | Layout change mid-word | Drop the word: its keys came from two layouts, so nothing is converted and nothing is replayed (sections 5.3 and 13.2) | One layout id cannot render keys typed under two layouts, so any conversion would be a guess. Traple translates at decision time; this specification does not. Verified by RT-14 |
-| Active layout source | Read from the OS on every word; never inferred | A wrong layout label inverts the action |
+| Active layout source | Windows: the HKL of the foreground thread on every key; macOS: the input-source cache; identified by fingerprint in both cases (13.7); never inferred | A wrong layout label inverts the action |
 
 ### 14.2 Typing behaviour
 
@@ -1246,12 +1301,12 @@ A model without its data manifest, calibration tables and test evidence cannot b
 | --- | --- | --- | --- |
 | D1 | Layout tables for every supported OS and variant, generated from the OS, with the round-trip test | Versioned JSON plus test code | 0 round-trip failures over all 94 key states per variant; golden test of the seven letter-keys passes (section 14.1) |
 | D2 | Data pipeline and manifest | Code, config and a manifest (source, licence, hash, filters, split ids) | A clean checkout rebuilds the identical manifest from a seed (DT rules, section 8.7) |
-| D3 | Statistical baseline: lexicon and n-gram tables | Binary tables with a build script | Meets the baseline row of the evaluation report; its size and latency are reported (section 7.5) |
+| D3 | Statistical baseline: lexicon, acronym list and n-gram tables | Binary tables with a build script | Meets the baseline row of the evaluation report; its size and latency are reported (section 7.5) |
 | D4 | Trained network | PyTorch checkpoint, ONNX FP32 file, and an INT8 file only if section 12 requires it | Passes EV-1 to EV-15 or loses to D3 under EV-12 |
-| D5 | Calibration package | One versioned JSON: temperature, class priors, deployment-prior table, threshold table by direction and length, allow-list, acronym list | Fitted on validation only (CA-1 to CA-6); hash stored with D4 |
-| D6 | Evaluation report | Generated document with every slice of section 11.4, confidence intervals and the seed spread | Produced by one command; contains the manifest hashes of the data it ran on |
+| D5 | Calibration package | One JSON of the strict schema LFC1 (20.5): a scalar temperature per scorer kind, the integer class counts pi\_train\_counts with the pi\_train derived from them, o\_lat, w per word state (the value w\_ship of 10.2), the threshold table in nats for both scorer kinds, both directions and all length buckets, the two-key allow-lists, the model hash; no other field | Fitted on validation only (CA-1 to CA-6); refused whole by the load check of CA-9 on any defect; hash stored with D4 |
+| D6 | Evaluation report | Generated document with every slice of section 11.4, confidence intervals and the seed spread | Produced by one command; contains the manifest hashes of the data it ran on, the latency of phases P1 to P7 (7.5) per device, application and method, the support matrix with the status of every application (13.8), the interval of w with the stored w\_ship and the sensitivity report (10.2), and the evidence level of each requirement (16.1) |
 | D7 | Benchmark harness | C or C++ micro-benchmarks and an ONNX Runtime script | Reports p50, p95, p99 per stage on each reference device (section 7.5) |
-| D8 | Runtime library | Hook, buffer, guards, replacer, undo (section 13) | RT-1 to RT-8 pass, including the end-to-end suite |
+| D8 | Runtime library | Hook, buffer, guards, replacer, undo (section 13) | RT-1 to RT-18 pass, including the end-to-end suite |
 | D9 | Model card | Two pages | Intended use, data sources and licences, known failures (acronyms, names, short words), π assumptions, limits of the proxy numbers |
 | D10 | Release package | Signed, versioned bundle of D3, D4, D5 and the lexicon, with a rollback path | Staged rollout and one-step rollback demonstrated (section 14.5) |
 
@@ -1274,7 +1329,11 @@ A model without its data manifest, calibration tables and test evidence cannot b
 | Regression | Frozen stress sets (section 8.4) and the protected regression set | No category above 2 times the gate (EV-9); 0 corrections of protected content (EV-2) |
 | Acceptance | Locked R-ACC (section 8.4) | EV-1 to EV-13, evaluated once per release candidate (section 11.6) |
 | Performance | Latency, memory, CPU share on each reference device | Section 7.5 gates; EV-14 |
-| End to end | At least 15 applications per OS, scripted bursts at three CPU load levels, undo and cool-down, secure fields | RT-1 to RT-8; 0 lost or duplicated characters in 100,000 replacements (RT-4, EV-15) |
+| Latency by phase | Phases P1 to P7 of 7.5 on each reference device, per application and method | p50, p95 and p99 of every phase in D6; the sum meets 7.5; EV-21 |
+| Fault injection | Each phase of the replacement transaction (13.2) against the simulated field of 20.14: loss of focus, gate change, application autocorrect, partial write, timeout, read-back mismatch, a user key between read and write, hook loss, revoked permission; single and double faults | The expected outcome and mode of every case (20.13); the invariants of 20.13 hold in 1,000,000 random event sequences; each case that a real application can produce also has an end-to-end test (RT-4, RT-16) |
+| Platform spikes | S-1 to S-7 of 13.7 on the real operating systems | One filed report per spike with measurements; a hypothesis of 13.7 changes only by a recorded decision |
+| Independent implementation | The tables, prose and vectors of this document implemented again, by someone who has not read the code of section 20 | Every normative vector reproduced (all of them, not a share); each difference is a defect of the text |
+| End to end | At least 15 applications per OS, scripted bursts at three CPU load levels, undo and cool-down, secure fields | RT-1 to RT-18; in every AUTO application 0 UNRECOVERED outcomes and 0 silent divergences in 100,000 replacements (RT-4, EV-15); 0 lost or duplicated key events in 1,000,000 (RT-16) |
 | Soak | 24 hours of simulated typing | Memory flat within 2%; no watchdog trips; no leaked key content in memory dumps after a word boundary |
 | Privacy | Search logs, crash dumps and the file system after a scripted session | 0 occurrences of typed content (RT-6) |
 
@@ -1286,6 +1345,8 @@ A model without its data manifest, calibration tables and test evidence cannot b
 | EV-17 | The continuous-integration gate on every change MUST run the unit, property, parity and regression levels. Acceptance and end-to-end levels run per release candidate. |
 | EV-18 | The release MUST NOT ship if the model card lacks the π assumption, the known failure list or the data licences. |
 | EV-19 | A bug found in the field MUST be turned into a regression test before the fix is released. |
+| EV-20 | Every statement of readiness in a report or an audit MUST name its evidence level (TEXT\_FIXED, REFERENCE\_VERIFIED, INTEGRATION\_VERIFIED or RELEASE\_GATE\_PASSED, 16.1). A level is never inferred from a lower one, and a proxy result is never reported as acceptance (11.7). |
+| EV-21 | The latency of phases P1 to P7 (7.5) MUST be measured and reported separately per device, application and method, and an optimisation of the network MUST be preceded by that report. |
 
 ## 16. Work plan, risks and open questions
 
@@ -1295,13 +1356,15 @@ The plan is ordered so that the cheapest evidence arrives first: a statistical b
 
 | Phase | Weeks | Work | Gate to leave the phase |
 | --- | --- | --- | --- |
-| 1. Foundations | 1–2 | Layout tables from the OS (D1); key tokeniser and segmentation; data pipeline and manifest (D2); evaluation harness with all slices of section 11.4; synthetic test sets; start recruiting users for the realistic set (section 8.5) | G1: round-trip tests pass; harness reproduces a known toy result; legal register has a licence entry for every source in use |
-| 2. Baseline and first network | 3–4 | Lexicon plus n-gram baseline (D3); key-token CNN trained and calibrated (D4, D5); EV-12 comparison on the synthetic and the first real data; final values of EV-4 and EV-5 fixed from the baseline run | G2: the baseline meets EV-1 on the synthetic set; the neural model is kept or dropped by EV-12; the latency tiers of section 7.5 are measured on both reference devices |
-| 3. Runtime and safety | 5–7 | Hook, buffer, guards, replacer, undo (D8); end-to-end suite on 15 applications per OS; early detection and the retroactive run fix evaluated as options (sections 10.5 and 14.2) | G3: RT-1 to RT-8 pass; 0 lost or duplicated characters in 100,000 replacements; secure-field tests pass |
-| 4. Opt-in dogfooding | 8–11 | At least 20 users, at least two weeks; R-CAL and R-ACC collected from disjoint users, R-ACC locked (section 8.4); π and run lengths measured (section 11.5); priors and thresholds re-fitted on R-CAL only; hard-negative mining on training sources only | G4: EV-1 to EV-13 pass once on the locked R-ACC (section 11.3); undo rate ≤ 0.5% (EV-11) |
+| 1. Foundations | 1–2 | Layout tables from the OS (D1); key tokeniser and segmentation; data pipeline and manifest (D2); evaluation harness with all slices of section 11.4; synthetic test sets; start recruiting users for the realistic set (section 8.5); platform spikes S-1, S-2, S-3 and S-6 of 13.7 (how keys are observed and which layout is active) | G1: round-trip tests pass; harness reproduces a known toy result; legal register has a licence entry for every source in use; each of the spikes S-1, S-2, S-3 and S-6 has a filed report, and every mechanism choice of 13.7 that a spike can change is confirmed or replaced by a recorded decision |
+| 2. Baseline and first network | 3–4 | Lexicon plus n-gram baseline (D3); key-token CNN trained and calibrated (D4, D5); EV-12 comparison on the synthetic and the first real data; final values of EV-4 and EV-5 fixed from the baseline run | G2-proxy, a proxy gate: on the synthetic sets and on R-CAL (never on R-ACC) the baseline reaches its false-positive target at its operating point, and the neural model is kept or dropped by a provisional EV-12 comparison on the same data. G2-proxy does not pass EV-1 or EV-12: those two are decided only at G4 on the frozen R-ACC; the latency tiers of section 7.5 are measured on both reference devices, phase by phase (P1 to P7) |
+| 3. Runtime and safety | 5–7 | Hook, buffer, guards, replacer, undo (D8); end-to-end suite on 15 applications per OS; early detection and the retroactive run fix evaluated as options (sections 10.5 and 14.2) | G3: RT-1 to RT-18 pass; in every application with status AUTO, 0 UNRECOVERED outcomes and 0 silent divergences in 100,000 replacements (RT-4); 0 lost or duplicated key events in 1,000,000 (RT-16); secure-field tests pass; spikes S-4, S-5 and S-7 have a filed report |
+| 4. Opt-in dogfooding | 8–11 | At least 20 users, at least two weeks; R-CAL and R-ACC collected from disjoint users, R-ACC locked (section 8.4); π and run lengths measured (section 11.5); priors and thresholds re-fitted on R-CAL only; hard-negative mining on training sources only | G4: EV-1 to EV-13 pass once on the locked R-ACC (section 11.3); EV-1 and EV-12 are decided here and nowhere earlier; undo rate ≤ 0.5% (EV-11) |
 | 5. Release | 12–13 | Signing and notarisation; model card (D9); staged rollout and rollback demonstrated (D10); legal review of share-alike sources | G5: all gates green; one-step rollback tested; EV-18 satisfied |
 
-A failed gate has a defined response. G2 failing EV-1 on the baseline means the data, not the model, is the next lever. G4 failing means the thresholds are raised and recall is reported honestly; the product ships in manual-convert plus suggestion mode until EV-1 is met.
+A failed gate has a defined response. G2-proxy failing its target on the baseline means the data, not the model, is the next lever. G4 failing means the thresholds are raised and recall is reported honestly; the product ships in manual-convert plus suggestion mode until EV-1 is met. A pass at G2-proxy means only that the design is worth continuing. The statement "EV-1 passed" is valid for one event, the G4 evaluation recorded in the R-ACC log (8.4).
+
+**Evidence levels.** A statement that a requirement is met always names one of four levels. `TEXT_FIXED`: the rule is stated in this document. `REFERENCE_VERIFIED`: the reference code of section 20, its vectors and conformance tests check it, reproducibly. `INTEGRATION_VERIFIED`: an adapter was tested on the target operating system and application. `RELEASE_GATE_PASSED`: the acceptance requirement was met on real data and on the reference devices. The reference code can show that its algorithm loses no event it is given; it cannot show that a real hook delivers every physical key, which is `INTEGRATION_VERIFIED` through RT-16. A higher level is never inferred from a lower one, and a described test is not an executed test.
 
 ### 16.2 Risks
 
@@ -1311,12 +1374,17 @@ A failed gate has a defined response. G2 failing EV-1 on the baseline means the 
 | R2 | Short words and acronyms are inherently ambiguous, so recall at a strict false-positive rate is limited | High (measured, section 18) | Missed corrections for 2–4 key words and for Russian acronyms typed on the English layout | Accept it: the manual hotkey and the run-based rule cover them; do not lower thresholds to chase recall |
 | R3 | No realistic data in time | Medium | EV-1 cannot be proven | Start recruiting in phase 1; ship in suggestion mode if the set is late |
 | R4 | The network does not beat the statistical baseline | Medium | Wasted training effort only | EV-12 chooses the baseline; the runtime already has it as the fall-back (section 13.5) |
-| R5 | Text injection fails in some applications (lost or duplicated characters) | High | Severity-1 defects | Verification and rollback (RT-4); application blacklist; the end-to-end matrix is a gate |
+| R5 | A replacement leaves the field wrong (partial text, lost or duplicated characters, text changed by the application) | High | Severity-1 defects | AUTO only with M1 and a verified rollback, M2 only on the hotkey (13.7); read-back, the outcomes VERIFIED, RESTORED and UNRECOVERED, and quarantine (13.2); application blacklist; the end-to-end matrix is a gate (RT-4) |
 | R6 | OS permissions and security software block the keystroke observer | Medium | Product unusable for a share of users | Signing, notarisation and a clear permission flow in the release checklist (section 13.4) |
 | R7 | Licences of training sources block release | Medium | Data must be replaced | Licence register from phase 1; unknown licence = research only (section 8.7) |
 | R8 | Latency target of the requester (100 ns) is taken as a requirement for the neural stage | Medium | Redesign pressure on a sound model | Section 7.5 explains what is and is not reachable; the table-look-up tier meets it, the network does not |
 | R9 | Vocabulary drift (slang, new brands) | Certain | False-positive and miss rates rise over time | Quarterly lexicon refresh, retrain at least every 6 months (section 14.3) |
 | R10 | Proxy-data numbers are mistaken for product numbers | Medium | Over-optimistic decisions | Every number from section 18 is labelled as proxy; the realistic set decides acceptance |
+| R11 | A Windows layout of the same language but another key table is taken for a supported one | Medium | Wrong conversions for users of a variant layout | The layout is identified by the fingerprint of its 94 key states, never by language id or name; no match is OFF for the pair (13.7, 13.5 row 7); spike S-2; RT-15 |
+| R12 | The key observer is removed or disabled without notice (Windows hook timeout, macOS tap disabled) | Medium | The engine works on a stream with missing keys and may convert a partial word | An independent observer on Windows, handling of the disable events and a heartbeat on macOS; a gap discards the word and lowers the mode (13.7, 13.5 row 13); spikes S-1 and S-3; RT-16 |
+| R13 | Few Windows applications offer a range replacement with a verified rollback | High | Automatic correction on Windows is available in few applications at first | Say so in D6; the other applications are MANUAL (13.8); spike S-4; a Text Services Framework prototype is a separate experiment (section 17), not a dependency of this release |
+| R14 | The integrity guarantee is read as unconditional | Medium | Loss of trust after an UNRECOVERED incident | Two guarantees stated separately (13.2): G-EVENT by design, G-FIELD as a measured property with a stated exposure; UNRECOVERED is reported and quarantines the application; RT-4 per application |
+| R15 | A proxy gate is read as acceptance (EV-1 on synthetic data) | Medium | A release decision on evidence that cannot carry it | G2-proxy is a proxy gate; EV-1 and EV-12 are decided only at G4 on the frozen R-ACC (16.1, 11.7); EV-20 requires the evidence level in every report |
 
 ### 16.3 Open questions for the requester
 
@@ -1641,6 +1709,35 @@ On the rare-word tail (ranks 100,000 to 200,000; 86,839 English and 94,648 Russi
 - **What V2 risks, and what the experiment cannot show.** The false positives of V2 are Russian-intended strings that the network does not recognise as Russian: acronyms, abbreviations, numbers with units, Cyrillic file names, rare names. The negatives of this experiment are dictionary words only, so the measured false-positive rate of V2 is optimistic for those strings. Section 5.2 therefore requires them in the protected regression set (EV-2), and the guards of section 13.1 apply on both readings.
 - Realised false-positive rates differed from their 1e-4 targets by a factor of 0 to 10 in single cells (section 18.1), so the ratios above are indications, not estimates. The direction of the result was the same for every model and every size, and for both the test words and the tail.
 
+### 18.9 The EV-1 rule under clustered errors (simulation L6)
+
+**Question.** EV-1 (11.3, 20.9) accepts a system when the point estimate of the false-positive rate is at most 4.8e-5 and the 95% upper bound, computed over error clusters, is at most 1e-4. Errors are not independent: a few users and a few documents produce most of them. Does the rule still refuse a system whose true rate is twice the limit when the errors cluster, and does it still accept a good system with the planned data size?
+
+**Method.** The test is a simulation with synthetic errors; it uses no real text and says nothing about the network. The criteria, the generator and the number of runs were written down before the first run (`spec/FIX_AND_AUDIT_PLAN_v3.1.md`, section L6) and the script `audit/L6_ev1_simulation.py` was not changed after a result was seen. It imports `ev1_pass` of 20.9, so the rule under test is the reference rule and not a copy. Each scenario has 10,000 runs, the run *i* uses the generator `numpy.random.default_rng(1000 + i)`, and the number of correct words is n = 100,000. Per user there are D = ceil(120 / U) documents, so there are at least 100 documents. The number of words per user and per document is log-normal (sigma 0.7 and 0.5) with the caps of 8.5 (one user at most 10% of the words, one document at most 2%), applied by clipping and renormalising until stable. The errors of a document are Poisson with the mean r · words · f\_user · f\_doc, where the factors f are gamma distributed with mean 1: *none* means f = 1; *moderate* means a dispersion of 2 (variance = mean + 2 · mean²) at both levels; *strong* means a dispersion of 10 at the document level and ceil(2% of U) heavy users who produce half of the expected errors. The true rate r is 2e-4, 1e-4, 5e-5 or 2e-5, and the number of users U is 20, 50 or 200.
+
+**Criteria, fixed in advance.** *False acceptance:* at r = 2e-4 the share of accepted runs is at most 5% and its Clopper-Pearson 95% upper bound at most 7%, for every U and every kind of clustering. *Power:* at r = 2e-5, moderate clustering, U of 50 or more and n = 100,000, the share of accepted runs is at least 80%; if it were not, the smallest n of the grid that reaches 80% would be reported, and the rule would stay as it is. The rates 1e-4 and 5e-5 are diagnostic: their shares are published and there is no criterion, because the point estimate edge of the rule is 4.8e-5 and a system that sits on it is accepted about half of the time by construction.
+
+| True rate | Users | none | moderate | strong |
+| --- | --- | --- | --- | --- |
+| 2e-4 | 20 | 0.0% | 0.9% | 2.3% |
+| 2e-4 | 50 | 0.0% | 0.2% | 3.5% |
+| 2e-4 | 200 | 0.0% | 0.1% | 2.3% |
+| 1e-4 | 20 | 2.9% | 10.6% | 15.2% |
+| 1e-4 | 50 | 3.0% | 7.8% | 18.9% |
+| 1e-4 | 200 | 2.8% | 4.9% | 17.8% |
+| 5e-5 | 20 | 42.6% | 43.0% | 43.8% |
+| 5e-5 | 50 | 43.5% | 40.9% | 48.7% |
+| 5e-5 | 200 | 42.9% | 40.3% | 49.0% |
+| 2e-5 | 20 | 93.3% | 85.8% | 79.5% |
+| 2e-5 | 50 | 94.2% | 86.2% | 80.8% |
+| 2e-5 | 200 | 94.0% | 88.3% | 80.6% |
+
+Share of accepted runs in each scenario (10,000 runs each).
+
+**Result.** The false-acceptance criterion is met: at twice the limit the largest share of accepted runs is 3.5% (strong clustering, 50 users) with an upper bound of 3.85%. The power criterion is met: with moderate clustering and 50 or 200 users the share is 86.2% and 88.3%; with strong clustering it is 80.8% and 80.6%. With 20 users and strong clustering it is 79.5%, which is outside the criterion (U of 50 or more) and is the reason the minimum of 20 users in EV-1 is a minimum and not a target. A system that sits exactly at the limit of 1e-4 is accepted in 3% to 19% of the runs, depending on the clustering, and a system at 5e-5 in about 40% to 49%.
+
+**What this does and does not show.** It shows that the rule, with the data sizes of 11.3, does not accept a system at twice the limit more than a few times in a hundred even when the errors cluster strongly, and that it accepts a system at 2e-5 in most runs. It does not show that the real errors of the real system follow any of these distributions, that the corpus R-ACC has the cluster structure assumed here, or that the network passes EV-1; those are measured only by EV-1 itself on R-ACC (16.1). If a later change makes a larger n necessary, the false-acceptance criterion is run again for the new n before the rule is used with it. The results are in `audit/L6_ev1_simulation.json`; the script is run with `python3 L6_ev1_simulation.py` (about 5 minutes).
+
 ## 19. Appendices
 
 ### 19.1 Physical key map (ANSI US layout and Russian ЙЦУКЕН)
@@ -1729,6 +1826,14 @@ The map is the single source of truth for the mapper (section 5.4) and for the k
 | Word candidate | A run of keys that may be one word, after segmentation on keys (section 5.3). The unit that is classified and corrected |
 | Wrong-layout word | A word typed with the layout of the other language, for example `ghbdtn` for привет |
 | p50, p95, p99 | Percentiles of latency over warm, repeated calls (section 4.4) |
+| Capability | One of READ\_RANGE, REPLACE\_RANGE, READBACK, ROLLBACK, SYNTHETIC\_INPUT: what an OS adapter can do in one control class. The mode of an application is derived from them (section 13.7, reference function engine\_mode) |
+| Evidence level | TEXT\_FIXED, REFERENCE\_VERIFIED, INTEGRATION\_VERIFIED or RELEASE\_GATE\_PASSED: what a statement of readiness rests on (section 16.1) |
+| G-EVENT, G-FIELD | The two integrity guarantees of section 13.2: no physical key is lost, duplicated, held or replayed (by design); the field after a replacement holds the new text or the original text, and the outcome UNRECOVERED is reported and measured |
+| Layout fingerprint | SHA-256 of the 94 characters that a layout gives for the 47 keys with Shift off and on. The only way a layout counts as supported (section 13.7) |
+| Outcome of a replacement | VERIFIED (new text read back), RESTORED (original text read back after a failure), UNRECOVERED (anything else, including an unreadable range) or ABORTED (nothing was written); section 13.2 |
+| Quarantine | The state of an application after a replacement incident: its gate is DENY until restart or until the user re-enables it (section 13.5, row 10) |
+| Support status | UNKNOWN, MANUAL or AUTO: the result of the test suite of one application (section 13.8). It can never exceed what the capabilities allow |
+| w\_ship | The lower end of the 90% cluster-bootstrap interval of the observed wrong-layout rate; the value of w stored in D5 (section 10.2) |
 
 ### 19.3 References
 
@@ -1874,11 +1979,11 @@ int main(int argc,char**argv){
 
 ### 20.1 Status, assembly and interface
 
-**Status.** This section is normative (4.4). It is the executable form of every deterministic rule of sections 5, 7.7, 10 and 13: the key tables and tokens, segmentation, shape guards, calibration arithmetic, the priority matrix, the event machine, manual conversion, the EV-1 statistic, the baseline model and the two table formats. Where the prose of another section and this code disagree, the code and the vectors of 20.12 win, and the prose is a defect of the document that must be corrected. The classifier is injected as a function, so the same code runs with the network, with the baseline or with a stub.
+**Status.** This section is normative (4.4). It is the executable form of every deterministic rule of sections 5, 7.7, 10 and 13: the key tables and tokens, segmentation, shape guards, calibration arithmetic, the priority matrix, the event machine, manual conversion, the EV-1 statistic, the baseline model, the two table formats and, in 20.14, the adapter contract, the mode of the engine, the replacement transaction, the identification of a layout and the check that the stream of key events is complete. Where the prose of another section and this code disagree, the code and the vectors of 20.12 win, and the prose is a defect of the document that must be corrected. The classifier is injected as a function, so the same code runs with the network, with the baseline or with a stub.
 
-**What is not here.** The operating-system adapters (event capture, layout detection, the context gate, the replacement transaction) cannot be written as portable code. Sections 13.1, 13.2, 13.7 and 13.8 specify them, and the event machine of 20.7 is the interface they drive. Training is specified in section 9. The forward pass of the network in 20.11 is a slow reference for tests; the production runtime uses a native implementation that is checked against it.
+**What is not here.** The operating-system adapters themselves (event capture, layout detection, the context gate, the text interface of each application) cannot be written as portable code. Sections 13.1, 13.2, 13.7 and 13.8 specify them; the event machine of 20.7 and the contract of 20.14 (`Adapter`, `run_transaction`, `HookHealth`) are the interface they drive, and the algorithm of the replacement transaction is part of this reference. What the reference proves is the algorithm (evidence level REFERENCE\_VERIFIED, 16.1); what a real application does is proved only by the integration tests RT-1 to RT-18 on the real operating systems. Training is specified in section 9. The forward pass of the network in 20.11 is a slow reference for tests; the production runtime uses a native implementation that is checked against it.
 
-**Assembling the files.** The code blocks of 20.2 to 20.11 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them in order into one file; each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. The property tests of 20.13 are the third file, conformance.py; python conformance.py prints OK. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
+**Assembling the files.** The code blocks of 20.2 to 20.11 and the code block of 20.14 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them into one file in the order 20.2, 20.3, and so on up to 20.11, then 20.14 (20.12 and 20.13 hold other files and are skipped); each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. The property, negative and fault-injection tests of 20.13 are the third file, `conformance.py`; it is printed in three code blocks, which are written into the file one after the other. `python conformance.py` prints OK, and so does `python -O conformance.py`: neither the engine nor the tests rely on the `assert` statement, so no check disappears when Python is run optimised. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
 
 | Function or class | Part | Purpose |
 | --- | --- | --- |
@@ -1887,13 +1992,14 @@ int main(int argc,char**argv){
 | `shape_guard` | 20.4 | URL, e-mail, dotted name, camelCase and key-walk guards |
 | `score`, `deployment_prior`, `check_calibration_package`, `example_cal`, `cal_to_json`, `cal_from_json` | 20.5 | Temperature, priors, the score in nats, the calibration package |
 | `decide` | 20.6 | The priority matrix of 10.4 for one run |
-| `Engine` (`on_event`, `set_gate`, `undo`) | 20.7 | Buffer, run credit, resets, cool-down, decision at Space |
+| `Engine` (`on_event`, `set_gate`, `set_mode`, `on_outcome`, `undo`, `tick`) | 20.7 | Buffer, run credit, resets, cool-down, decision at Space, the undo snapshot; only the mode `AUTO` records and decides |
 | `manual_convert` | 20.8 | Pure key-for-key conversion of a selection |
 | `poisson_upper`, `ev1_bound`, `ev1_pass` | 20.9 | The EV-1 pass rule of 11.3 |
 | `WittenBell`, `baseline_logits`, `lfb_pack`, `lfb_load`, `lfb_logp`, `lex_key`, `lfl_pack`, `lfl_load` | 20.10 | The baseline of 7.7 and the formats `LFB1`, `LFL1` |
 | `lfw_pack`, `lfw_load`, `lfw_forward`, `toy_weights` | 20.11 | The format `LFW1`, a reference forward pass, deterministic toy weights |
+| `Adapter`, `SimField`, `AdapterError`, `engine_mode`, `classify_outcome`, `run_transaction`, `layout_fingerprint`, `identify_layout`, `HookHealth` | 20.14 | The adapter contract and its test double with fault injection, the mode of the engine, the replacement transaction and its outcome, the identity of a layout, the check that the key stream is complete |
 | vectors.py (script) | 20.12 | Golden vectors for every function above, printed as one JSON document |
-| conformance.py (script) | 20.13 | Property tests and the conformance checks CT-1 to CT-6 |
+| conformance.py (script) | 20.13 | Property, negative and fault-injection tests and the conformance checks CT-1 to CT-6 |
 
 **Order of implementation.** (1) Key tables, tokens and rendering (20.2), checked against the first vectors. (2) Candidate and shape guards (20.3, 20.4). (3) Calibration arithmetic and the priority matrix (20.5, 20.6) with a stub scorer. (4) The event machine (20.7) against the traces of 20.12. (5) The baseline tables of 7.7 and the EV-12 harness, so the baseline works alone before any network exists. (6) Network training (section 9) and export to `LFW1`. (7) The operating-system adapters of 13.7, macOS first, driving the event machine. (8) The application layer of 13.9. (9) The end-to-end suite of 15.3 and the acceptance run of section 11.
 
@@ -1920,7 +2026,8 @@ EN_SHIFT = "~!@#$%^&*()_+" + "QWERTYUIOP{}|" + 'ASDFGHJKL:"' + "ZXCVBNM<>?"
 RU_UNSHIFT = "ё1234567890-=" + "йцукенгшщзхъ\\" + "фывапролджэ" + "ячсмитьбю."
 RU_SHIFT = 'Ё!"№;%:?*()_+' + "ЙЦУКЕНГШЩЗХЪ/" + "ФЫВАПРОЛДЖЭ" + "ЯЧСМИТЬБЮ,"
 TABLE = {EN: (EN_UNSHIFT, EN_SHIFT), RU: (RU_UNSHIFT, RU_SHIFT)}
-assert all(len(s) == 47 for pair in TABLE.values() for s in pair)
+if not all(len(s) == 47 for pair in TABLE.values() for s in pair):   # explicit raise: asserts vanish under python -O
+    raise RuntimeError("key tables must have 47 entries")
 
 PAD, BOS, EOS, VOCAB = 0, 95, 96, 97
 MAX_KEYS = 20
@@ -1938,9 +2045,11 @@ def is_letter_in(layout: str, key_id: int) -> bool:
     return TABLE[layout][0][key_id].isalpha()
 
 
-# Keys that are a letter in at least one layout (33 of 47). Caps Lock flips Shift on exactly these in the token.
+# L = the keys that are a letter in at least one of the two layouts (33 of 47: 26 Latin letters, plus the seven
+# keys ` [ ] ; ' , . that are letters only in Russian). The model token applies Caps Lock to exactly the keys of L.
 LETTER_KEYS = frozenset(k for k in range(47) if is_letter_in(EN, k) or is_letter_in(RU, k))
-assert len(LETTER_KEYS) == 33
+if len(LETTER_KEYS) != 33:
+    raise RuntimeError("the letter-key set must have 33 members")
 
 
 def effective_shift(k: Key, layout: str) -> bool:
@@ -1957,7 +2066,14 @@ def render(keys: Sequence[Key], layout: str) -> str:
 
 
 def token(k: Key) -> int:
-    """Layout-independent model token 1..94 = 1 + 2*id + effective shift."""
+    """Model token 1..94 = 1 + 2*id + shift_bit, with  shift_bit = raw_shift XOR (caps AND id in L),  L = LETTER_KEYS.
+    The token must not depend on the layout that happened to be active, because the same physical key states are
+    read as English or as Russian by the same network. Caps Lock therefore acts on every key that is a letter in
+    EITHER layout. For the 26 Latin letters this equals the effective shift of both layouts. For the seven keys
+    ` [ ] ; ' , . (letters only in Russian) it equals the effective shift of the Russian layout, which is the layout
+    in which a wrong-layout Russian word is meant; on the English layout the rendered character is unchanged by
+    Caps Lock (20.2 `render`), and only the token carries the flip. The target-dependent case of the converted text is
+    produced by `render`, never by `token`."""
     s = k.shift ^ (k.caps and k.id in LETTER_KEYS)
     return 1 + 2 * k.id + int(s)
 
@@ -2130,33 +2246,108 @@ def bucket(n_keys: int) -> Optional[str]:
     return "3-4" if n_keys <= 4 else ("5-7" if n_keys <= 7 else "8+")
 
 
+KINDS = ("network", "ngram")             # the two scorers that can be selected at run time (13.5, row 3)
+DIRECTIONS = ("en2ru", "ru2en")
+CAL_SCHEMA = "LFC1"
+CAL_KEYS = frozenset(("schema", "temperature", "pi_train", "pi_train_counts", "o_lat", "w", "lambda_nats",
+                      "two_key_allow"))
+
+
+class CalibrationError(ValueError):
+    """A calibration package that MUST NOT be activated (CA-9). The runtime reacts with row 6 of the failure table
+    of 13.5. It is an exception, not an assert: asserts disappear under `python -O`, and a validation that can be
+    optimised away is not a validation."""
+
+
+def _finite(x, what: str, lo: float = None, hi: float = None, lo_open: bool = False) -> float:
+    if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x):
+        raise CalibrationError(f"{what}: not a finite number: {x!r}")
+    if lo is not None and (x <= lo if lo_open else x < lo):
+        raise CalibrationError(f"{what}={x} below its lower bound {lo}")
+    if hi is not None and x > hi:
+        raise CalibrationError(f"{what}={x} above its upper bound {hi}")
+    return float(x)
+
+
+def _exact_keys(d, names, what: str) -> None:
+    if not isinstance(d, dict):
+        raise CalibrationError(f"{what}: not an object")
+    missing, extra = set(names) - set(d), set(d) - set(names)
+    if missing or extra:
+        raise CalibrationError(f"{what}: missing {sorted(missing)} unknown {sorted(extra)}")
+
+
 def check_calibration_package(cal: dict) -> None:
-    """Load-time validation (CA-9). The nats range check catches the unit mix-up: a probability such as 0.995
-    stored where nats are expected is far below 4.0 and is rejected."""
-    for kind, tab in cal["lambda_nats"].items():
-        for direction in ("en2ru", "ru2en"):
-            for b in BUCKETS:
-                lam = tab[direction][b]
-                assert 4.0 <= lam <= 16.0, f"lambda_nats[{kind}][{direction}][{b}]={lam} outside [4, 16] nats"
-    assert abs(sum(cal["pi_train"]) - 1.0) < 1e-9 and 0 < cal["o_lat"] < 1
+    """Strict, exhaustive load-time validation of a calibration package (CA-9, D5). Every table the runtime can
+    read must be present and sane BEFORE the package is activated, so that no missing entry is first discovered
+    while a word is being classified. The nats range of the thresholds also catches the unit mix-up: a probability
+    such as 0.995 stored where nats are expected is far below 4.0 and is refused."""
+    _exact_keys(cal, CAL_KEYS, "package")
+    if cal["schema"] != CAL_SCHEMA:
+        raise CalibrationError(f"schema {cal['schema']!r} is not {CAL_SCHEMA!r}")
+    _exact_keys(cal["temperature"], KINDS, "temperature")                 # scalar T per scorer, both scorers
+    for kind in KINDS:
+        _finite(cal["temperature"][kind], f"temperature[{kind}]", 0.0, 20.0, lo_open=True)
+    counts, pt = cal["pi_train_counts"], cal["pi_train"]                  # exact class mix of the training rows
+    if not (isinstance(counts, list) and len(counts) == 3 and all(
+            isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in counts)):
+        raise CalibrationError("pi_train_counts: exactly three positive integers (EN, RU, OTHER)")
+    if not (isinstance(pt, list) and len(pt) == 3):
+        raise CalibrationError("pi_train: exactly three values")
+    for i, p in enumerate(pt):
+        _finite(p, f"pi_train[{i}]", 0.0, 1.0, lo_open=True)
+        if abs(p - counts[i] / sum(counts)) > 1e-9:
+            raise CalibrationError(f"pi_train[{i}] is not pi_train_counts[{i}] / sum(counts)")
+    if abs(sum(pt) - 1.0) > 1e-9:
+        raise CalibrationError("pi_train does not sum to 1")
+    _finite(cal["o_lat"], "o_lat", 0.0, 1.0, lo_open=True)
+    if cal["o_lat"] >= 1.0:
+        raise CalibrationError("o_lat must be below 1")
+    _exact_keys(cal["w"], (EN, RU), "w")
     for a in (EN, RU):
+        _exact_keys(cal["w"][a], STATES, f"w[{a}]")
         for st in STATES:
-            assert 0.0005 <= cal["w"][a][st] <= 0.5, f"w[{a}][{st}] outside [0.0005, 0.5]"
-        assert cal["w"][a]["run"] <= 0.3, "run prior above its cap 0.3"
-    for kind in cal["lambda_nats"]:
-        assert kind in cal["temperature"] and cal["temperature"][kind] > 0
+            _finite(cal["w"][a][st], f"w[{a}][{st}]", 0.0005, 0.5)
+        if cal["w"][a]["run"] > 0.3:
+            raise CalibrationError(f"w[{a}][run] above its cap 0.3")
+    _exact_keys(cal["lambda_nats"], KINDS, "lambda_nats")                 # both scorers, every direction, every bucket
+    for kind in KINDS:
+        _exact_keys(cal["lambda_nats"][kind], DIRECTIONS, f"lambda_nats[{kind}]")
+        for d in DIRECTIONS:
+            _exact_keys(cal["lambda_nats"][kind][d], BUCKETS, f"lambda_nats[{kind}][{d}]")
+            for b in BUCKETS:
+                _finite(cal["lambda_nats"][kind][d][b], f"lambda_nats[{kind}][{d}][{b}] (nats)", 4.0, 16.0)
+    _exact_keys(cal["two_key_allow"], DIRECTIONS, "two_key_allow")
+    for d in DIRECTIONS:
+        words = cal["two_key_allow"][d]
+        if not (isinstance(words, (set, frozenset)) and words):
+            raise CalibrationError(f"two_key_allow[{d}]: a non-empty set of words")
+        for x in words:         # a word is compared with the case-folded rendering of exactly two keys (20.6)
+            if not (isinstance(x, str) and len(x) == 2 and x == x.casefold() and not any(ch.isspace() for ch in x)):
+                raise CalibrationError(f"two_key_allow[{d}]: {x!r} is not a case-folded word of two characters")
 
 
 RU_ALLOW = "на не но да по из за то ты мы вы он ли ну во со до от ни же бы".split()
 EN_ALLOW = "of to in is it on at as be by or an if so do go he we me my no up us".split()
 
 
+def pi_from_counts(counts: Sequence[int]) -> List[float]:
+    """The class mix of the training rows as exact fractions of integer row counts (EN, RU, OTHER)."""
+    total = sum(counts)
+    return [n / total for n in counts]
+
+
 def example_cal() -> dict:
-    """The starting values of 10.1 to 10.3 as a calibration package. A real package is fitted (10.3), not typed."""
-    thr = {d: {"3-4": logit(0.999), "5-7": logit(0.997), "8+": logit(0.995)} for d in ("en2ru", "ru2en")}
+    """A package with the starting values of 10.1 to 10.3, for tests and vectors. It is an EXAMPLE: the class counts
+    are round illustrative numbers, not the proxy mix. A real package is fitted (10.3), and D5 records the exact
+    integer row counts of the S-TRAIN run it was fitted for."""
+    thr = {d: {"3-4": logit(0.999), "5-7": logit(0.997), "8+": logit(0.995)} for d in DIRECTIONS}
+    counts = [38000, 40000, 22000]
     return {
+        "schema": CAL_SCHEMA,
         "temperature": {"network": 1.0, "ngram": 1.0},
-        "pi_train": [0.38, 0.40, 0.22],
+        "pi_train_counts": counts,
+        "pi_train": pi_from_counts(counts),
         "o_lat": 0.25,
         "w": {a: {"default": 0.01, "after_switch": 0.003, "run": 0.25} for a in (EN, RU)},
         "lambda_nats": {"network": thr, "ngram": thr},
@@ -2176,9 +2367,36 @@ def cal_to_json(cal: dict) -> str:
     return json.dumps(cal, ensure_ascii=False, sort_keys=True, indent=1, default=conv)
 
 
+def _no_constant(name: str):
+    raise CalibrationError(f"JSON constant {name} is not allowed")
+
+
+def _no_duplicates(pairs):
+    d = {}
+    for k, v in pairs:
+        if k in d:
+            raise CalibrationError(f"duplicate key {k!r}")
+        d[k] = v
+    return d
+
+
 def cal_from_json(text: str) -> dict:
-    cal = json.loads(text)
-    cal["two_key_allow"] = {d: set(v) for d, v in cal["two_key_allow"].items()}
+    """Parse and validate a package. NaN, Infinity, duplicate keys, a wrong shape and every failed check of
+    `check_calibration_package` raise CalibrationError; nothing else may escape."""
+    try:
+        cal = json.loads(text, parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
+    except json.JSONDecodeError as e:
+        raise CalibrationError(f"not valid JSON: {e}") from None
+    if not isinstance(cal, dict) or not isinstance(cal.get("two_key_allow"), dict):
+        raise CalibrationError("package: not an object with a two_key_allow object")
+    allow = {}
+    for d, v in cal["two_key_allow"].items():           # a JSON array of strings; a bare string would be split into letters
+        if not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+            raise CalibrationError(f"two_key_allow[{d}]: must be an array of strings")
+        if len(set(v)) != len(v):
+            raise CalibrationError(f"two_key_allow[{d}]: duplicate words")
+        allow[d] = set(v)
+    cal["two_key_allow"] = allow
     check_calibration_package(cal)
     return cal
 ```
@@ -2237,7 +2455,10 @@ def decide(run: Sequence[Key], active: str, cal: dict, scorer: Callable[[List[in
         if run_active and converted in cal["two_key_allow"][direction]:
             return Decision("CONVERT", "two_key_allow_list", text, None, n)
         return Decision("KEEP", "two_key_rule", None, None, n)
-    s = score(scorer(tokens(cand.core, True)), active, cal, cal["w"][active][state], kind)
+    logits = list(scorer(tokens(cand.core, True)))
+    if len(logits) != 3 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in logits):
+        return Decision("KEEP", "scorer_invalid", None, None, n)          # fail closed: never convert on NaN or Inf
+    s = score(logits, active, cal, cal["w"][active][state], kind)
     margin = s - cal["lambda_nats"][kind][direction][b]
     if margin >= 0:
         return Decision("CONVERT", "score_above_threshold", text, margin, n)
@@ -2259,7 +2480,7 @@ The event machine is the interface that the operating-system adapters of 13.2 dr
 # ==== 20.7 Event state machine: buffer, run state, boundary ==========================================
 @dataclass
 class Event:
-    kind: str                      # key | space | backspace | break | layout
+    kind: str                      # key | space | backspace | break | layout | gap
     key: Optional[Key] = None      # for kind == key
     layout: Optional[str] = None   # layout id sampled at the event (key, space)
     ts_ms: int = 0
@@ -2269,8 +2490,24 @@ MAX_BUF = 64
 RUN_CREDIT_MAX = 3
 COOLDOWN_WORDS = 3
 COOLDOWN_MS = 10_000
-EVIDENCE_KEEP = {"user_exception", "acronym", "lexicon_active", "abstain"}   # KEEP reasons that end a run
+EVIDENCE_KEEP = {"user_exception", "acronym", "lexicon_active", "abstain", "scorer_invalid"}   # KEEP reasons that end a run
 GATE_ALLOW, GATE_DENY, GATE_UNKNOWN = "ALLOW", "DENY", "UNKNOWN"
+OUTCOMES = ("VERIFIED", "RESTORED", "UNRECOVERED", "ABORTED")   # 20.14
+UNDO_WINDOW_MS = 10_000        # 13.3: the undo snapshot lives 10 s ...
+UNDO_MAX_CHARS = 100           # ... or until 100 further printable keys and Spaces, whichever comes first
+
+
+@dataclass
+class UndoSnapshot:
+    """The only text-derived state that outlives a word boundary (13.3, 13.4): the keys of ONE converted word.
+    Memory only. It is never logged, never written to a crash dump or to storage, and a native implementation
+    overwrites the key array with zeros before it lets go of it."""
+    keys: Tuple[Key, ...]       # the whole run as typed, with Shift and Caps Lock
+    layout: str                 # the layout id recorded with the keys
+    direction: str              # 'en2ru' or 'ru2en'
+    typed: str                  # the case-folded core as typed: the key of the exception list
+    created_ms: int
+    after: int = 0              # printable keys and Spaces typed since the replacement
 
 
 class Engine:
@@ -2279,7 +2516,13 @@ class Engine:
     layout change), break (click, focus change, paste, Enter, Tab, arrows, chords, IME, sleep, lock, ...)."""
 
     def __init__(self, cal, scorer, lexicon=None, exceptions=frozenset(), kind="network"):
-        self.cal, self.scorer, self.lexicon, self.exceptions, self.kind = cal, scorer, lexicon or {}, exceptions, kind
+        check_calibration_package(cal)                    # fail closed at activation, never during classification
+        if kind not in KINDS:
+            raise CalibrationError(f"unknown scorer kind {kind!r}")
+        self.cal, self.scorer, self.lexicon, self.kind = cal, scorer, lexicon or {}, kind
+        self.exceptions = set(exceptions)                 # grows by one entry per undo (13.3)
+        self.snapshot: Optional[UndoSnapshot] = None      # separate from the word buffer (13.4)
+        self.mode = "AUTO"                                # AUTO | MANUAL_ONLY | OFF, derived by engine_mode (20.14)
         self.run: List[Key] = []
         self.run_layout: Optional[str] = None
         self.overflow = False
@@ -2293,22 +2536,63 @@ class Engine:
     def _flush(self):
         self.run, self.run_layout, self.overflow = [], None, False
 
+    def _drop_snapshot(self):
+        self.snapshot = None
+
+    def set_mode(self, mode: str):
+        """Mode from `engine_mode` (20.14). Only AUTO records and classifies; MANUAL_ONLY and OFF record nothing (13.5).
+        Any change of mode empties the buffer and destroys the snapshot and the run credit."""
+        if mode not in ("AUTO", "MANUAL_ONLY", "OFF"):
+            raise ValueError(mode)
+        if mode != self.mode:
+            self._flush()
+            self.skip, self.credit, self.after_switch = False, 0, False
+            self._drop_snapshot()
+        self.mode = mode
+
+    def tick(self, now_ms: int):
+        """Clock input of the runtime timer: the snapshot expires 10 s after the replacement."""
+        s = self.snapshot
+        if s is not None and now_ms - s.created_ms > UNDO_WINDOW_MS:
+            self._drop_snapshot()
+
+    def _count_char(self):
+        s = self.snapshot
+        if s is not None:
+            s.after += 1
+            if s.after > UNDO_MAX_CHARS:
+                self._drop_snapshot()
+
     def set_gate(self, state: str):
-        """Stage 0 verdict from the runtime. Anything but ALLOW discards the buffer and the run state."""
+        """Stage 0 verdict from the runtime. Anything but ALLOW discards the buffer, the run state and the snapshot."""
         self.gate = state
         if state != GATE_ALLOW:
             self._flush()
             self.skip, self.credit, self.after_switch = False, 0, False
+            self._drop_snapshot()
 
-    def undo(self, now_ms: int):
-        """The user undid an automatic correction: run credit is lost and the cool-down starts."""
+    def undo(self, now_ms: int) -> Optional[str]:
+        """The undo chord (13.3). Returns the text to restore: the recorded keys rendered with the layout recorded
+        with them, never re-derived from the converted text. None when no snapshot is alive (nothing happens).
+        The word joins the exception list, the run credit is lost, the cool-down starts, the snapshot is destroyed."""
+        self.tick(now_ms)
+        s = self.snapshot
+        if s is None:
+            return None
+        self.exceptions.add((s.direction, s.typed))
         self.credit = 0
         self.cool_words = COOLDOWN_WORDS
         self.cool_until_ms = now_ms + COOLDOWN_MS
+        self._drop_snapshot()
+        return render(s.keys, s.layout)
 
     def on_event(self, ev: Event) -> Optional[Decision]:
-        if self.gate != GATE_ALLOW:
+        if self.gate != GATE_ALLOW or self.mode != "AUTO":
             return None                                   # not stored, not counted, not classified
+        if ev.ts_ms:
+            self.tick(ev.ts_ms)
+        if ev.kind in ("key", "space"):
+            self._count_char()                            # characters typed after a replacement age the snapshot
         if ev.kind == "key":
             if self.skip:
                 return None
@@ -2328,6 +2612,7 @@ class Engine:
                 self.run.pop()
             elif not self.skip:
                 self.credit = 0                           # editing text before the word start: a break
+                self._drop_snapshot()
             return None
         if ev.kind == "layout":                           # manual layout change (the tool never changes it)
             if self.run:
@@ -2335,14 +2620,30 @@ class Engine:
                 self.skip = True
             self.after_switch = True
             self.credit = 0
+            self._drop_snapshot()
             return None
         if ev.kind == "break":
             self._flush()
             self.skip, self.credit = False, 0
+            self._drop_snapshot()
+            return None
+        if ev.kind == "gap":                              # the event stream was interrupted (13.5, hook health)
+            self._flush()
+            self.skip, self.credit = True, 0              # the rest of the current word is unknown: ignore it
+            self._drop_snapshot()
             return None
         if ev.kind == "space":
             return self._boundary(ev)
         raise ValueError(ev.kind)
+
+    def on_outcome(self, outcome: str):
+        """Result of the replacement transaction for the last CONVERT (20.14). Only a VERIFIED replacement keeps its
+        undo snapshot and the run credit it earned; any other outcome means the text is the original text."""
+        if outcome not in OUTCOMES:
+            raise ValueError(outcome)
+        if outcome != "VERIFIED":
+            self.credit = 0
+            self._drop_snapshot()
 
     def _boundary(self, ev: Event) -> Optional[Decision]:
         run, layout, overflow, skip = self.run, self.run_layout, self.overflow, self.skip
@@ -2364,6 +2665,10 @@ class Engine:
             # Only a conversion decided WITHOUT the run prior refills the credit: a chain of run-assisted
             # conversions can never sustain itself (feedback cap).
             self.credit = RUN_CREDIT_MAX if state != "run" else max(self.credit - 1, 0)
+            target = OTHER_LAYOUT[layout]
+            core = candidate(run, target).core
+            self.snapshot = UndoSnapshot(tuple(run), layout, f"{layout}2{target}", render(core, layout).casefold(),
+                                         ev.ts_ms)    # one snapshot: an older one is replaced
         elif d.reason in EVIDENCE_KEEP:
             self.credit = 0
         return d
@@ -2502,6 +2807,24 @@ def baseline_logits(models: Sequence[WittenBell], log_prior: Sequence[float], ro
 
 
 import struct
+import functools
+
+
+class FormatError(ValueError):
+    """A binary table file (LFB1, LFL1, LFW1) is damaged, truncated, has a wrong magic or trailing bytes. The runtime
+    reacts with row 6 of the failure table (13.5) exactly as for a refused calibration package."""
+
+
+def _format_guard(fn):
+    """struct.error and IndexError of a truncated file become FormatError: a loader raises one exception type."""
+    @functools.wraps(fn)
+    def wrapper(b):
+        try:
+            return fn(b)
+        except (struct.error, IndexError, KeyError) as e:
+            raise FormatError(f"{fn.__name__}: {e}") from None
+    return wrapper
+
 
 FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1
 
@@ -2531,14 +2854,17 @@ def lfb_pack(models: Sequence[WittenBell], log_prior: Sequence[float]) -> bytes:
         for k in range(WittenBell.ORDER):
             ctxs = sorted((ctx_key(k, c), sum(d.values()), len(d)) for c, d in m.cnt[k].items())
             pairs = sorted((pair_key(k, c, w), n) for c, d in m.cnt[k].items() for w, n in d.items())
-            assert len({r[0] for r in ctxs}) == len(ctxs) and len({a for a, _ in pairs}) == len(pairs), "hash collision"
+            if len({r[0] for r in ctxs}) != len(ctxs) or len({a for a, _ in pairs}) != len(pairs):
+                raise FormatError("hash collision: two contexts or pairs share a 64-bit key")
             out.append(struct.pack("<I", len(ctxs)) + b"".join(struct.pack("<QII", *r) for r in ctxs))
             out.append(struct.pack("<I", len(pairs)) + b"".join(struct.pack("<QII", a, n, 0) for a, n in pairs))
     return b"".join(out)
 
 
+@_format_guard
 def lfb_load(b: bytes) -> dict:
-    assert b[:4] == b"LFB1"
+    if b[:4] != b"LFB1":
+        raise FormatError("not an LFB1 file")
     order, vocab, ncls = struct.unpack_from("<III", b, 4)
     log_prior = list(struct.unpack_from("<%dd" % ncls, b, 16))
     off, classes = 16 + 8 * ncls, []
@@ -2559,7 +2885,8 @@ def lfb_load(b: bytes) -> dict:
             off += 16 * npair
             per_order.append((ctx, pair))
         classes.append(per_order)
-    assert off == len(b), "trailing bytes"
+    if off != len(b):
+        raise FormatError("trailing bytes")
     return {"order": order, "V": vocab, "log_prior": log_prior, "classes": classes}
 
 
@@ -2611,8 +2938,10 @@ class HashedSet:
         return lex_key(self.tag, text) in self.keys
 
 
+@_format_guard
 def lfl_load(b: bytes) -> Dict[str, HashedSet]:
-    assert b[:4] == b"LFL1"
+    if b[:4] != b"LFL1":
+        raise FormatError("not an LFL1 file")
     (nt,) = struct.unpack_from("<I", b, 4)
     off, res, by_tag = 8, {}, {v: k for k, v in LEX_TAGS.items()}
     for _ in range(nt):
@@ -2620,7 +2949,8 @@ def lfl_load(b: bytes) -> Dict[str, HashedSet]:
         off += 5
         res[by_tag[tag]] = HashedSet(tag, struct.unpack_from("<%dQ" % n, b, off))
         off += 8 * n
-    assert off == len(b), "trailing bytes"
+    if off != len(b):
+        raise FormatError("trailing bytes")
     return res
 ```
 
@@ -2648,12 +2978,15 @@ def lfw_size(ch: int, emb_dim: int, kernels: Sequence[int]) -> int:
     return n + 3 * 2 * ch + 3
 
 
+@_format_guard
 def lfw_load(b: bytes) -> dict:
-    assert b[:4] == LFW_MAGIC
+    if b[:4] != LFW_MAGIC:
+        raise FormatError("not an LFW1 file")
     ch, e, nc = struct.unpack_from("<III", b, 4)
     kernels = list(struct.unpack_from("<" + "I" * nc, b, 16))
     off = 16 + 4 * nc
-    assert len(b) - off == 4 * lfw_size(ch, e, kernels), "size mismatch"
+    if len(b) - off != 4 * lfw_size(ch, e, kernels):
+        raise FormatError("size mismatch")
 
     def take(n):
         nonlocal off
@@ -2705,188 +3038,352 @@ def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1)
 
 ### 20.12 Golden test vectors
 
-`vectors.py` imports `lfengine.py`, runs the functions of 20.2 to 20.11 on fixed inputs and prints one JSON document. The expected output is given below it. An implementation conforms when its own generator prints the same document: strings, integers, booleans, token lists, hashes and byte counts exactly; floats as printed, that is equal after rounding to the number of decimals shown. The output does not depend on the hash seed of the interpreter (CT-2). `sha256_16` is the first 16 hex digits of the SHA-256 of the file bytes.
+`vectors.py` imports `lfengine.py`, runs the functions of 20.2 to 20.11 and 20.14 on fixed inputs and prints one JSON document. The expected output is given below it. An implementation conforms when its own generator prints the same document: strings, integers, booleans, token lists, hashes and byte counts exactly; floats as printed, that is equal after rounding to the number of decimals shown. The output does not depend on the hash seed of the interpreter (CT-2). `sha256_16` is the first 16 hex digits of the SHA-256 of the file bytes.
 
 | Key | What it pins down | Part |
 | --- | --- | --- |
 | `render`, `caps`, `prefix`, `tok25` | Typed keys to the text of the other layout, model tokens with and without `EOS`, Caps Lock per layout, the 20-key limit | 20.2 |
+| `caps_all` | Twelve keys in every combination of Shift and Caps Lock (48 entries): the character on each layout and the token | 20.2 |
 | `cands` | The single candidate: leading opener, core, trailing punctuation, the seven letter-keys, no candidate | 20.3 |
 | `guards` | Reason codes of the shape guards | 20.4 |
 | `priors`, `lambdas`, `scores`, `cal_json` | Prior vectors, thresholds in nats, the score, the bytes of the calibration package | 20.5 |
 | `decide` | Rows 5 to 12 of the priority matrix with a stub scorer | 20.6 |
 | `trace_run`, `trace_undo`, `scen` | Run credit, cool-down, boundaries, gate, layout change | 20.7 |
+| `undo` | The undo snapshot (17 steps): its content, the expiry at exactly 10,000 ms and at 100 characters, one snapshot only, Caps Lock, and every event that destroys it | 20.7 |
 | `manual` | Manual conversion | 20.8 |
 | `ev1`, `poisson` | The EV-1 pass rule | 20.9 |
 | `wb`, `wb_score`, `fnv`, `lfl` | Baseline log-probabilities, `LFB1` and `LFL1` bytes, hash keys | 20.10 |
 | `lfw` | `LFW1` toy weights and reference logits | 20.11 |
+| `modes`, `outcome` | The facts and the mode they give (`engine_mode`, 14 cases) and the classification of the outcome of a replacement (6 cases) | 20.14 |
+| `tx` | The fault matrix of the replacement transaction, 57 named cases: capabilities, field text, injected faults, typed-ahead keys, the expected outcome, reason, final text and incident flag | 20.14 |
+| `fingerprint` | The fingerprints of the two supported layouts and of changed tables, and the layout each one identifies (4 cases) | 20.14 |
+| `hook` | The model of the stream check (17 steps): whether the stream is trusted, whether a gap was reported, and why | 20.14 |
 
-**How to read the traces.** In `trace_run` the word `ghbdtn` is converted in the state `default` and sets the run credit to 3; `z` (one key) is KEEP and leaves the credit at 3; the next three words are decided in the state `run` and lower the credit to 2, 1 and 0; the following `ntcn` is decided in the state `default` again and is KEEP (`abstain`, margin −2.707), so a chain of run-assisted conversions stops after three words. In `trace_undo` an undo at 1,000 ms makes the next words KEEP (`cooldown`) until 3 word decisions have been suppressed and 10,000 ms have passed; at 11,500 ms the same word converts again. In `scen`, Enter and Tab are context breaks and give no decision; a layout change inside a word drops the word; a Space read on another layout gives `layout_changed_at_boundary`; a closed gate stores nothing, and the first word after the gate reopens is decided normally; 65 keys give `overflow`; a second Space after a decision gives nothing.
+**How to read the traces.** In `trace_run` the word `ghbdtn` is converted in the state `default` and sets the run credit to 3; `z` (one key) is KEEP and leaves the credit at 3; the next three words are decided in the state `run` and lower the credit to 2, 1 and 0; the following `ntcn` is decided in the state `default` again and is KEEP (`abstain`, margin −2.707), so a chain of run-assisted conversions stops after three words. In `trace_undo` an undo at 1,000 ms makes the next words KEEP (`cooldown`) until 3 word decisions have been suppressed and 10,000 ms have passed; at 11,500 ms the same word is still KEEP, now with the reason user\_exception: the undo put the pair on the exception list (13.3), and only the cool-down has ended. In `scen`, Enter and Tab are context breaks and give no decision; a layout change inside a word drops the word; a Space read on another layout gives `layout_changed_at_boundary`; a closed gate stores nothing, and the first word after the gate reopens is decided normally; 65 keys give `overflow`; a second Space after a decision gives nothing. The keys of 20.14 are lists of cases. An entry of tx is: name, capabilities, field text, faults (operation:k means the k-th call of that operation), typed-ahead keys, extra arguments, outcome, reason, final text of the field, incident flag. An entry of modes is: name, capabilities, support status, health facts that are false, mode. An entry of fingerprint is: name, digest, the layout identified (null: not supported). An entry of hook is: name, whether the stream is trusted, whether a gap was reported, and the reason when there is one.
 
 ```python
 """vectors.py - generates the golden test vectors of section 20.12 from lfengine.py.
 Run:  python vectors.py > vectors_out.json   (lfengine.py in the same directory; standard library only)."""
 import sys, json, math, hashlib, struct; sys.path.insert(0, ".")
 import lfengine as L
-K = L.keys_from_text
-cal = L.example_cal(); L.check_calibration_package(cal)
-out = {}
-# ---- V1 render + tokens
-rows = []
-for typed, lay in [("ghbdtn","en"),("Ghbdtn","en"),("GHBDTN","en"),("[jhjij","en"),(";bpym","en"),(",jkmit","en"),("k.,k.","en"),("`","en"),("руддщ","ru"),("Руддщ,","ru")]:
-    keys = K(typed, lay); other = L.OTHER_LAYOUT[lay]
-    rows.append([typed, lay, L.render(keys, other), L.tokens(keys)])
-out["render"] = rows
-# caps
-caps = []
-for kid, sh, cp in [(30,False,True),(23,False,True),(36,True,True),(23,False,False)]:
-    k = L.Key(kid, sh, cp); caps.append([kid, sh, cp, L.render_key(k,"en"), L.render_key(k,"ru"), L.token(k)])
-out["caps"] = caps
-out["prefix"] = L.tokens(K("ghb","en"), complete=False)
-out["tok25"] = len(L.tokens([L.Key(i%47) for i in range(25)]))
-# ---- V3 candidates
-cands = []
-for typed, lay, tgt in [("Ghbdtn?","en","ru"),("Ghbdtn?!","en","ru"),("(ghbdtn)","en","ru"),("k.,k.","en","ru"),("[jhjij","en","ru"),("руддщ,","ru","en"),("(руддщ)","ru","en"),("руддщб","ru","en"),("руддщ..","ru","en"),("ghb1","en","ru"),(",","en","ru"),('"ghbdtn"',"en","ru"),("hello,","en","ru"),("Ghbdtn,","en","ru")]:
-    run = K(typed, lay); c = L.candidate(run, tgt)
-    cands.append([typed, tgt, None if c is None else (L.render(c.lead,tgt), L.render(c.core,tgt), L.render(c.trail,tgt))])
-out["cands"] = cands
-# ---- V4 guards
-gs = []
-for typed, act in [("github.com","en"),("https://x.io","en"),("user@example.com","en"),("MyVariable","en"),("asdfgh","en"),("фывапр","ru"),("kubectl","en"),("ghbdtn","en")]:
-    run = K(typed, act)
-    cand = L.candidate(run, L.OTHER_LAYOUT[act])
-    gs.append([typed, act, L.shape_guard(run, act, cand.core) if cand else "no_candidate"])
-out["guards"] = gs
-# ---- V13 priors, V14 thresholds
-pri = []
-for a in ("en","ru"):
-    for st in L.STATES:
-        w = cal["w"][a][st]; v = L.deployment_prior(a, w, cal["o_lat"]); pri.append([a, st, w, [round(x,4) for x in v]])
-out["priors"] = pri
-out["lambdas"] = [[t, round(L.logit(t),3)] for t in (0.9995, 0.999, 0.997, 0.995, 0.99, 0.9)]
-# ---- V5 score examples
-sc = []
-for z, a, st in [([-3,9,-2],"en","default"),([-3,9,-2],"en","run"),([-3,9,-2],"en","after_switch"),([8,-3,-2],"ru","default"),([-2,-3,8],"ru","default"),([8,-3,-2],"en","default")]:
-    w = cal["w"][a][st]; sc.append([z, a, st, round(L.score(z, a, cal, w), 3)])
-out["scores"] = sc
-# ---- V6 decide with stub scorers
-def mk(z): return lambda ids: z
-dec = []
-lex = {"en": {"hello","the"}, "ru": {"привет"}, "acr_en": {"sql"}, "acr_ru": {"мтс"}}
-cases = [("ghbdtn","en",[-3,9,-2],"default",False,frozenset()),
-         ("ghbdtn","en",[-3,8,-2],"default",False,frozenset()),
-         ("ghbdtn","en",[-3,8,-2],"run",True,frozenset()),
-         ("ghbdtn","en",[-3,9,-2],"default",False,frozenset({("en2ru","ghbdtn")})),
-         ("hello","en",[-3,9,-2],"default",False,frozenset()),
-         ("z","en",[-3,9,-2],"default",False,frozenset()),
-         ("ye","en",[-3,9,-2],"default",False,frozenset()),
-         ("ye","en",[-3,9,-2],"run",True,frozenset()),
-         ("github.com","en",[-3,9,-2],"default",False,frozenset()),
-         ("руддщ","ru",[9,-3,-2],"default",False,frozenset()),
-         ("руддщ,","ru",[9,-3,-2],"default",False,frozenset()),
-         ("привет","ru",[9,-3,-2],"default",False,frozenset()),
-         ("Ghbdtn?","en",[-3,9,-2],"default",False,frozenset())]
-for typed, act, z, st, ra, ex in cases:
-    run = K(typed, act)
-    d = L.decide(run, act, cal, mk(z), st, ra, ex, lex)
-    dec.append([typed, act, z, st, ra, bool(ex), d.action, d.reason, d.replacement, None if d.margin is None else round(d.margin,3), d.n_keys])
-out["decide"] = dec
-# ---- V7 engine traces
-def stub_by_word(table, default):
-    def f(ids):
-        txt = "".join(L.TABLE["en"][(t-1)%2][(t-1)//2] for t in ids if 1 <= t <= 94)
-        return table.get(txt.lower(), default)
-    return f
-HI, MID = [-3,9,-2], [-3,6.5,-2]
-sc1 = stub_by_word({"ghbdtn": HI}, MID)
-E = L.Engine(cal, sc1, lex)
-def word(txt, lay, t0):
-    for i,k in enumerate(K(txt, lay)): E.on_event(L.Event("key", k, lay, t0+i*100))
-    return E.on_event(L.Event("space", None, lay, t0+len(txt)*100+50))
-tr = []
-for txt, t0 in [("ghbdtn",0),("z",1000),("ntcn",2000),("vbh",3000),("ntcn",4000),("ntcn",5000)]:
-    st = "run" if E.credit>0 else ("after_switch" if E.after_switch else "default")
-    d = word(txt, "en", t0)
-    tr.append([txt, st, d.action, d.reason, None if d.margin is None else round(d.margin,3), E.credit])
-out["trace_run"] = tr
-# undo + cooldown
-E = L.Engine(cal, sc1, lex)
-tr2 = []
-d = word("ghbdtn","en",0); tr2.append(["ghbdtn", d.action, d.reason, E.credit])
-E.undo(1000); tr2.append(["(undo at 1000 ms)", "", "", E.credit])
-for txt,t0 in [("ghbdtn",2000),("ghbdtn",3000),("ghbdtn",4000),("ghbdtn",5000),("ghbdtn",11500)]:
-    d = word(txt,"en",t0); tr2.append([f"{txt} @{t0}", d.action, d.reason, E.credit])
-out["trace_undo"] = tr2
-# other event scenarios
-def scen(name, evs, gate=None):
-    E = L.Engine(cal, sc1, lex); res = []
-    for ev in evs:
-        if ev == "gate:DENY": E.set_gate("DENY"); continue
-        if ev == "gate:ALLOW": E.set_gate("ALLOW"); continue
-        r = E.on_event(ev)
-        if r is not None: res.append([r.action, r.reason])
-    return [name, res]
-ks = lambda t, l="en", tl="en": [L.Event("key", k, l, i*100) for i,k in enumerate(K(t,tl))]
-sp = lambda l="en", t=9000: L.Event("space", None, l, t)
-out["scen"] = [
- scen("word + Space", ks("ghbdtn")+[sp()]),
- scen("word + Enter (break), then Space", ks("ghbdtn")+[L.Event("break")]+[sp()]),
- scen("word + Tab (break), then Space", ks("ghbdtn")+[L.Event("break")]+[sp()]),
- scen("layout changes inside the word (key layout differs)", ks("ghb")+ks("dtn","ru","en")+[sp("ru")]),
- scen("manual layout event inside the word", ks("ghb")+[L.Event("layout")]+ks("dtn")+[sp()]),
- scen("Space sampled on another layout", ks("ghbdtn")+[sp("ru")]),
- scen("gate DENY while typing (password field)", ["gate:DENY"]+ks("ghbdtn")+[sp()]),
- scen("gate DENY then ALLOW again, new word", ["gate:DENY"]+ks("ghbdtn")+[sp(), "gate:ALLOW"]+ks("ghbdtn")+[sp()]),
- scen("Backspace edits the word", ks("ghbdtnx")+[L.Event("backspace")]+[sp()]),
- scen("65 keys (overflow)", [L.Event("key", L.Key(i%33), "en", i) for i in range(65)]+[sp()]),
- scen("two Spaces", ks("ghbdtn")+[sp(),sp()]),
-]
-# ---- V8 manual
-out["manual"] = [[t, *L.manual_convert(t)] for t in ["Ghbdtn? Rfr ltkf?","Привет, как дела?","123","ghbdtn 😀","ЁЖ ёж","Hello, Привет"]]
-# ---- V9 ev1
-out["ev1"] = [
- ["4 errors, 4 users, n=100000, 20 users, 100 docs", L.ev1_pass([("u%d"%i,"d%d"%i) for i in range(4)],100000,20,100), round(L.ev1_bound([("u%d"%i,"d%d"%i) for i in range(4)],100000),7)],
- ["4 errors in one document", L.ev1_pass([("u1","d1")]*4,100000,20,100), round(L.ev1_bound([("u1","d1")]*4,100000),7)],
- ["0 errors, n=100000", L.ev1_pass([],100000,20,100), round(L.ev1_bound([],100000),7)],
- ["0 errors, n=99999", L.ev1_pass([],99999,20,100), round(L.ev1_bound([],99999),7)],
- ["0 errors, 19 users", L.ev1_pass([],200000,19,100), round(L.ev1_bound([],200000),7)],
- ["5 errors in 5 clusters, n=150000", L.ev1_pass([("u%d"%i,"d%d"%i) for i in range(5)],150000,20,100), round(L.ev1_bound([("u%d"%i,"d%d"%i) for i in range(5)],150000),7)],
- ["2+2 errors in 2 clusters, n=100000", L.ev1_pass([("u1","d1")]*2+[("u2","d2")]*2,100000,20,100), round(L.ev1_bound([("u1","d1")]*2+[("u2","d2")]*2,100000),7)],
-]
-out["poisson"] = [round(L.poisson_upper(k),4) for k in range(6)]
-# ---- V10 baseline toy
-def keyrow(w, lay): return L.tokens(K(w, lay))
-# train each class on key rows of its own words (RU words typed on RU layout, EN/OTHER on EN)
-trainset = {0:[keyrow(w,"en") for w in ["hello","hell","help","hero","world","word"]],
-            1:[keyrow(w,"ru") for w in ["привет","привал","приказ","пригород","мир","мирно"]],
-            2:[keyrow(w,"en") for w in ["kubectl","github","asdfgh","docker","nginx","vim"]]}
-ms = [L.WittenBell().fit(trainset[c]) for c in range(3)]
-lp = [math.log(x) for x in cal["pi_train"]]
-blob = L.lfb_pack(ms, lp); pkg = L.lfb_load(blob)
-test = keyrow("ghbdtn","en")
-lg = L.baseline_logits(ms, lp, test)
-out["wb"] = {"test_word_keys":"ghbdtn", "logp_by_class":[round(m.logp(test),6) for m in ms], "logits":[round(v,6) for v in lg],
-             "lfb_bytes": len(blob), "lfb_sha256_16": hashlib.sha256(blob).hexdigest()[:16],
-             "lfb_logp": [round(L.lfb_logp(pkg,c,test),6) for c in range(3)],
-             "hello_ru": round(ms[1].logp(keyrow("hello","en")),6), "hello_en": round(ms[0].logp(keyrow("hello","en")),6),
-             "n_pairs": [sum(len(d) for k in range(3) for d in m.cnt[k].values()) for m in ms]}
-out["wb_score"] = round(L.score(lg, "en", {**cal, "temperature":{"network":1.0,"ngram":1.0}}, 0.01, "ngram"), 3)
-# ---- V11 toy network
-tw = L.toy_weights(); W = L.lfw_load(tw)
-out["lfw"] = {"bytes": len(tw), "sha256_16": hashlib.sha256(tw).hexdigest()[:16],
-              "logits_ghbdtn": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("ghbdtn","en")))],
-              "logits_hello": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("hello","en")))],
-              "first_floats": [float(x) for x in struct.unpack_from("<4f", tw, 16+12)]}
-out["fnv"] = [[s, hex(L.fnv1a64(s.encode()))] for s in ["", "a", "foobar"]] + [["ctx_key(2,(95,61))", hex(L.ctx_key(2,(95,61)))], ["pair_key(2,(95,61),63)", hex(L.pair_key(2,(95,61),63))]]
-# ---- V12 lexicon tables and calibration package
-lexb = L.lfl_pack({"lex_en": ["Hello", "the", "World"], "lex_ru": ["привет", "мир"], "acr_en": ["SQL"], "acr_ru": ["МТС"]})
-lt = L.lfl_load(lexb)
-out["lfl"] = {"bytes": len(lexb), "sha256_16": hashlib.sha256(lexb).hexdigest()[:16],
-              "keys": [["lex_en", "hello", hex(L.lex_key(1, "hello"))], ["lex_ru", "привет", hex(L.lex_key(2, "привет"))],
-                       ["acr_ru", "МТС", hex(L.lex_key(4, "МТС"))]],
-              "member": [["lex_en", "HELLO", "HELLO" in lt["lex_en"]], ["lex_en", "hi", "hi" in lt["lex_en"]],
-                         ["acr_en", "sql", "sql" in lt["acr_en"]]]}
-cj = L.cal_to_json(cal)
-out["cal_json"] = {"bytes": len(cj.encode("utf-8")), "sha256_16": hashlib.sha256(cj.encode("utf-8")).hexdigest()[:16]}
+
+
+def build():
+    """Build every golden vector from lfengine.py. The fault-matrix rows carry hand-written predictions and
+    generation FAILS when the engine disagrees: producing the vectors is itself a test (20.13)."""
+    K = L.keys_from_text
+    cal = L.example_cal(); L.check_calibration_package(cal)
+    out = {}
+    # ---- V1 render + tokens
+    rows = []
+    for typed, lay in [("ghbdtn","en"),("Ghbdtn","en"),("GHBDTN","en"),("[jhjij","en"),(";bpym","en"),(",jkmit","en"),("k.,k.","en"),("`","en"),("руддщ","ru"),("Руддщ,","ru")]:
+        keys = K(typed, lay); other = L.OTHER_LAYOUT[lay]
+        rows.append([typed, lay, L.render(keys, other), L.tokens(keys)])
+    out["render"] = rows
+    # caps
+    caps = []
+    for kid, sh, cp in [(30,False,True),(23,False,True),(36,True,True),(23,False,False)]:
+        k = L.Key(kid, sh, cp); caps.append([kid, sh, cp, L.render_key(k,"en"), L.render_key(k,"ru"), L.token(k)])
+    out["caps"] = caps
+    out["prefix"] = L.tokens(K("ghb","en"), complete=False)
+    out["tok25"] = len(L.tokens([L.Key(i%47) for i in range(25)]))
+    # ---- V3 candidates
+    cands = []
+    for typed, lay, tgt in [("Ghbdtn?","en","ru"),("Ghbdtn?!","en","ru"),("(ghbdtn)","en","ru"),("k.,k.","en","ru"),("[jhjij","en","ru"),("руддщ,","ru","en"),("(руддщ)","ru","en"),("руддщб","ru","en"),("руддщ..","ru","en"),("ghb1","en","ru"),(",","en","ru"),('"ghbdtn"',"en","ru"),("hello,","en","ru"),("Ghbdtn,","en","ru")]:
+        run = K(typed, lay); c = L.candidate(run, tgt)
+        cands.append([typed, tgt, None if c is None else (L.render(c.lead,tgt), L.render(c.core,tgt), L.render(c.trail,tgt))])
+    out["cands"] = cands
+    # ---- V4 guards
+    gs = []
+    for typed, act in [("github.com","en"),("https://x.io","en"),("user@example.com","en"),("MyVariable","en"),("asdfgh","en"),("фывапр","ru"),("kubectl","en"),("ghbdtn","en")]:
+        run = K(typed, act)
+        cand = L.candidate(run, L.OTHER_LAYOUT[act])
+        gs.append([typed, act, L.shape_guard(run, act, cand.core) if cand else "no_candidate"])
+    out["guards"] = gs
+    # ---- V13 priors, V14 thresholds
+    pri = []
+    for a in ("en","ru"):
+        for st in L.STATES:
+            w = cal["w"][a][st]; v = L.deployment_prior(a, w, cal["o_lat"]); pri.append([a, st, w, [round(x,4) for x in v]])
+    out["priors"] = pri
+    out["lambdas"] = [[t, round(L.logit(t),3)] for t in (0.9995, 0.999, 0.997, 0.995, 0.99, 0.9)]
+    # ---- V5 score examples
+    sc = []
+    for z, a, st in [([-3,9,-2],"en","default"),([-3,9,-2],"en","run"),([-3,9,-2],"en","after_switch"),([8,-3,-2],"ru","default"),([-2,-3,8],"ru","default"),([8,-3,-2],"en","default")]:
+        w = cal["w"][a][st]; sc.append([z, a, st, round(L.score(z, a, cal, w), 3)])
+    out["scores"] = sc
+    # ---- V6 decide with stub scorers
+    def mk(z): return lambda ids: z
+    dec = []
+    lex = {"en": {"hello","the"}, "ru": {"привет"}, "acr_en": {"sql"}, "acr_ru": {"мтс"}}
+    cases = [("ghbdtn","en",[-3,9,-2],"default",False,frozenset()),
+             ("ghbdtn","en",[-3,8,-2],"default",False,frozenset()),
+             ("ghbdtn","en",[-3,8,-2],"run",True,frozenset()),
+             ("ghbdtn","en",[-3,9,-2],"default",False,frozenset({("en2ru","ghbdtn")})),
+             ("hello","en",[-3,9,-2],"default",False,frozenset()),
+             ("z","en",[-3,9,-2],"default",False,frozenset()),
+             ("ye","en",[-3,9,-2],"default",False,frozenset()),
+             ("ye","en",[-3,9,-2],"run",True,frozenset()),
+             ("github.com","en",[-3,9,-2],"default",False,frozenset()),
+             ("руддщ","ru",[9,-3,-2],"default",False,frozenset()),
+             ("руддщ,","ru",[9,-3,-2],"default",False,frozenset()),
+             ("привет","ru",[9,-3,-2],"default",False,frozenset()),
+             ("Ghbdtn?","en",[-3,9,-2],"default",False,frozenset())]
+    for typed, act, z, st, ra, ex in cases:
+        run = K(typed, act)
+        d = L.decide(run, act, cal, mk(z), st, ra, ex, lex)
+        dec.append([typed, act, z, st, ra, bool(ex), d.action, d.reason, d.replacement, None if d.margin is None else round(d.margin,3), d.n_keys])
+    out["decide"] = dec
+    # ---- V7 engine traces
+    def stub_by_word(table, default):
+        def f(ids):
+            txt = "".join(L.TABLE["en"][(t-1)%2][(t-1)//2] for t in ids if 1 <= t <= 94)
+            return table.get(txt.lower(), default)
+        return f
+    HI, MID = [-3,9,-2], [-3,6.5,-2]
+    sc1 = stub_by_word({"ghbdtn": HI}, MID)
+    E = L.Engine(cal, sc1, lex)
+    def word(txt, lay, t0):
+        for i,k in enumerate(K(txt, lay)): E.on_event(L.Event("key", k, lay, t0+i*100))
+        return E.on_event(L.Event("space", None, lay, t0+len(txt)*100+50))
+    tr = []
+    for txt, t0 in [("ghbdtn",0),("z",1000),("ntcn",2000),("vbh",3000),("ntcn",4000),("ntcn",5000)]:
+        st = "run" if E.credit>0 else ("after_switch" if E.after_switch else "default")
+        d = word(txt, "en", t0)
+        tr.append([txt, st, d.action, d.reason, None if d.margin is None else round(d.margin,3), E.credit])
+    out["trace_run"] = tr
+    # undo + cooldown
+    E = L.Engine(cal, sc1, lex)
+    tr2 = []
+    d = word("ghbdtn","en",0); tr2.append(["ghbdtn", d.action, d.reason, E.credit])
+    E.undo(1000); tr2.append(["(undo at 1000 ms)", "", "", E.credit])
+    for txt,t0 in [("ghbdtn",2000),("ghbdtn",3000),("ghbdtn",4000),("ghbdtn",5000),("ghbdtn",11500)]:
+        d = word(txt,"en",t0); tr2.append([f"{txt} @{t0}", d.action, d.reason, E.credit])
+    out["trace_undo"] = tr2
+    # other event scenarios
+    def scen(name, evs, gate=None):
+        E = L.Engine(cal, sc1, lex); res = []
+        for ev in evs:
+            if ev == "gate:DENY": E.set_gate("DENY"); continue
+            if ev == "gate:ALLOW": E.set_gate("ALLOW"); continue
+            r = E.on_event(ev)
+            if r is not None: res.append([r.action, r.reason])
+        return [name, res]
+    ks = lambda t, l="en", tl="en": [L.Event("key", k, l, i*100) for i,k in enumerate(K(t,tl))]
+    sp = lambda l="en", t=9000: L.Event("space", None, l, t)
+    out["scen"] = [
+     scen("word + Space", ks("ghbdtn")+[sp()]),
+     scen("word + Enter (break), then Space", ks("ghbdtn")+[L.Event("break")]+[sp()]),
+     scen("word + Tab (break), then Space", ks("ghbdtn")+[L.Event("break")]+[sp()]),
+     scen("layout changes inside the word (key layout differs)", ks("ghb")+ks("dtn","ru","en")+[sp("ru")]),
+     scen("manual layout event inside the word", ks("ghb")+[L.Event("layout")]+ks("dtn")+[sp()]),
+     scen("Space sampled on another layout", ks("ghbdtn")+[sp("ru")]),
+     scen("gate DENY while typing (password field)", ["gate:DENY"]+ks("ghbdtn")+[sp()]),
+     scen("gate DENY then ALLOW again, new word", ["gate:DENY"]+ks("ghbdtn")+[sp(), "gate:ALLOW"]+ks("ghbdtn")+[sp()]),
+     scen("Backspace edits the word", ks("ghbdtnx")+[L.Event("backspace")]+[sp()]),
+     scen("65 keys (overflow)", [L.Event("key", L.Key(i%33), "en", i) for i in range(65)]+[sp()]),
+     scen("two Spaces", ks("ghbdtn")+[sp(),sp()]),
+    ]
+    # ---- V8 manual
+    out["manual"] = [[t, *L.manual_convert(t)] for t in ["Ghbdtn? Rfr ltkf?","Привет, как дела?","123","ghbdtn 😀","ЁЖ ёж","Hello, Привет"]]
+    # ---- V9 ev1
+    out["ev1"] = [
+     ["4 errors, 4 users, n=100000, 20 users, 100 docs", L.ev1_pass([("u%d"%i,"d%d"%i) for i in range(4)],100000,20,100), round(L.ev1_bound([("u%d"%i,"d%d"%i) for i in range(4)],100000),7)],
+     ["4 errors in one document", L.ev1_pass([("u1","d1")]*4,100000,20,100), round(L.ev1_bound([("u1","d1")]*4,100000),7)],
+     ["0 errors, n=100000", L.ev1_pass([],100000,20,100), round(L.ev1_bound([],100000),7)],
+     ["0 errors, n=99999", L.ev1_pass([],99999,20,100), round(L.ev1_bound([],99999),7)],
+     ["0 errors, 19 users", L.ev1_pass([],200000,19,100), round(L.ev1_bound([],200000),7)],
+     ["5 errors in 5 clusters, n=150000", L.ev1_pass([("u%d"%i,"d%d"%i) for i in range(5)],150000,20,100), round(L.ev1_bound([("u%d"%i,"d%d"%i) for i in range(5)],150000),7)],
+     ["2+2 errors in 2 clusters, n=100000", L.ev1_pass([("u1","d1")]*2+[("u2","d2")]*2,100000,20,100), round(L.ev1_bound([("u1","d1")]*2+[("u2","d2")]*2,100000),7)],
+    ]
+    out["poisson"] = [round(L.poisson_upper(k),4) for k in range(6)]
+    # ---- V10 baseline toy
+    def keyrow(w, lay): return L.tokens(K(w, lay))
+    # train each class on key rows of its own words (RU words typed on RU layout, EN/OTHER on EN)
+    trainset = {0:[keyrow(w,"en") for w in ["hello","hell","help","hero","world","word"]],
+                1:[keyrow(w,"ru") for w in ["привет","привал","приказ","пригород","мир","мирно"]],
+                2:[keyrow(w,"en") for w in ["kubectl","github","asdfgh","docker","nginx","vim"]]}
+    ms = [L.WittenBell().fit(trainset[c]) for c in range(3)]
+    lp = [math.log(x) for x in cal["pi_train"]]
+    blob = L.lfb_pack(ms, lp); pkg = L.lfb_load(blob)
+    test = keyrow("ghbdtn","en")
+    lg = L.baseline_logits(ms, lp, test)
+    out["wb"] = {"test_word_keys":"ghbdtn", "logp_by_class":[round(m.logp(test),6) for m in ms], "logits":[round(v,6) for v in lg],
+                 "lfb_bytes": len(blob), "lfb_sha256_16": hashlib.sha256(blob).hexdigest()[:16],
+                 "lfb_logp": [round(L.lfb_logp(pkg,c,test),6) for c in range(3)],
+                 "hello_ru": round(ms[1].logp(keyrow("hello","en")),6), "hello_en": round(ms[0].logp(keyrow("hello","en")),6),
+                 "n_pairs": [sum(len(d) for k in range(3) for d in m.cnt[k].values()) for m in ms]}
+    out["wb_score"] = round(L.score(lg, "en", {**cal, "temperature":{"network":1.0,"ngram":1.0}}, 0.01, "ngram"), 3)
+    # ---- V11 toy network
+    tw = L.toy_weights(); W = L.lfw_load(tw)
+    out["lfw"] = {"bytes": len(tw), "sha256_16": hashlib.sha256(tw).hexdigest()[:16],
+                  "logits_ghbdtn": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("ghbdtn","en")))],
+                  "logits_hello": [round(v,6) for v in L.lfw_forward(W, L.tokens(K("hello","en")))],
+                  "first_floats": [float(x) for x in struct.unpack_from("<4f", tw, 16+12)]}
+    out["fnv"] = [[s, hex(L.fnv1a64(s.encode()))] for s in ["", "a", "foobar"]] + [["ctx_key(2,(95,61))", hex(L.ctx_key(2,(95,61)))], ["pair_key(2,(95,61),63)", hex(L.pair_key(2,(95,61),63))]]
+    # ---- V12 lexicon tables and calibration package
+    lexb = L.lfl_pack({"lex_en": ["Hello", "the", "World"], "lex_ru": ["привет", "мир"], "acr_en": ["SQL"], "acr_ru": ["МТС"]})
+    lt = L.lfl_load(lexb)
+    out["lfl"] = {"bytes": len(lexb), "sha256_16": hashlib.sha256(lexb).hexdigest()[:16],
+                  "keys": [["lex_en", "hello", hex(L.lex_key(1, "hello"))], ["lex_ru", "привет", hex(L.lex_key(2, "привет"))],
+                           ["acr_ru", "МТС", hex(L.lex_key(4, "МТС"))]],
+                  "member": [["lex_en", "HELLO", "HELLO" in lt["lex_en"]], ["lex_en", "hi", "hi" in lt["lex_en"]],
+                             ["acr_en", "sql", "sql" in lt["acr_en"]]]}
+    cj = L.cal_to_json(cal)
+    out["cal_json"] = {"bytes": len(cj.encode("utf-8")), "sha256_16": hashlib.sha256(cj.encode("utf-8")).hexdigest()[:16]}
+    # ---- V15 Caps Lock on the letter keys of the two layouts (token formula of 20.2)
+    out["caps_all"] = [[kid, sh, cp, L.render_key(L.Key(kid, sh, cp), "en"), L.render_key(L.Key(kid, sh, cp), "ru"),
+                        L.token(L.Key(kid, sh, cp))]
+                       for kid in (0, 5, 13, 23, 24, 25, 30, 35, 36, 44, 45, 46)
+                       for sh, cp in ((False, False), (True, False), (False, True), (True, True))]
+    # ---- V16 undo snapshot lifecycle (13.3, 13.4)
+    def fresh(layout="en", t0=1000, word_="ghbdtn", caps=False):
+        e = L.Engine(cal, (lambda ids: [-3, 9, -2]) if layout == "en" else (lambda ids: [9, -3, -2]), lex)
+        for i, k in enumerate(K(word_, layout)):
+            e.on_event(L.Event("key", L.Key(k.id, k.shift, caps), layout, t0 + i))
+        d = e.on_event(L.Event("space", None, layout, t0 + len(word_)))
+        return e, d, t0 + len(word_)
+    ul = []
+    e, d, ts = fresh(); ul.append(["convert", d.action, d.replacement, e.snapshot is not None])
+    r = e.undo(ts + 500); ul.append(["undo after 500 ms", r, sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None])
+    ul.append(["second undo", e.undo(ts + 600)])
+    e, d, ts = fresh(); ul.append(["undo at exactly 10000 ms", e.undo(ts + 10000)])
+    e, d, ts = fresh(); ul.append(["undo at 10001 ms", e.undo(ts + 10001)])
+    for n_after in (100, 101):
+        e, d, ts = fresh()
+        for i in range(n_after):
+            e.on_event(L.Event("key", L.Key(i % 47), "en", ts + 10 + i))
+        ul.append([f"undo after {n_after} further characters", e.undo(ts + 2000)])
+    e, d, ts = fresh(caps=True); ul.append(["Caps Lock word", d.action, d.replacement, e.undo(ts + 5)])
+    e, d, ts = fresh("ru", word_="руддщ"); ul.append(["ru to en", d.action, d.replacement, e.undo(ts + 5)])
+    for name, act in [("break", lambda e: e.on_event(L.Event("break"))), ("layout change", lambda e: e.on_event(L.Event("layout", None, "ru"))),
+                      ("gap", lambda e: e.on_event(L.Event("gap"))), ("gate DENY", lambda e: e.set_gate("DENY")),
+                      ("mode MANUAL_ONLY", lambda e: e.set_mode("MANUAL_ONLY")), ("outcome RESTORED", lambda e: e.on_outcome("RESTORED")),
+                      ("outcome VERIFIED", lambda e: e.on_outcome("VERIFIED")), ("backspace", lambda e: e.on_event(L.Event("backspace")))]:
+        e, d, ts = fresh(); act(e); ul.append([f"after {name}", e.undo(ts + 5), e.credit])
+    out["undo"] = ul
+    # ---- V17 mode derivation (13.5)
+    CAPS_M1 = ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"]
+    CAPS_M2 = ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"]
+    out["modes"] = [[name, caps, sup, flags, L.engine_mode(caps, sup, **flags)] for name, caps, sup, flags in [
+        ("M1 with rollback", CAPS_M1, "AUTO", {}), ("M1 with rollback", CAPS_M1, "MANUAL", {}), ("M1 with rollback", CAPS_M1, "UNKNOWN", {}),
+        ("M1 without rollback", CAPS_M1[:3], "AUTO", {}), ("M2 only", CAPS_M2, "AUTO", {}), ("M2 only", CAPS_M2, "MANUAL", {}),
+        ("M1 with rollback", CAPS_M1, "AUTO", {"hook_ok": False}), ("M1 with rollback", CAPS_M1, "AUTO", {"models_ok": False}),
+        ("M1 with rollback", CAPS_M1, "AUTO", {"watchdog_ok": False}), ("M1 with rollback", CAPS_M1, "AUTO", {"layout_ok": False}),
+        ("M1 with rollback", CAPS_M1, "AUTO", {"permission_ok": False}), ("M1 with rollback", CAPS_M1, "AUTO", {"quarantined": True}),
+        ("read only", ["READ_RANGE"], "AUTO", {}), ("nothing", [], "AUTO", {})]]
+    # ---- V18 outcome classification
+    out["outcome"] = [[a, o, n, f, v, L.classify_outcome(a, o, n, f, v)] for a, o, n, f, v in [
+        (False, "x", "y", None, False), (True, "x", "y", "y", True), (True, "x", "y", "y", False), (True, "x", "y", "x", False),
+        (True, "x", "y", "z", False), (True, "x", "y", None, False)]]
+    # ---- V19 replacement transaction against injected faults. Expected values are hand-written; generation fails on a mismatch.
+    M1 = {"READ_RANGE", "REPLACE_RANGE", "READBACK", "ROLLBACK"}; M1N = {"READ_RANGE", "REPLACE_RANGE", "READBACK"}
+    M2 = {"READ_RANGE", "READBACK", "SYNTHETIC_INPUT"}
+    B, C = "Hello ghbdtn ", "Hello привет "
+    MAN = {"mode": "MANUAL_ONLY"}
+    FM = [  # name, caps, text, faults, ahead, kwargs, outcome, reason, final text, incident
+        ("m1 ok", M1, B, {}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 ok with typed-ahead keys", M1, B + "ab", {}, "ab", {}, "VERIFIED", "ok", "Hello привет ab", False),
+        ("m1 ok, the application has not shown the last typed-ahead key", M1, B + "a", {}, "ab", {}, "VERIFIED", "ok", "Hello привет a", False),
+        ("m1 user key lands before the range is read", M1, B, {"read:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m1 user key lands just before the write", M1, B, {"replace:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("too many typed-ahead keys", M1, B + "abcd", {}, "abcd", {}, "ABORTED", "typed_ahead", B + "abcd", False),
+        ("context break", M1, B, {}, "", {"context_break": True}, "ABORTED", "context_break", B, False),
+        ("layout changed", M1, B, {}, "", {"layout_changed": True}, "ABORTED", "context_break", B, False),
+        ("gate turned DENY", M1, B, {"gate:1": "DENY"}, "", {}, "ABORTED", "gate_changed", B, False),
+        ("gate unknown", M1, B, {"gate:1": "UNKNOWN"}, "", {}, "ABORTED", "gate_changed", B, False),
+        ("gate query fails", M1, B, {"gate:1": "raise"}, "", {}, "ABORTED", "gate_changed", B, False),
+        ("caret query fails", M1, B, {"caret:1": "raise"}, "", {}, "ABORTED", "adapter_error", B, False),
+        ("range unreadable", M1, B, {"read:1": "none"}, "", {}, "ABORTED", "echo_mismatch", B, False),
+        ("read times out", M1, B, {"read:1": "raise"}, "", {}, "ABORTED", "adapter_error", B, False),
+        ("read returns stale text", M1, B, {"read:1": "stale"}, "", {}, "ABORTED", "echo_mismatch", B, False),
+        ("application had autocorrected the word", M1, "Hello Ghbdtn ", {}, "", {}, "ABORTED", "echo_mismatch", "Hello Ghbdtn ", False),
+        ("typed-ahead key the engine did not record", M1, B + "x", {}, "", {}, "ABORTED", "echo_mismatch", B + "x", False),
+        ("partial write, rollback works", M1, B, {"replace:1": "partial"}, "", {}, "RESTORED", "write_error", B, True),
+        ("write fails, nothing written", M1, B, {"replace:1": "raise"}, "", {}, "RESTORED", "write_error", B, True),
+        ("write applied but reports a timeout", M1, B, {"replace:1": "applied_error"}, "", {}, "RESTORED", "write_error", B, True),
+        ("application autocorrects the written text", M1, B, {"replace:1": "autocorrect"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("write silently ignored", M1, B, {"replace:1": "ignored"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("read-back differs", M1, B, {"read:2": "stale"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("read-back times out", M1, B, {"read:2": "raise"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("caret ends up before its expected place", M1, B, {"caret:2": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("partial write and the rollback fails", M1, B, {"replace:1": "partial", "replace:2": "raise"}, "", {}, "UNRECOVERED", "write_error", "Hello приdtn ", True),
+        ("autocorrect and the rollback is ignored", M1, B, {"replace:1": "autocorrect", "replace:2": "ignored"}, "", {}, "UNRECOVERED", "verify_failed", "Hello приве? ", True),
+        ("no rollback capability, partial write", M1N, B, {"replace:1": "partial"}, "", MAN, "UNRECOVERED", "write_error", "Hello приdtn ", True),
+        ("no rollback capability, but the write is fine", M1N, B, {}, "", MAN, "VERIFIED", "ok", C, False),
+        ("AUTO requested without the capabilities", M1N, B, {}, "", {"mode": "AUTO"}, "ABORTED", "capability", B, False),
+        ("AUTO requested for synthetic input", M2, B, {}, "", {"mode": "AUTO"}, "ABORTED", "capability", B, False),
+        ("mode OFF", M1, B, {}, "", {"mode": "OFF"}, "ABORTED", "mode_off", B, False),
+        ("no read capability", {"REPLACE_RANGE", "ROLLBACK"}, B, {}, "", MAN, "ABORTED", "capability", B, False),
+        ("m2 manual ok", M2, B, {}, "", MAN, "VERIFIED", "ok", C, False),
+        ("m2 with typed-ahead keys is refused", M2, B + "a", {}, "a", MAN, "ABORTED", "typed_ahead", B + "a", False),
+        ("m2 user key between synthetic events", M2, B, {"event:3": "user:x"}, "", MAN, "UNRECOVERED", "verify_failed", "Hello gпривет ", True),
+        ("m2 synthetic event times out", M2, B, {"event:5": "raise"}, "", MAN, "UNRECOVERED", "write_error", "Hello ghb", True),
+        ("m2 user key while the range is read: nothing is sent", M2, B, {"read:1": "user:x"}, "", MAN, "ABORTED", "typed_ahead", B + "x", False),
+        ("m2 user key before the first synthetic event: the race that stays", M2, B, {"event:1": "user:x"}, "", MAN, "UNRECOVERED", "verify_failed", "Hello gпривет ", True),
+        ("m1 caret forward although no user key came", M1, B, {"caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 one user key during the read-back moves the caret by one", M1, B, {"read:2": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m1 one user key does not explain a caret two forward", M1, B, {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B + "x", True),
+        ("m1 write damages the Space after the range", M1, B, {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", True),
+        ("m1 write damages the Space, a typed-ahead key follows", M1, B + "a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", True),
+        ("m1 autocorrect with a typed-ahead key, the rollback restores the fragment", M1, B + "a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", B + "a", True),
+        ("m1 a key that types nothing during the read-back is allowed", M1, B, {"read:2": "key"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 one key may explain a caret one place forward", M1, B, {"read:2": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 one key does not explain a caret behind its place", M1, B, {"read:2": "key", "caret:2": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 one typed key and a caret one place back is still inside the window", M1, B, {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m2 a key that types nothing while the range is read: nothing is sent", M2, B, {"read:1": "key"}, "", MAN, "ABORTED", "typed_ahead", B, False),
+        ("m2 a key that types nothing between synthetic events", M2, B, {"event:3": "key"}, "", MAN, "VERIFIED", "ok", C, False),
+        ("m1 a key during the write explains a caret one place forward", M1, B, {"replace:1": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 a key during the write does not explain a caret two places forward", M1, B, {"replace:1": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 a key during the read-back does not explain a caret two places forward", M1, B, {"read:2": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m2 a key between synthetic events explains a caret one place forward", M2, B, {"event:3": "key", "caret:2": "forward"}, "", MAN, "VERIFIED", "ok", C, False),
+        ("m2 a key between synthetic events does not explain a caret two places forward", M2, B, {"event:3": "key", "caret:2": "forward2"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 the synthetic events are not user keys: a caret ahead without any user key fails", M2, B, {"caret:2": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+    ]
+    tx = []
+    for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in FM:
+        f = L.SimField(text, caps, {(k.split(":")[0], int(k.split(":")[1])): v for k, v in faults.items()})
+        r = L.run_transaction(f, "ghbdtn", "привет", ahead, **kw)
+        got = (r.outcome, r.reason, f.text, r.incident, r.quarantine)
+        if got != (outcome, reason, final, incident, incident):
+            raise AssertionError(f"fault matrix row {name!r}: engine gives {got}")
+        tx.append([name, sorted(caps), text, faults, ahead, kw, outcome, reason, final, incident])
+    out["tx"] = tx
+    # ---- V20 layout identity
+    en_e, ru_e = L.table_entries("en"), L.table_entries("ru")
+    typew = list(ru_e); typew[9] = "$"
+    out["fingerprint"] = [["en", L.layout_fingerprint(en_e), L.identify_layout(en_e)], ["ru", L.layout_fingerprint(ru_e), L.identify_layout(ru_e)],
+                          ["ru with key 4 shifted changed to $", L.layout_fingerprint(typew), L.identify_layout(typew)],
+                          ["en rotated by one entry", L.layout_fingerprint(en_e[1:] + en_e[:1]), L.identify_layout(en_e[1:] + en_e[:1])]]
+    # ---- V21 hook health
+    h = L.HookHealth(canary=True); hh = []
+    for t in (0, 100, 200):
+        h.raw_key(t, "s%d" % t); h.hook_key(t + 5, "s%d" % t)
+    hh.append(["three matched keys", h.check(250), h.take_gap()])
+    h.raw_key(1000, "k"); hh.append(["key unseen by the hook, at the limit", h.check(1300), h.take_gap()])
+    hh.append(["key unseen by the hook, past the limit", h.check(1301), h.take_gap(), h.reason])
+    hh.append(["gap is reported once", h.ok, h.take_gap()])
+    h.reinstalled()
+    for i in range(3):
+        h.raw_key(3000 + i, i); h.hook_key(3000 + i, i); hh.append([f"re-arm pair {i + 1}", h.ok, h.take_gap()])
+    c = L.HookHealth(); c.raw_key(0, "a"); c.hook_key(3, "a"); c.raw_key(100, "b"); c.hook_key(105, "c")
+    hh.append(["lost b and extra c cancel as counts, at the limit", c.check(400), c.take_gap(), c.reason])
+    hh.append(["lost b and extra c cancel as counts, past the limit", c.check(401), c.take_gap(), c.reason])
+    c = L.HookHealth(); c.hook_key(0, "c")
+    hh.append(["extra hook key alone, at the limit", c.check(300), c.take_gap(), c.reason])
+    hh.append(["extra hook key alone, past the limit", c.check(301), c.take_gap(), c.reason])
+    c = L.HookHealth(); c.hook_key(10, "a"); c.raw_key(12, "a"); c.hook_key(30, "c", injected=True)
+    hh.append(["hook event first, injected event ignored", c.check(10_000), c.take_gap(), c.reason])
+    c = L.HookHealth(); c.raw_key(0, "a"); c.raw_key(50, "a"); c.hook_key(55, "a")
+    hh.append(["two physical presses, one reported, at the limit of the unmatched press", c.check(350), c.take_gap(), c.reason])
+    hh.append(["two physical presses, one reported, past the limit of the unmatched press", c.check(351), c.take_gap(), c.reason])
+    m = L.HookHealth(canary=False); m.tap_disabled("timeout"); hh.append(["macOS tapDisabledByTimeout", m.ok, m.take_gap(), m.reason])
+    m.reinstalled(); hh.append(["macOS tap enabled again", m.ok, m.take_gap(), m.reason])
+    m.tap_disabled("user_input"); hh.append(["macOS tapDisabledByUserInput", m.ok, m.take_gap(), m.reason])
+    out["hook"] = hh
+    return out
+
+
 def dumps(v):
     return json.dumps(v, ensure_ascii=False)
 def block(v):    # valid JSON, one row per line
@@ -2895,7 +3392,12 @@ def block(v):    # valid JSON, one row per line
     if isinstance(v, dict):
         return "{\n" + ",\n".join(" " + dumps(k) + ": " + dumps(x) for k, x in v.items()) + "\n}"
     return dumps(v)
-sys.stdout.write("{\n" + ",\n".join(dumps(k) + ": " + block(v) for k, v in out.items()) + "\n}\n")
+def render(out):
+    return "{\n" + ",\n".join(dumps(k) + ": " + block(v) for k, v in out.items()) + "\n}\n"
+
+
+if __name__ == "__main__":
+    sys.stdout.write(render(build()))
 ```
 
 Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a final newline):
@@ -3002,7 +3504,7 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
  ["ghbdtn @3000", "KEEP", "cooldown", 0],
  ["ghbdtn @4000", "KEEP", "cooldown", 0],
  ["ghbdtn @5000", "KEEP", "cooldown", 0],
- ["ghbdtn @11500", "CONVERT", "score_above_threshold", 3]
+ ["ghbdtn @11500", "KEEP", "user_exception", 0]
 ],
 "scen": [
  ["word + Space", [["CONVERT", "score_above_threshold"]]],
@@ -3068,9 +3570,186 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
  "member": [["lex_en", "HELLO", true], ["lex_en", "hi", false], ["acr_en", "sql", true]]
 },
 "cal_json": {
- "bytes": 1261,
- "sha256_16": "3b11d4012da7da1d"
-}
+ "bytes": 1332,
+ "sha256_16": "bc05f74d7a47562d"
+},
+"caps_all": [
+ [0, false, false, "`", "ё", 1],
+ [0, true, false, "~", "Ё", 2],
+ [0, false, true, "`", "Ё", 2],
+ [0, true, true, "~", "ё", 1],
+ [5, false, false, "5", "5", 11],
+ [5, true, false, "%", "%", 12],
+ [5, false, true, "5", "5", 11],
+ [5, true, true, "%", "%", 12],
+ [13, false, false, "q", "й", 27],
+ [13, true, false, "Q", "Й", 28],
+ [13, false, true, "Q", "Й", 28],
+ [13, true, true, "q", "й", 27],
+ [23, false, false, "[", "х", 47],
+ [23, true, false, "{", "Х", 48],
+ [23, false, true, "[", "Х", 48],
+ [23, true, true, "{", "х", 47],
+ [24, false, false, "]", "ъ", 49],
+ [24, true, false, "}", "Ъ", 50],
+ [24, false, true, "]", "Ъ", 50],
+ [24, true, true, "}", "ъ", 49],
+ [25, false, false, "\\", "\\", 51],
+ [25, true, false, "|", "/", 52],
+ [25, false, true, "\\", "\\", 51],
+ [25, true, true, "|", "/", 52],
+ [30, false, false, "g", "п", 61],
+ [30, true, false, "G", "П", 62],
+ [30, false, true, "G", "П", 62],
+ [30, true, true, "g", "п", 61],
+ [35, false, false, ";", "ж", 71],
+ [35, true, false, ":", "Ж", 72],
+ [35, false, true, ";", "Ж", 72],
+ [35, true, true, ":", "ж", 71],
+ [36, false, false, "'", "э", 73],
+ [36, true, false, "\"", "Э", 74],
+ [36, false, true, "'", "Э", 74],
+ [36, true, true, "\"", "э", 73],
+ [44, false, false, ",", "б", 89],
+ [44, true, false, "<", "Б", 90],
+ [44, false, true, ",", "Б", 90],
+ [44, true, true, "<", "б", 89],
+ [45, false, false, ".", "ю", 91],
+ [45, true, false, ">", "Ю", 92],
+ [45, false, true, ".", "Ю", 92],
+ [45, true, true, ">", "ю", 91],
+ [46, false, false, "/", ".", 93],
+ [46, true, false, "?", ",", 94],
+ [46, false, true, "/", ".", 93],
+ [46, true, true, "?", ",", 94]
+],
+"undo": [
+ ["convert", "CONVERT", "привет", true],
+ ["undo after 500 ms", "ghbdtn", [["en2ru", "ghbdtn"]], 0, 3, false],
+ ["second undo", null],
+ ["undo at exactly 10000 ms", "ghbdtn"],
+ ["undo at 10001 ms", null],
+ ["undo after 100 further characters", "ghbdtn"],
+ ["undo after 101 further characters", null],
+ ["Caps Lock word", "CONVERT", "ПРИВЕТ", "GHBDTN"],
+ ["ru to en", "CONVERT", "hello", "руддщ"],
+ ["after break", null, 0],
+ ["after layout change", null, 0],
+ ["after gap", null, 0],
+ ["after gate DENY", null, 0],
+ ["after mode MANUAL_ONLY", null, 0],
+ ["after outcome RESTORED", null, 0],
+ ["after outcome VERIFIED", "ghbdtn", 0],
+ ["after backspace", null, 0]
+],
+"modes": [
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "AUTO", {}, "AUTO"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "MANUAL", {}, "MANUAL_ONLY"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "UNKNOWN", {}, "OFF"],
+ ["M1 without rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE"], "AUTO", {}, "MANUAL_ONLY"],
+ ["M2 only", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "AUTO", {}, "MANUAL_ONLY"],
+ ["M2 only", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "MANUAL", {}, "MANUAL_ONLY"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "AUTO", {"hook_ok": false}, "MANUAL_ONLY"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "AUTO", {"models_ok": false}, "MANUAL_ONLY"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "AUTO", {"watchdog_ok": false}, "MANUAL_ONLY"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "AUTO", {"layout_ok": false}, "OFF"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "AUTO", {"permission_ok": false}, "OFF"],
+ ["M1 with rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "AUTO", {"quarantined": true}, "OFF"],
+ ["read only", ["READ_RANGE"], "AUTO", {}, "OFF"],
+ ["nothing", [], "AUTO", {}, "OFF"]
+],
+"outcome": [
+ [false, "x", "y", null, false, "ABORTED"],
+ [true, "x", "y", "y", true, "VERIFIED"],
+ [true, "x", "y", "y", false, "UNRECOVERED"],
+ [true, "x", "y", "x", false, "RESTORED"],
+ [true, "x", "y", "z", false, "UNRECOVERED"],
+ [true, "x", "y", null, false, "UNRECOVERED"]
+],
+"tx": [
+ ["m1 ok", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 ok with typed-ahead keys", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ab", {}, "ab", {}, "VERIFIED", "ok", "Hello привет ab", false],
+ ["m1 ok, the application has not shown the last typed-ahead key", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {}, "ab", {}, "VERIFIED", "ok", "Hello привет a", false],
+ ["m1 user key lands before the range is read", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["m1 user key lands just before the write", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["too many typed-ahead keys", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn abcd", {}, "abcd", {}, "ABORTED", "typed_ahead", "Hello ghbdtn abcd", false],
+ ["context break", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {}, "", {"context_break": true}, "ABORTED", "context_break", "Hello ghbdtn ", false],
+ ["layout changed", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {}, "", {"layout_changed": true}, "ABORTED", "context_break", "Hello ghbdtn ", false],
+ ["gate turned DENY", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"gate:1": "DENY"}, "", {}, "ABORTED", "gate_changed", "Hello ghbdtn ", false],
+ ["gate unknown", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"gate:1": "UNKNOWN"}, "", {}, "ABORTED", "gate_changed", "Hello ghbdtn ", false],
+ ["gate query fails", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"gate:1": "raise"}, "", {}, "ABORTED", "gate_changed", "Hello ghbdtn ", false],
+ ["caret query fails", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:1": "raise"}, "", {}, "ABORTED", "adapter_error", "Hello ghbdtn ", false],
+ ["range unreadable", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "none"}, "", {}, "ABORTED", "echo_mismatch", "Hello ghbdtn ", false],
+ ["read times out", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "raise"}, "", {}, "ABORTED", "adapter_error", "Hello ghbdtn ", false],
+ ["read returns stale text", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "stale"}, "", {}, "ABORTED", "echo_mismatch", "Hello ghbdtn ", false],
+ ["application had autocorrected the word", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello Ghbdtn ", {}, "", {}, "ABORTED", "echo_mismatch", "Hello Ghbdtn ", false],
+ ["typed-ahead key the engine did not record", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn x", {}, "", {}, "ABORTED", "echo_mismatch", "Hello ghbdtn x", false],
+ ["partial write, rollback works", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "partial"}, "", {}, "RESTORED", "write_error", "Hello ghbdtn ", true],
+ ["write fails, nothing written", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "raise"}, "", {}, "RESTORED", "write_error", "Hello ghbdtn ", true],
+ ["write applied but reports a timeout", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "applied_error"}, "", {}, "RESTORED", "write_error", "Hello ghbdtn ", true],
+ ["application autocorrects the written text", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "autocorrect"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["write silently ignored", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "ignored"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["read-back differs", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "stale"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["read-back times out", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "raise"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["caret ends up before its expected place", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:2": "back"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["partial write and the rollback fails", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "partial", "replace:2": "raise"}, "", {}, "UNRECOVERED", "write_error", "Hello приdtn ", true],
+ ["autocorrect and the rollback is ignored", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "autocorrect", "replace:2": "ignored"}, "", {}, "UNRECOVERED", "verify_failed", "Hello приве? ", true],
+ ["no rollback capability, partial write", ["READBACK", "READ_RANGE", "REPLACE_RANGE"], "Hello ghbdtn ", {"replace:1": "partial"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "write_error", "Hello приdtn ", true],
+ ["no rollback capability, but the write is fine", ["READBACK", "READ_RANGE", "REPLACE_RANGE"], "Hello ghbdtn ", {}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false],
+ ["AUTO requested without the capabilities", ["READBACK", "READ_RANGE", "REPLACE_RANGE"], "Hello ghbdtn ", {}, "", {"mode": "AUTO"}, "ABORTED", "capability", "Hello ghbdtn ", false],
+ ["AUTO requested for synthetic input", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {}, "", {"mode": "AUTO"}, "ABORTED", "capability", "Hello ghbdtn ", false],
+ ["mode OFF", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {}, "", {"mode": "OFF"}, "ABORTED", "mode_off", "Hello ghbdtn ", false],
+ ["no read capability", ["REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {}, "", {"mode": "MANUAL_ONLY"}, "ABORTED", "capability", "Hello ghbdtn ", false],
+ ["m2 manual ok", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m2 with typed-ahead keys is refused", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn a", {}, "a", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn a", false],
+ ["m2 user key between synthetic events", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello gпривет ", true],
+ ["m2 synthetic event times out", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:5": "raise"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "write_error", "Hello ghb", true],
+ ["m2 user key while the range is read: nothing is sent", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"read:1": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn x", false],
+ ["m2 user key before the first synthetic event: the race that stays", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:1": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello gпривет ", true],
+ ["m1 caret forward although no user key came", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 one user key during the read-back moves the caret by one", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["m1 one user key does not explain a caret two forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn x", true],
+ ["m1 write damages the Space after the range", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", true],
+ ["m1 write damages the Space, a typed-ahead key follows", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", true],
+ ["m1 autocorrect with a typed-ahead key, the rollback restores the fragment", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", "Hello ghbdtn a", true],
+ ["m1 a key that types nothing during the read-back is allowed", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 one key may explain a caret one place forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 one key does not explain a caret behind its place", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "back"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 one typed key and a caret one place back is still inside the window", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["m2 a key that types nothing while the range is read: nothing is sent", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"read:1": "key"}, "", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn ", false],
+ ["m2 a key that types nothing between synthetic events", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key"}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 a key during the write explains a caret one place forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 a key during the write does not explain a caret two places forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 a key during the read-back does not explain a caret two places forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m2 a key between synthetic events explains a caret one place forward", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key", "caret:2": "forward"}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m2 a key between synthetic events does not explain a caret two places forward", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key", "caret:2": "forward2"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true],
+ ["m2 the synthetic events are not user keys: a caret ahead without any user key fails", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"caret:2": "forward"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true]
+],
+"fingerprint": [
+ ["en", "7b35aa964f372005ccef6558a1049dce2a550d772939090e3dba51302c0f3078", "en"],
+ ["ru", "3aced72548d6d46da951f06cdbed60aac96487c338ad7b805e95402eb37204de", "ru"],
+ ["ru with key 4 shifted changed to $", "c0371738c40a32a661d8b0a3da53bc364be0581704823335df93214890cf1672", null],
+ ["en rotated by one entry", "4c79352a3890de1b18fa6b4afa394f39e39ae60e1577ba7ec923c96d3c79f778", null]
+],
+"hook": [
+ ["three matched keys", true, false],
+ ["key unseen by the hook, at the limit", true, false],
+ ["key unseen by the hook, past the limit", false, true, "canary_missing"],
+ ["gap is reported once", false, false],
+ ["re-arm pair 1", false, false],
+ ["re-arm pair 2", false, false],
+ ["re-arm pair 3", true, false],
+ ["lost b and extra c cancel as counts, at the limit", true, false, null],
+ ["lost b and extra c cancel as counts, past the limit", false, true, "canary_missing"],
+ ["extra hook key alone, at the limit", true, false, null],
+ ["extra hook key alone, past the limit", false, true, "canary_extra"],
+ ["hook event first, injected event ignored", true, false, null],
+ ["two physical presses, one reported, at the limit of the unmatched press", true, false, null],
+ ["two physical presses, one reported, past the limit of the unmatched press", false, true, "canary_missing"],
+ ["macOS tapDisabledByTimeout", false, true, "tap_timeout"],
+ ["macOS tap enabled again", true, false, null],
+ ["macOS tapDisabledByUserInput", false, true, "tap_user_input"]
+]
 }
 ```
 
@@ -3082,55 +3761,1238 @@ An implementation of the engine, in any language and on any platform, is conform
 | --- | --- |
 | CT-1 | Every entry of the expected JSON of 20.12 is reproduced: strings, integers, booleans, token lists, hashes and byte counts exactly; floats equal after rounding to the number of decimals printed. |
 | CT-2 | The output is deterministic. The reference generator prints byte-identical output on every run, on every Python from 3.9 upwards and for every value of `PYTHONHASHSEED`; no result depends on the iteration order of a set or a dictionary. |
-| CT-3 | The property tests of `conformance.py` below pass: 200,000 random key runs (no key lost or duplicated by the candidate, core made of letters only, at most one leading and two trailing marks), priors that sum to 1, a probability stored where nats are expected is refused, the `LFB1` round trip, and the `LFW1` size rule of MD-14. |
+| CT-3 | The property tests of `conformance.py` below pass, under both python and python -O (no test uses the assert statement, so none disappears when Python is optimised): 200,000 random key runs (no key lost or duplicated by the candidate, core made of letters only, at most one leading and two trailing marks), priors that sum to 1, a probability stored where nats are expected is refused, the `LFB1` round trip, and the `LFW1` size rule of MD-14; the negative tests of the calibration package and of the three binary formats (every damaged file is refused); the engine tests (modes, undo snapshot, gap in the event stream, and an event fuzz of 200,000 events, 1,000,000 in the audit run, that checks the invariants of 13.5); the fault matrix of the replacement transaction (57 named cases and 1,665 single and paired faults, 13.2); the tests of the stream check (20.14); and every threshold of the specification, tested on both sides of its edge (part 3, P14). |
 | CT-4 | With the real lexicon of 8.9: no word of the 20,000 most frequent word forms of either language, typed on its own layout, has a core shorter than the whole run, and every Russian word of that list that uses only keys of the Russian layout, typed on the English layout, comes back from `candidate` with its whole run as core. A failure is a defect of the segmentation, not of the lexicon (the seven letter-keys, 5.3). |
 | CT-5 | The runtime meets MD-12 (baseline log-probabilities within 1e-9 of the reference) and MD-14 (network logits within 1e-5 on the toy weights of 20.12 and within 1e-4 on at least 100,000 key sequences of the exported network). |
-| CT-6 | A change of the code of 20.2 to 20.11 that changes any entry of 20.12 is a change of this specification: the expected output of 20.12 is updated in the same revision. |
+| CT-6 | A change of the code of 20.2 to 20.11 or 20.14 that changes any entry of 20.12 is a change of this specification: the expected output of 20.12 is updated in the same revision. |
 
 CT-1 to CT-3 need only the files of this section. CT-4 needs the lexicon built by D3, so it belongs to the build of the tables, not to the unit tests of the engine.
 
+**`conformance.py`, part 1 of 3 (P1 to P6: tokens, priors, the calibration package, the binary formats, Caps Lock).** The three parts are one file: write them into `conformance.py` one after the other, in this order.
+
 ```python
-"""conformance.py - property tests of section 20.13 (standard library only).
-Usage: python conformance.py   (in the folder that holds lfengine.py; prints OK or raises AssertionError)"""
-import sys, random, math; sys.path.insert(0, ".")
+"""conformance.py - property, negative and fault-injection tests of section 20.13 (standard library only).
+Usage:  python conformance.py [N]      N = number of fuzz events (default 200000; the audit runs 1000000)
+Run it in the folder that holds lfengine.py. It prints OK, or raises AssertionError. It also works under
+`python -O`, because it never uses the assert statement (asserts disappear when optimised)."""
+import sys, random, math, itertools, copy, json; sys.path.insert(0, ".")
 import lfengine as L
 
+N = int(sys.argv[1]) if len(sys.argv) > 1 else 200_000
 R = random.Random(1)
-for _ in range(200_000):                                  # P1: tokens, rendering, candidate
+CHECKS = 0
+
+
+def T(cond, what=""):
+    """The one check function: a failed condition always raises, with or without -O."""
+    global CHECKS
+    CHECKS += 1
+    if not cond:
+        raise AssertionError(what or "check failed")
+
+
+def raises(exc, fn, what):
+    global CHECKS
+    CHECKS += 1
+    try:
+        fn()
+    except exc:
+        return
+    except Exception as e:                                # a wrong exception type is also a failure
+        raise AssertionError(f"{what}: raised {type(e).__name__}, expected {exc.__name__}")
+    raise AssertionError(f"{what}: nothing was raised")
+
+
+# ---- P1 tokens, rendering, candidate -------------------------------------------------------------------
+for _ in range(N):
     run = [L.Key(R.randrange(47), R.random() < .5, R.random() < .3) for _ in range(R.randrange(1, 12))]
-    assert all(1 <= L.token(k) <= 94 for k in run)
+    T(all(1 <= L.token(k) <= 94 for k in run), "token range")
     for lay in ("en", "ru"):
         txt = L.render(run, lay)
-        assert L.render([L.Key(k.id, L.effective_shift(k, lay)) for k in run], lay) == txt
-        assert L.render(L.keys_from_text(txt, lay), lay) == txt
+        T(L.render([L.Key(k.id, L.effective_shift(k, lay)) for k in run], lay) == txt, "effective shift")
+        T(L.render(L.keys_from_text(txt, lay), lay) == txt, "round trip")
     for tgt in ("en", "ru"):
         c = L.candidate(run, tgt)
         if c:
-            assert c.lead + c.core + c.trail == tuple(run)                       # no key lost or duplicated
-            assert len(c.lead) <= 1 and len(c.trail) <= 2 and len(c.core) >= 1
-            assert all(L.is_letter_in(tgt, k.id) for k in c.core)                # the core is letters only
+            T(c.lead + c.core + c.trail == tuple(run), "a key was lost or duplicated by segmentation")
+            T(len(c.lead) <= 1 and len(c.trail) <= 2 and len(c.core) >= 1, "peel limits")
+            T(all(L.is_letter_in(tgt, k.id) for k in c.core), "the core is letters only")
 
-for a in ("en", "ru"):                                    # P2: every prior is a probability vector
+# ---- P2 every prior is a probability vector ------------------------------------------------------------
+for a in ("en", "ru"):
     for st in L.STATES:
         cal = L.example_cal()
-        assert abs(sum(L.deployment_prior(a, cal["w"][a][st], cal["o_lat"])) - 1) < 1e-12
+        T(abs(sum(L.deployment_prior(a, cal["w"][a][st], cal["o_lat"])) - 1) < 1e-12, "prior sums to 1")
 
-cal = L.example_cal()                                     # P3: a probability stored where nats are expected is refused
-bad = L.example_cal(); bad["lambda_nats"]["network"]["en2ru"]["5-7"] = 0.997
-try:
-    L.check_calibration_package(bad); raise SystemExit("unit mix-up not caught")
-except AssertionError:
-    pass
+# ---- P3 calibration package: every mutation is refused with CalibrationError, and the engine does not start ----
+ok_cal = L.example_cal()
+L.check_calibration_package(ok_cal)
+T(L.pi_from_counts(ok_cal["pi_train_counts"]) == ok_cal["pi_train"], "pi_train is derived from the counts")
 
+
+def mutated(path, value):
+    c = copy.deepcopy(ok_cal)
+    cur = c
+    for p in path[:-1]:
+        cur = cur[p]
+    if value is DELETE:
+        del cur[path[-1]]
+    else:
+        cur[path[-1]] = value
+    return c
+
+
+DELETE = object()
+nan, inf = float("nan"), float("inf")
+BAD = {
+    "unit mix-up (a probability stored as nats)": (["lambda_nats", "network", "en2ru", "5-7"], 0.997),
+    "network table missing": (["lambda_nats", "network"], DELETE),
+    "ngram table missing": (["lambda_nats", "ngram"], DELETE),
+    "direction missing": (["lambda_nats", "network", "ru2en"], DELETE),
+    "bucket missing": (["lambda_nats", "ngram", "en2ru", "8+"], DELETE),
+    "bucket is a string": (["lambda_nats", "network", "en2ru", "3-4"], "6.9"),
+    "bucket is NaN": (["lambda_nats", "network", "en2ru", "3-4"], nan),
+    "bucket is +Inf": (["lambda_nats", "network", "en2ru", "3-4"], inf),
+    "bucket is a bool": (["lambda_nats", "network", "en2ru", "3-4"], True),
+    "table is a list": (["lambda_nats", "network", "en2ru"], [6.9, 5.8, 5.3]),
+    "T is NaN": (["temperature", "network"], nan),
+    "T is +Inf": (["temperature", "network"], inf),
+    "T is -Inf": (["temperature", "ngram"], -inf),
+    "T is zero": (["temperature", "network"], 0.0),
+    "T is negative": (["temperature", "ngram"], -1.0),
+    "T is too large": (["temperature", "network"], 99.0),
+    "T of one scorer missing": (["temperature", "ngram"], DELETE),
+    "T is a per-class list": (["temperature", "network"], [1.0, 1.0, 1.0]),
+    "pi_train too short": (["pi_train"], [0.5, 0.5]),
+    "pi_train has a zero": (["pi_train"], [0.5, 0.5, 0.0]),
+    "pi_train has a negative": (["pi_train"], [0.6, 0.5, -0.1]),
+    "pi_train is not normalised": (["pi_train"], [0.39, 0.40, 0.22]),
+    "pi_train differs from its counts": (["pi_train"], [0.40, 0.38, 0.22]),
+    "counts have a zero": (["pi_train_counts"], [38000, 40000, 0]),
+    "counts are floats": (["pi_train_counts"], [38000.0, 40000.0, 22000.0]),
+    "counts too short": (["pi_train_counts"], [38000, 40000]),
+    "o_lat is 1": (["o_lat"], 1.0),
+    "o_lat is NaN": (["o_lat"], nan),
+    "w[en] missing a state": (["w", "en", "run"], DELETE),
+    "w is zero": (["w", "ru", "default"], 0.0),
+    "w[run] above its cap": (["w", "en", "run"], 0.4),
+    "two-key list missing": (["two_key_allow", "ru2en"], DELETE),
+    "two-key list empty": (["two_key_allow", "en2ru"], set()),
+    "two-key word of three letters": (["two_key_allow", "en2ru"], {"на", "она"}),
+    "two-key word of one letter": (["two_key_allow", "en2ru"], {"на", "н"}),
+    "two-key word not case-folded": (["two_key_allow", "en2ru"], {"На"}),
+    "two-key word with a space": (["two_key_allow", "en2ru"], {"н "}),
+    "two-key list is a list, not a set": (["two_key_allow", "en2ru"], ["на"]),
+    "two-key list is a string": (["two_key_allow", "en2ru"], "на не"),
+    "wrong schema": (["schema"], "LFC0"),
+    "unknown field": (["extra"], 1),
+    "field missing": (["o_lat"], DELETE),
+}
+for what, (path, value) in BAD.items():
+    bad = mutated(path, value)
+    raises(L.CalibrationError, lambda b=bad: L.check_calibration_package(b), what)
+    raises(L.CalibrationError, lambda b=bad: L.Engine(b, lambda ids: [0, 0, 0]), "engine must not start: " + what)
+raises(L.CalibrationError, lambda: L.check_calibration_package(None), "package is None")
+raises(L.CalibrationError, lambda: L.check_calibration_package([]), "package is a list")
+raises(L.CalibrationError, lambda: L.Engine(ok_cal, lambda ids: [0, 0, 0], kind="forest"), "unknown scorer kind")
+good_json = L.cal_to_json(ok_cal)
+T(L.cal_to_json(L.cal_from_json(good_json)) == good_json, "JSON round trip")
+for what, text in {
+    "NaN": good_json.replace('"network": 1.0', '"network": NaN', 1),
+    "Infinity": good_json.replace('"network": 1.0', '"network": Infinity', 1),
+    "duplicate key": good_json.replace('"o_lat"', '"o_lat": 0.25, "o_lat"', 1),
+    "not JSON": "{",
+    "not an object": "[1]",
+    "allow list of numbers": good_json.replace('"на"', "5", 1),
+    "allow list is a string": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": "на не но"}}, ensure_ascii=False),
+    "allow list is null": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": None}}, ensure_ascii=False),
+    "allow list has a duplicate": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": ["на", "на"]}}, ensure_ascii=False),
+    "allow list of one-letter words": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": ["н", "а"]}}, ensure_ascii=False),
+    "allow list is empty": json.dumps({**json.loads(good_json), "two_key_allow": {**json.loads(good_json)["two_key_allow"], "en2ru": []}}, ensure_ascii=False),
+}.items():
+    raises(L.CalibrationError, lambda t=text: L.cal_from_json(t), "JSON: " + what)
+# the runtime reaction: a refused package gives a defined mode, never a half-activated engine
+T(L.engine_mode({L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}, "AUTO", models_ok=False) == "MANUAL_ONLY",
+  "refused package: MANUAL_ONLY")
+
+# ---- P4 LFB1 round trip equals the in-memory model -----------------------------------------------------
+cal = L.example_cal()
 rows = [[L.BOS] + [L.token(L.Key(R.randrange(47), R.random() < .3)) for _ in range(R.randrange(2, 9))] + [L.EOS]
-        for _ in range(300)]                              # P4: LFB1 round trip equals the in-memory model
+        for _ in range(300)]
 ms = [L.WittenBell().fit(rows[i::3]) for i in range(3)]
 pkg = L.lfb_load(L.lfb_pack(ms, [math.log(x) for x in cal["pi_train"]]))
-assert max(abs(L.lfb_logp(pkg, c, r) - ms[c].logp(r)) for c in range(3) for r in rows[:100]) < 1e-12
+T(max(abs(L.lfb_logp(pkg, c, r) - ms[c].logp(r)) for c in range(3) for r in rows[:100]) < 1e-12, "LFB1 round trip")
 
-tw = L.toy_weights()                                      # P5: LFW1 size is header + 4 bytes per parameter; three finite logits
-assert len(tw) == 16 + 4 * 3 + 4 * L.lfw_size(4, 4, (3, 5, 3))
+# ---- P5 LFW1: size is header + 4 bytes per parameter; three finite logits -------------------------------
+tw = L.toy_weights()
+T(len(tw) == 16 + 4 * 3 + 4 * L.lfw_size(4, 4, (3, 5, 3)), "LFW1 size")
 out = L.lfw_forward(L.lfw_load(tw), L.tokens(L.keys_from_text("ghbdtn", "en")))
-assert len(out) == 3 and all(math.isfinite(v) for v in out)
-print("OK")
+T(len(out) == 3 and all(math.isfinite(v) for v in out), "LFW1 forward")
+
+# ---- P6 Caps Lock: the token formula, key by key ---------------------------------------------------------
+RU_ONLY = (0, 23, 24, 35, 36, 44, 45)                       # ` [ ] ; ' , .  (letters only in Russian)
+T(sorted(set(L.LETTER_KEYS) - {k for k in range(47) if L.TABLE["en"][0][k].isalpha()}) == sorted(RU_ONLY), "L")
+for kid in range(47):
+    for sh, cp in itertools.product((False, True), repeat=2):
+        k = L.Key(kid, sh, cp)
+        expect = 1 + 2 * kid + int(sh ^ (cp and kid in L.LETTER_KEYS))
+        T(L.token(k) == expect, f"token formula key {kid} shift {sh} caps {cp}")
+        if L.TABLE["en"][0][kid].isalpha():                  # Latin letters: the token equals the shift of BOTH layouts
+            T(bool((L.token(k) - 1) & 1) == L.effective_shift(k, "en") == L.effective_shift(k, "ru"), "latin letter")
+        if kid in RU_ONLY:                                   # seven keys: the token carries the flip, English rendering does not
+            T(bool((L.token(k) - 1) & 1) == L.effective_shift(k, "ru"), "ru-only letter follows the Russian layout")
+            T(L.render_key(k, "en") == L.TABLE["en"][int(sh)][kid], "Caps Lock does not change the English character")
+        if kid not in L.LETTER_KEYS:                         # digits, - = \ / : Caps Lock never reaches the token
+            T(L.token(k) == 1 + 2 * kid + int(sh), "non-letter key")
+```
+
+**`conformance.py`, part 2 of 3 (P7 to P13: modes, outcomes, the fault matrix of the replacement transaction, the engine, layout identity, hook health, the event fuzz).**
+
+```python
+# ---- P7 engine_mode: the whole truth table, plus the invariants that matter -------------------------------
+CAPS = sorted(L.CAPABILITIES)
+for r in range(len(CAPS) + 1):
+    for caps in itertools.combinations(CAPS, r):
+        for support in L.SUPPORT_STATUS:
+            for flags in itertools.product((True, False), repeat=6):
+                kw = dict(zip(("models_ok", "layout_ok", "permission_ok", "hook_ok", "watchdog_ok", "quarantined"), flags))
+                m = L.engine_mode(caps, support, **kw)
+                fs = frozenset(caps)
+                if m == "AUTO":
+                    T(L.AUTO_REQUIRES <= fs and support == "AUTO" and kw["models_ok"] and kw["hook_ok"]
+                      and kw["watchdog_ok"] and kw["layout_ok"] and kw["permission_ok"] and not kw["quarantined"],
+                      f"AUTO granted wrongly: {caps} {support} {kw}")
+                if L.SYNTHETIC_INPUT in fs and not L.AUTO_REQUIRES <= fs:
+                    T(m != "AUTO", "synthetic input without rollback must never be AUTO")
+                if support == "UNKNOWN" or kw["quarantined"] or not kw["permission_ok"] or not kw["layout_ok"]:
+                    T(m == "OFF", "unknown, quarantined, no permission or unsupported layout is OFF")
+                if m != "OFF" and not kw["hook_ok"]:
+                    T(m == "MANUAL_ONLY", "a lost hook can never leave AUTO active")
+raises(ValueError, lambda: L.engine_mode({"TELEPATHY"}, "AUTO"), "unknown capability")
+raises(ValueError, lambda: L.engine_mode(set(), "MAYBE"), "unknown status")
+M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}
+M1_NOROLL = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK}
+M2 = {L.READ_RANGE, L.READBACK, L.SYNTHETIC_INPUT}
+T(L.engine_mode(M1, "AUTO") == "AUTO" and L.engine_mode(M1_NOROLL, "AUTO") == "MANUAL_ONLY"
+  and L.engine_mode(M2, "AUTO") == "MANUAL_ONLY" and L.engine_mode(M2, "MANUAL") == "MANUAL_ONLY"
+  and L.engine_mode(M1, "MANUAL") == "MANUAL_ONLY" and L.engine_mode(M1, "UNKNOWN") == "OFF"
+  and L.engine_mode({L.READ_RANGE}, "AUTO") == "OFF", "mode examples")
+
+# ---- P8 outcome classification --------------------------------------------------------------------------
+T(L.classify_outcome(False, "a", "b", None, False) == "ABORTED", "not started")
+T(L.classify_outcome(True, "a", "b", "b", True) == "VERIFIED", "verified")
+T(L.classify_outcome(True, "a", "b", "b", False) == "UNRECOVERED", "new text without a passed verification is not VERIFIED")
+T(L.classify_outcome(True, "a", "b", "a", False) == "RESTORED", "restored")
+T(L.classify_outcome(True, "a", "b", "c", False) == "UNRECOVERED", "other text")
+T(L.classify_outcome(True, "a", "b", None, False) == "UNRECOVERED", "unreadable range")
+
+# ---- P9 the replacement transaction against injected faults (the matrix of 13.2) ------------------------------
+import os, vectors
+V = vectors.build()                                                   # fails by itself when a hand-written prediction is wrong
+if os.path.exists("vectors_out.json"):
+    with open("vectors_out.json", encoding="utf-8") as fh:
+        T(json.load(fh) == json.loads(vectors.render(V)), "vectors_out.json is not what vectors.py generates")
+BASE, OLD, NEW = "Hello ghbdtn ", "ghbdtn", "привет"
+T(len(V["tx"]) == 57, "fault matrix size")
+for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["tx"]:
+    f = L.SimField(text, caps, {(k.split(":")[0], int(k.split(":")[1])): v for k, v in faults.items()})
+    res = L.run_transaction(f, OLD, NEW, ahead, **kw)
+    T((res.outcome, res.reason, f.text, res.incident, res.quarantine) == (outcome, reason, final, incident, incident), name)
+    T(res.outcome in L.OUTCOMES, "outcome vocabulary")
+    # invariants of every row (the safety matrix of 13.2):
+    T(res.outcome != "VERIFIED" or f.text[6:12] == NEW, f"{name}: VERIFIED text")
+    T(res.outcome != "RESTORED" or f.text[6:12] == OLD, f"{name}: RESTORED text")
+    T(res.outcome != "ABORTED" or f.text.replace("x", "") == text.replace("x", ""), f"{name}: ABORTED must not change the field")
+    T(res.incident == (res.outcome in ("RESTORED", "UNRECOVERED")), f"{name}: an incident only after the write began")
+    T(f.user == [c for c in f.user if c == "x"], f"{name}: only the scripted user keys")
+    if res.method == "M2" and res.outcome == "UNRECOVERED":          # the event-level guarantee holds, the field one does not
+        T(f.sent == (14 if reason == "verify_failed" else 4) and f.user == ["x"] * len(f.user),
+          f"{name}: G-EVENT: synthetic events are exactly those of the plan, user keys exactly once")
+
+# Every fault of one phase, applied to every step, never ends in a silent VERIFIED with wrong text, and never
+# crashes (an exhaustive sweep over single faults and pairs of faults, M1 with rollback).
+FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
+               ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
+               ("read", 3, ["none", "stale", "raise"]),
+               ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x", "key"]),
+               ("replace", 2, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x"])]
+sweep = 0
+for combo in itertools.chain(([s] for s in FAULT_SLOTS), itertools.combinations(FAULT_SLOTS, 2)):
+    for picks in itertools.product(*[[(op, k, v) for v in vs] for op, k, vs in combo]):
+        faults = {(op, k): v for op, k, v in picks}
+        f = L.SimField(BASE, M1, faults)
+        res = L.run_transaction(f, OLD, NEW)
+        sweep += 1
+        body = f.text.replace("x", "")
+        T(res.outcome in L.OUTCOMES, "vocabulary")
+        T(res.outcome != "VERIFIED" or body == "Hello привет ", f"sweep VERIFIED with wrong text {faults}")
+        T(res.outcome != "RESTORED" or body == BASE, f"sweep RESTORED with wrong text {faults}")
+        T(res.outcome != "ABORTED" or body == BASE, f"sweep ABORTED changed the field {faults}")
+        T(res.outcome != "UNRECOVERED" or (res.incident and res.quarantine), f"sweep UNRECOVERED without incident {faults}")
+        T(f.user == ["x"] * len(f.user), "user keys are exactly the scripted ones")
+        T(body.count("привет") + body.count("ghbdtn") <= 1 or res.outcome == "UNRECOVERED", f"sweep duplicated text {faults}")
+M1_SWEEP = sweep
+
+# The same sweep for M2 (the hotkey path): events 1 to 14 are the plan (7 Backspace, 6 characters, the Space).
+# Invariants: a user key seen before the first event means nothing is sent; whatever is written, the user's own
+# keys are never lost or duplicated by the plan (G-EVENT) and a wrong text is never VERIFIED.
+M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
+            ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
+            ("read", 3, ["none", "stale", "raise"])] + [("event", k, ["raise", "user:x", "drop", "key"]) for k in range(1, 15)]
+for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_SLOTS[:6] + M2_SLOTS[6:9] + M2_SLOTS[-3:], 2)):
+    for picks in itertools.product(*[[(op, k, v) for v in vs] for op, k, vs in combo]):
+        faults = {(op, k): v for op, k, v in picks}
+        f = L.SimField(BASE, M2, faults)
+        res = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+        sweep += 1
+        body = f.text.replace("x", "")
+        T(res.outcome in L.OUTCOMES, "M2 vocabulary")
+        T(res.outcome != "VERIFIED" or body == "Hello привет ", f"M2 sweep VERIFIED with wrong text {faults}")
+        T(res.outcome != "ABORTED" or (f.sent == 0 and body == BASE), f"M2 sweep ABORTED wrote something {faults}")
+        T(res.outcome != "UNRECOVERED" or (res.incident and res.quarantine), f"M2 sweep UNRECOVERED without incident {faults}")
+        T(f.sent in (0, 14) or any(k == "event" for (k, _) in faults) or res.outcome == "UNRECOVERED", f"M2 sweep partial plan {faults}")
+        T(f.user == ["x"] * len(f.user), "M2 user keys are exactly the scripted ones")
+        if faults.get(("read", 1)) in ("user:x", "key"):         # the key came before the first event: nothing may be sent
+            T(f.sent == 0 and res.outcome == "ABORTED", f"M2 sweep: key before the write {faults}")
+T((M1_SWEEP, sweep) == (621, 1665), f"sweep size {M1_SWEEP} / {sweep}")
+
+# ---- P10 engine: undo snapshot lifecycle, modes, outcomes, stream gap ---------------------------------------
+scorer = lambda ids: [-3, 9, -2]
+LEX = {"en": {"hello"}, "ru": {"привет"}}
+
+
+def feed(e, text, lay, t0, then_space=True):
+    d = None
+    for i, k in enumerate(L.keys_from_text(text, lay)):
+        e.on_event(L.Event("key", k, lay, t0 + i))
+    if then_space:
+        d = e.on_event(L.Event("space", None, lay, t0 + len(text)))
+    return d
+
+
+e = L.Engine(L.example_cal(), scorer, LEX)
+d = feed(e, "ghbdtn", "en", 1000)
+T(d.action == "CONVERT" and e.snapshot is not None, "convert makes one snapshot")
+T(e.snapshot.layout == "en" and e.snapshot.direction == "en2ru" and e.snapshot.typed == "ghbdtn", "snapshot content")
+T(e.undo(2000) == "ghbdtn", "undo returns the typed text")
+T(("en2ru", "ghbdtn") in e.exceptions and e.credit == 0 and e.cool_words == 3 and e.snapshot is None,
+  "undo: exception, credit, cool-down, snapshot destroyed")
+T(e.undo(2100) is None, "a second undo does nothing")
+d = feed(e, "ghbdtn", "en", 3000)
+T(d.action == "KEEP" and d.reason == "cooldown", "cool-down suppresses the correction")
+# caps lock keys are restored exactly
+e = L.Engine(L.example_cal(), scorer, LEX)
+for i, k in enumerate(L.keys_from_text("ghbdtn", "en")):
+    e.on_event(L.Event("key", L.Key(k.id, False, True), "en", i))
+d = e.on_event(L.Event("space", None, "en", 10))
+T(d.action == "CONVERT" and e.undo(20) == "GHBDTN", "undo with Caps Lock restores the typed capitals")
+# russian to english
+e = L.Engine(L.example_cal(), lambda ids: [9, -3, -2], LEX)
+d = feed(e, "руддщ", "ru", 0)
+T(d.action == "CONVERT" and d.replacement == "hello" and e.undo(5) == "руддщ", "ru2en undo")
+# expiry: 10 s and 100 characters
+for dt, alive in ((10_000, True), (10_001, False)):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+    e.tick(1006 + dt)
+    T((e.snapshot is not None) == alive, f"expiry at {dt} ms")
+for n_after, alive in ((100, True), (101, False)):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+    for i in range(n_after):
+        e.on_event(L.Event("key", L.Key(i % 47), "en", 1010 + i))
+    T((e.snapshot is not None) == alive, f"{n_after} characters after the replacement")
+# everything that must destroy it
+for what, act in {
+    "break": lambda e: e.on_event(L.Event("break")),
+    "layout change": lambda e: e.on_event(L.Event("layout", None, "ru")),
+    "gap": lambda e: e.on_event(L.Event("gap")),
+    "gate DENY": lambda e: e.set_gate("DENY"),
+    "gate UNKNOWN": lambda e: e.set_gate("UNKNOWN"),
+    "mode MANUAL_ONLY": lambda e: e.set_mode("MANUAL_ONLY"),
+    "mode OFF": lambda e: e.set_mode("OFF"),
+    "backspace before the word": lambda e: e.on_event(L.Event("backspace")),
+    "outcome RESTORED": lambda e: e.on_outcome("RESTORED"),
+    "outcome UNRECOVERED": lambda e: e.on_outcome("UNRECOVERED"),
+    "outcome ABORTED": lambda e: e.on_outcome("ABORTED"),
+}.items():
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+    T(e.snapshot is not None, "setup " + what)
+    act(e)
+    T(e.snapshot is None and e.undo(1100) is None, "the snapshot must not survive: " + what)
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+e.on_outcome("VERIFIED")
+T(e.snapshot is not None and e.credit == 3, "a verified replacement keeps snapshot and credit")
+e.on_event(L.Event("space", None, "en", 1500))                       # an empty run: nothing happens, the snapshot lives on
+T(e.snapshot is not None, "a Space with no word keeps the snapshot")
+feed(e, "ytdtyj", "en", 1600)                                         # a second conversion replaces the first snapshot
+T(e.snapshot is None or e.snapshot.typed != "ghbdtn", "one snapshot only")
+raises(ValueError, lambda: e.on_outcome("MAYBE"), "outcome vocabulary")
+# modes
+e = L.Engine(L.example_cal(), scorer, LEX); e.set_mode("MANUAL_ONLY")
+T(feed(e, "ghbdtn", "en", 0) is None and e.snapshot is None, "MANUAL_ONLY never decides")
+e.on_event(L.Event("key", L.Key(5), "en", 0))
+T(e.run == [] and e.snapshot is None, "MANUAL_ONLY records nothing (13.5)")
+e.set_mode("OFF"); e.on_event(L.Event("key", L.Key(5), "en", 0))
+T(e.run == [], "OFF records nothing")
+e.set_mode("AUTO")
+T(feed(e, "ghbdtn", "en", 0).action == "CONVERT", "AUTO decides again")
+# a gap drops the interrupted word, whatever follows
+e = L.Engine(L.example_cal(), scorer, LEX)
+for k in L.keys_from_text("ghb", "en"):
+    e.on_event(L.Event("key", k, "en", 0))
+e.on_event(L.Event("gap"))
+for k in L.keys_from_text("dtn", "en"):
+    e.on_event(L.Event("key", k, "en", 1))
+T(e.on_event(L.Event("space", None, "en", 2)) is None, "the tail of an interrupted word is ignored")
+T(feed(e, "ghbdtn", "en", 10).action == "CONVERT", "the next word is decided normally")
+# scorer fails closed
+for bad in ([nan, 0, 0], [inf, 0, 0], [1, 2], "abc", [None, 1, 2]):
+    e = L.Engine(L.example_cal(), lambda ids, b=bad: b, LEX)
+    dd = feed(e, "ghbdtn", "en", 0)
+    T(dd.action == "KEEP" and dd.reason == "scorer_invalid", f"scorer output {bad!r} fails closed")
+
+# ---- P11 layout identity ---------------------------------------------------------------------------------
+en_e, ru_e = L.table_entries("en"), L.table_entries("ru")
+T(L.identify_layout(en_e) == "en" and L.identify_layout(ru_e) == "ru", "supported layouts are recognised")
+T(len(set(L.SUPPORTED_FINGERPRINTS)) == 2, "two distinct fingerprints")
+for lay, ent in (("en", en_e), ("ru", ru_e)):
+    for i in range(94):                                               # any single wrong entry means: not supported
+        alt = list(ent); alt[i] = "\x00" if ent[i] != "\x00" else "a"
+        T(L.identify_layout(alt) is None, f"{lay} entry {i} changed")
+        alt[i] = ent[i] + "́"
+        T(L.identify_layout(alt) is None, f"{lay} entry {i} gets a combining mark")
+T(L.identify_layout(en_e[1:] + en_e[:1]) is None, "rotated table")
+swap = list(ru_e); swap[2 * 0], swap[2 * 0 + 1] = swap[1], swap[0]
+T(L.identify_layout(swap) is None, "shift states swapped")
+# a Russian layout that differs from the supported one in the punctuation row (the typewriter style)
+typew = list(ru_e); typew[2 * 4 + 1] = "$"
+T(L.identify_layout(typew) is None, "another Russian variant is not supported")
+raises(ValueError, lambda: L.layout_fingerprint(en_e[:-1]), "93 entries")
+raises(ValueError, lambda: L.layout_fingerprint(en_e[:-1] + ["a\nb"]), "an entry with a line feed")
+T(L.layout_fingerprint(en_e) == "7b35aa964f372005ccef6558a1049dce2a550d772939090e3dba51302c0f3078", "fingerprint en is stable")
+T(L.layout_fingerprint(ru_e) == "3aced72548d6d46da951f06cdbed60aac96487c338ad7b805e95402eb37204de", "fingerprint ru is stable")
+
+# ---- P12 hook health -------------------------------------------------------------------------------------
+h = L.HookHealth(canary=True)
+for t in (0, 100, 200):
+    h.raw_key(t, ("a", t)); h.hook_key(t + 5, ("a", t))
+T(h.check(250) and h.ok and not h.take_gap(), "healthy stream")
+h.raw_key(1000, "x")                                                  # the hook does not see this key
+T(h.check(1000 + L.HookHealth.CANARY_MS) and h.ok, "exactly at the limit is still healthy")
+T(not h.check(1000 + L.HookHealth.CANARY_MS + 1) and h.take_gap() and not h.take_gap(), "canary loses the hook, one gap")
+T(h.reason == "canary_missing", "a physical key the hook never reported")
+T(L.engine_mode(M1, "AUTO", hook_ok=h.ok) == "MANUAL_ONLY", "a lost hook limits the mode")
+for t in (2000, 2100, 2200, 2300):                                    # keys typed while the hook is still not installed again
+    h.raw_key(t, t); h.check(t + 10)
+T(not h.ok, "still lost")
+h.reinstalled()
+for i in range(L.HookHealth.REARM_PAIRS - 1):
+    h.raw_key(3000 + i, i); h.hook_key(3000 + i, i)
+T(not h.ok, "re-arm needs the full number of pairs")
+h.raw_key(3100, 9); h.hook_key(3100, 9)
+T(h.ok and h.reason is None, "re-armed after three matched pairs")
+m = L.HookHealth(canary=False)                                        # macOS
+T(m.ok, "mac healthy")
+m.tap_disabled("timeout")
+T(not m.ok and m.take_gap() and m.reason == "tap_timeout", "tapDisabledByTimeout")
+m.reinstalled()
+T(m.ok, "tap enabled again")
+m.tap_disabled("user_input"); T(not m.ok and m.reason == "tap_user_input", "tapDisabledByUserInput")
+m.reinstalled(); m.poll(False); T(not m.ok and m.reason == "poll", "poll finds the tap disabled")
+raises(ValueError, lambda: m.tap_disabled("other"), "unknown reason")
+e = L.Engine(L.example_cal(), scorer, LEX)                            # the runtime sends the gap to the engine
+for k in L.keys_from_text("ghb", "en"):
+    e.on_event(L.Event("key", k, "en", 0))
+h2 = L.HookHealth(canary=False); h2.tap_disabled("timeout")
+if h2.take_gap():
+    e.on_event(L.Event("gap"))
+T(e.run == [] and e.skip, "the runtime delivers the gap")
+
+# ---- P13 fuzz: invariants of the event state machine --------------------------------------------------------
+fz = random.Random(7)
+LK = sorted(L.LETTER_KEYS)
+conv = checked_undo = 0
+for rnd in range(max(1, N // 20_000)):
+    e = L.Engine(L.example_cal(), lambda ids: [fz.uniform(-4, 4), fz.uniform(0, 14), fz.uniform(-4, 4)], LEX)
+    now = 0
+    for step in range(20_000):
+        now += fz.choice((1, 5, 50, 700, 4000))
+        x = fz.random()
+        evs = []
+        if x < .45:                                                     # a whole word on one layout, usually ended by Space
+            lay = fz.choice(("en", "ru"))
+            evs = [L.Event("key", L.Key(fz.choice(LK), fz.random() < .2, fz.random() < .05), lay, now) for _ in range(fz.randrange(2, 9))]
+            if fz.random() < .8:
+                evs.append(L.Event("space", None, lay if fz.random() < .95 else L.OTHER_LAYOUT[lay], now))
+        elif x < .55:
+            evs = [L.Event("key", L.Key(fz.randrange(47), fz.random() < .3), fz.choice(("en", "ru")), now)]
+        elif x < .65:
+            evs = [L.Event("space", None, fz.choice(("en", "ru")), now)]
+        elif x < .72:
+            evs = [L.Event("backspace", None, None, now)]
+        elif x < .78:
+            evs = [L.Event(fz.choice(("break", "gap")), None, None, now)]
+        elif x < .80:
+            evs = [L.Event("layout", None, fz.choice(("en", "ru")), now)]
+        elif x < .90:
+            ops = [lambda: e.set_gate(fz.choice(("ALLOW", "ALLOW", "ALLOW", "ALLOW", "ALLOW", "DENY", "UNKNOWN"))),
+                   lambda: e.set_mode(fz.choice(("AUTO", "AUTO", "AUTO", "AUTO", "AUTO", "MANUAL_ONLY", "OFF"))),
+                   lambda: e.on_outcome(fz.choice(L.OUTCOMES)),
+                   lambda: e.tick(now)]
+            fz.choice(ops)()
+        else:
+            evs = [L.Event("space", None, "en", now)]
+        for ev in evs:
+            d = e.on_event(ev)
+            if d is not None and d.action == "CONVERT":
+                conv += 1
+                T(e.gate == "ALLOW" and e.mode == "AUTO", "CONVERT outside AUTO or gate ALLOW")
+                T(e.snapshot is not None and len(d.replacement) == len(e.snapshot.keys), "a key was lost or duplicated")
+                T(len(e.snapshot.keys) <= L.MAX_BUF, "snapshot size")
+            if ev.kind in ("break", "layout", "gap"):
+                T(e.snapshot is None and e.run == [], f"{ev.kind} must leave no buffer and no snapshot")
+        T(len(e.run) <= L.MAX_BUF, "buffer bound")
+        T(e.gate == "ALLOW" or (e.run == [] and e.snapshot is None), "no state under DENY or UNKNOWN")
+        T(e.mode == "AUTO" or (e.run == [] and e.snapshot is None), "no state outside AUTO (13.5)")
+        s = e.snapshot
+        if s is not None:
+            T(s.after <= L.UNDO_MAX_CHARS, "snapshot character bound")
+            if fz.random() < .3:
+                e.tick(now)
+                if e.snapshot is not None:
+                    T(now - e.snapshot.created_ms <= L.UNDO_WINDOW_MS, "snapshot age bound after tick")
+                    keys, lay = e.snapshot.keys, e.snapshot.layout
+                    txt = e.undo(now)
+                    T(txt == L.render(keys, lay) and e.snapshot is None,
+                      "undo returns the recorded keys rendered with the recorded layout")
+                    checked_undo += 1
+T(conv > N // 4000 and checked_undo > N // 20000, f"fuzz coverage: {conv} conversions, {checked_undo} undos")
+```
+
+**`conformance.py`, part 3 of 3 (P14: every threshold and format rule is tested on both sides of its edge; the closing line).**
+
+```python
+# ---- P14 boundaries, defaults and format errors: every threshold is tested on both sides of its edge ---------
+# (written against the survivors of the mutation run, audit line L3: a constant that nothing pins is a defect)
+T([L.bucket(n) for n in (0, 1, 2, 3, 4, 5, 7, 8, 20)] == [None, None, "2", "3-4", "3-4", "5-7", "5-7", "8+", "8+"], "bucket edges")
+
+
+def accepts(path, value):
+    try:
+        L.check_calibration_package(mutated(path, value))
+        return True
+    except L.CalibrationError:
+        return False
+
+
+# closed and open bounds of every numeric field of the calibration package
+T(accepts(["temperature", "network"], 20.0) and accepts(["temperature", "network"], 15.0) and accepts(["temperature", "ngram"], 1e-9),
+  "T: 1e-9, 15 and 20 are valid")
+T(not accepts(["temperature", "network"], 20.001) and not accepts(["temperature", "ngram"], 21.0), "T above 20 is refused")
+T(accepts(["o_lat"], 0.6) and accepts(["o_lat"], 0.999999) and accepts(["o_lat"], 1e-9), "o_lat valid values")
+T(not accepts(["o_lat"], 0.0) and not accepts(["o_lat"], 1.0) and not accepts(["o_lat"], -0.1), "o_lat 0 and 1 are refused")
+T(not accepts(["o_lat"], 1.5) and not accepts(["o_lat"], 2.0), "o_lat above 1 is refused")
+
+
+def accepts_counts(counts):
+    c = copy.deepcopy(ok_cal)
+    c["pi_train_counts"] = counts
+    c["pi_train"] = L.pi_from_counts(counts)
+    try:
+        L.check_calibration_package(c)
+        return True
+    except L.CalibrationError:
+        return False
+
+
+T(accepts_counts([60000, 30000, 10000]) and accepts_counts([1, 1, 1]) and accepts_counts([98, 1, 1]),
+  "a class share above one half is a valid training mix")
+T(accepts(["w", "en", "default"], 0.0005) and not accepts(["w", "en", "default"], 0.0004), "w lower edge is closed")
+T(accepts(["w", "ru", "after_switch"], 0.5) and not accepts(["w", "ru", "after_switch"], 0.51), "w upper edge is closed")
+T(accepts(["w", "en", "run"], 0.3) and not accepts(["w", "en", "run"], 0.3000001), "w[run] cap is 0.3, inclusive")
+T(accepts(["lambda_nats", "network", "en2ru", "3-4"], 4.0) and not accepts(["lambda_nats", "network", "en2ru", "3-4"], 3.99),
+  "lambda lower edge 4 nats is closed")
+T(accepts(["lambda_nats", "ngram", "ru2en", "8+"], 16.0) and accepts(["lambda_nats", "ngram", "ru2en", "8+"], 9.0)
+  and not accepts(["lambda_nats", "ngram", "ru2en", "8+"], 16.01), "lambda upper edge 16 nats is closed")
+raises(L.CalibrationError, lambda: L.check_calibration_package(mutated(["pi_train"], ok_cal["pi_train"] + [1e-12])), "pi_train too long")
+p0, p1, p2 = ok_cal["pi_train"]
+T(not accepts(["pi_train"], [p0 + 1.5e-9, p1 - 1.5e-9, p2]), "pi_train element 1.5e-9 off its count is refused")
+T(accepts(["pi_train"], [p0 + 0.8e-9, p1 - 0.8e-9, p2]), "pi_train element 0.8e-9 off its count is accepted")
+T(not accepts(["pi_train"], [p0 + 0.4e-9, p1 + 0.4e-9, p2 + 0.4e-9]), "pi_train sum 1.2e-9 off 1 is refused")
+T(accepts(["pi_train"], [p0 + 0.3e-9, p1 + 0.3e-9, p2 + 0.3e-9]), "pi_train sum 0.9e-9 off 1 is accepted")
+
+# defaults of decide(): the two-key rule is closed unless a run is active
+KEYS2 = L.keys_from_text("yf", "en")                                   # 'на' on the Russian layout, in the allow list
+cal0 = L.example_cal()
+T(L.decide(KEYS2, "en", cal0, scorer).reason == "two_key_rule", "two keys without a run: kept")
+T(L.decide(KEYS2, "en", cal0, scorer, run_active=True).reason == "two_key_allow_list", "two keys inside a run: converted")
+# the scorer sees BOS ... EOS
+seen = []
+L.decide(L.keys_from_text("ghbdtn", "en"), "en", cal0, lambda ids: seen.append(list(ids)) or [-3, 9, -2])
+T(seen and seen[0][0] == L.BOS and seen[0][-1] == L.EOS and len(seen[0]) == 8, "the scorer input is BOS, 6 key tokens, EOS")
+# a margin of exactly zero converts (the rule is s >= lambda)
+G = L.keys_from_text("ghbdtn", "en")
+s_exact = L.score([-3, 9, -2], "en", cal0, cal0["w"]["en"]["default"], "network")
+cal_edge = copy.deepcopy(cal0); cal_edge["lambda_nats"]["network"]["en2ru"]["5-7"] = s_exact
+T(L.decide(G, "en", cal_edge, scorer).action == "CONVERT" and L.decide(G, "en", cal_edge, scorer).margin == 0.0, "margin 0 converts")
+cal_edge["lambda_nats"]["network"]["en2ru"]["5-7"] = s_exact + 1e-9
+T(L.decide(G, "en", cal_edge, scorer).action == "KEEP", "margin -1e-9 abstains")
+
+
+def word(e, text, lay, ts):
+    for k in L.keys_from_text(text, lay):
+        e.on_event(L.Event("key", k, lay, ts))
+    return e.on_event(L.Event("space", None, lay, ts))
+
+
+# buffer bound: 64 keys are decided, the 65th makes the word an overflow
+e = L.Engine(L.example_cal(), scorer, LEX)
+for _ in range(64):
+    e.on_event(L.Event("key", L.Key(11), "en", 0))
+T(len(e.run) == 64 and not e.overflow and e.on_event(L.Event("space", None, "en", 1)).reason != "overflow", "64 keys")
+for _ in range(65):
+    e.on_event(L.Event("key", L.Key(11), "en", 2))
+T(len(e.run) == 64 and e.overflow and e.on_event(L.Event("space", None, "en", 3)).reason == "overflow", "65 keys")
+# the lexicon is used when it is given
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "hello", "en", 0).reason == "lexicon_active", "the lexicon of the engine is consulted")
+# evidence for the active language ends the run credit
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "ghbdtn", "en", 0).action == "CONVERT" and e.credit == 3, "credit after a conversion")
+T(word(e, "hello", "en", 10).reason == "lexicon_active" and e.credit == 0, "a word of the active language resets the credit")
+# two keys: the allow list opens only while the run credit lives
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "yf", "en", 0).reason == "two_key_rule", "no credit: two keys are kept")
+word(e, "ghbdtn", "en", 10)
+T(word(e, "yf", "en", 20).reason == "two_key_allow_list", "credit: two keys are converted")
+# cool-down: three words and 10 s, each edge
+e = L.Engine(L.example_cal(), scorer, LEX)
+T(word(e, "ghbdtn", "en", 1000).action == "CONVERT" and e.undo(2000) == "ghbdtn", "setup cool-down")
+T([word(e, "ytdtyj", "en", 20_000 + 100 * i).reason for i in range(3)] == ["cooldown"] * 3, "three words are suppressed")
+T(word(e, "ytdtyj", "en", 20_300).action == "CONVERT", "the fourth word is decided")
+for ts, reason in ((11_999, "cooldown"), (12_000, "score_above_threshold")):
+    e = L.Engine(L.example_cal(), scorer, LEX)
+    word(e, "ghbdtn", "en", 1000); e.undo(2000); e.cool_words = 0
+    T(word(e, "ytdtyj", "en", ts).reason == reason, f"cool-down time edge at {ts} ms")
+# the clock of every event expires the snapshot
+for dt, alive in ((10_000, True), (10_001, False)):
+    e = L.Engine(L.example_cal(), scorer, LEX); word(e, "ghbdtn", "en", 1000)
+    e.on_event(L.Event("key", L.Key(5), "en", 1000 + dt))
+    T((e.snapshot is not None) == alive, f"snapshot age {dt} ms seen by an ordinary event")
+# a layout change inside a word, and the tail that follows
+e = L.Engine(L.example_cal(), scorer, LEX)
+for k in L.keys_from_text("gh", "en"):
+    e.on_event(L.Event("key", k, "en", 0))
+e.on_event(L.Event("key", L.Key(3), "ru", 1))
+T(e.run == [] and e.skip, "a layout change inside a word empties the buffer and skips the rest")
+for k in L.keys_from_text("bdtn", "en"):
+    e.on_event(L.Event("key", k, "en", 2))
+T(e.run == [], "the tail of a dropped word is not recorded")
+T(e.on_event(L.Event("space", None, "en", 3)) is None and not e.skip, "the Space ends the skipped word")
+e.on_event(L.Event("layout", None, "ru"))
+e.on_event(L.Event("key", L.Key(5), "en", 4)); e.on_event(L.Event("break"))
+T(not e.skip and e.credit == 0, "a break clears the skip")
+T(word(e, "ghbdtn", "en", 5) is not None, "the word after a break is decided (not skipped)")
+# a manual layout change marks the next word, once
+e = L.Engine(L.example_cal(), lambda ids: [9, -3, -2], LEX)
+e.on_event(L.Event("layout", None, "ru"))
+T(e.after_switch, "layout event arms after_switch")
+d = word(e, "руддщ", "ru", 10)
+ref = L.decide(L.keys_from_text("руддщ", "ru"), "ru", L.example_cal(), lambda ids: [9, -3, -2], "after_switch", False, e.exceptions, LEX)
+dflt = L.decide(L.keys_from_text("руддщ", "ru"), "ru", L.example_cal(), lambda ids: [9, -3, -2], "default", False, e.exceptions, LEX)
+T(d.margin == ref.margin and ref.margin != dflt.margin and not e.after_switch, "after_switch is used once")
+# manual conversion: direction rule
+T(L.manual_convert("а")[0] == "ru2en" and L.manual_convert("я")[0] == "ru2en" and L.manual_convert("ё")[0] == "ru2en", "a, ya, yo")
+T(L.manual_convert("яa")[0] == "en2ru", "a tie goes English to Russian")
+T(L.manual_convert("яяabc")[0] == "en2ru" and L.manual_convert("яяабc")[0] == "ru2en", "letter counts decide")
+T(L.manual_convert("12 !") == (None, "12 !"), "no letters: no direction")
+
+# EV-1 edges (each condition is tested alone)
+fc = lambda n: [("u%d" % i, "d%d" % i) for i in range(n)]
+T(L.ev1_pass([], 100_000, 20, 100), "EV-1 passes at its minimum sizes")
+T(not L.ev1_pass([], 99_999, 20, 100) and not L.ev1_pass([], 100_000, 19, 100) and not L.ev1_pass([], 100_000, 20, 99), "each size limit")
+T(L.ev1_pass(fc(12), 250_000, 30, 200) and not L.ev1_pass(fc(13), 250_000, 30, 200), "point estimate edge 4.8e-5")
+T(L.ev1_bound(fc(12), 250_000) <= 1e-4 < L.ev1_bound(fc(30), 250_000), "bound is monotone in the number of clusters")
+big = [("u1", "d1")] * 10 + fc(1)[1:]                                   # one cluster of ten: the bound is ten times larger
+T(L.ev1_bound(big, 1_000_000) == L.poisson_upper(1) * 10 / 1_000_000, "cluster size multiplies the bound")
+for k in range(0, 31):                                                  # the exact Poisson limit, checked by its definition
+    mu = L.poisson_upper(k)
+    T(abs(sum(math.exp(-mu + i * math.log(mu) - math.lgamma(i + 1)) for i in range(k + 1)) - 0.05) < 1e-9, f"Poisson limit k={k}")
+T(abs(L.poisson_upper(0) - (-math.log(0.05))) < 1e-9, "rule of three, exact")
+
+# Witten-Bell pruning: only orders 1 and 2, only counts below min_count
+rows_p = [[L.BOS, 5, 6, L.EOS]] * 2 + [[L.BOS, 7, 8, L.EOS]]
+pr = L.WittenBell(min_count=2).fit(rows_p)
+T(pr.cnt[0][()][5] == 2 and pr.cnt[0][()][7] == 1, "order 0 is never pruned")
+T((L.BOS,) in pr.cnt[1] and pr.cnt[1][(L.BOS,)] == {5: 2}, "order 1: the count of exactly min_count stays, 1 is pruned")
+T((L.BOS, 7) not in pr.cnt[2] and pr.cnt[2][(L.BOS, 5)] == {6: 2}, "order 2 pruned")
+T(L.WittenBell().fit(rows_p).cnt[1][(L.BOS,)] == {5: 2, 7: 1}, "min_count 1 prunes nothing")
+
+# binary files: round trips with distinct values, and every damage is a FormatError
+lp = [-1.5, -2.25, -3.125]
+msb = [L.WittenBell().fit(rows[i::3]) for i in range(3)]
+bb = L.lfb_pack(msb, lp)
+T(L.lfb_load(bb)["log_prior"] == lp, "LFB1 log priors survive")
+lex_in = {"lex_en": ["hello", "World"], "lex_ru": ["привет"], "acr_en": ["usb"], "acr_ru": ["ржд"], "exc_en2ru": ["ghbdtn"], "exc_ru2en": ["руддщ"]}
+lb = L.lfl_pack(lex_in)
+lt = L.lfl_load(lb)
+T(all(w.casefold() in lt[n] for n, ws in lex_in.items() for w in ws) and "hello" not in lt["lex_ru"], "LFL1 round trip")
+TAGS = {"lex_en": 1, "lex_ru": 2, "acr_en": 3, "acr_ru": 4, "exc_en2ru": 5, "exc_ru2en": 6}
+T(L.LEX_TAGS == TAGS, "tag numbers are part of the format")
+
+
+def fnv(data):                                                          # an independent FNV-1a, 64 bit
+    h = 0xCBF29CE484222325
+    for x in data:
+        h = ((h ^ x) * 0x100000001B3) % (1 << 64)
+    return h
+
+
+T(all(L.lex_key(t, "слово") == fnv(bytes([0xE0 + t]) + "слово".encode()) for t in TAGS.values()), "lex_key = FNV-1a(tag byte + UTF-8)")
+T(L.fnv1a64(b"") == 0xCBF29CE484222325 and L.fnv1a64(b"a") == 0xAF63DC4C8601EC8C, "FNV-1a test vectors")
+for name, blob, loader in (("LFB1", bb, L.lfb_load), ("LFL1", lb, L.lfl_load), ("LFW1", tw, L.lfw_load)):
+    raises(L.FormatError, lambda b=blob, f=loader: f(b"XXXX" + b[4:]), name + " wrong magic")
+    raises(L.FormatError, lambda b=blob, f=loader: f(b + b"\0"), name + " trailing byte")
+    raises(L.FormatError, lambda b=blob, f=loader: f(b[:-1]), name + " truncated by one byte")
+    raises(L.FormatError, lambda b=blob, f=loader: f(b[:9]), name + " truncated header")
+    raises(L.FormatError, lambda f=loader: f(b""), name + " empty")
+_old_ctx = L.ctx_key
+L.ctx_key = lambda k, c: 1                                              # force a 64-bit collision of contexts
+try:
+    raises(L.FormatError, lambda: L.lfb_pack(msb, lp), "LFB1 hash collision is refused")
+finally:
+    L.ctx_key = _old_ctx
+
+# the replacement transaction: edges of the typed-ahead window, a word at the field start, M2 success, no silent VERIFIED
+for ahead, outcome, final in (("abc", "VERIFIED", "Hello привет abc"), ("abcd", "ABORTED", "Hello ghbdtn abcd")):
+    f = L.SimField("Hello ghbdtn " + ahead, M1)
+    r = L.run_transaction(f, OLD, NEW, ahead)
+    T((r.outcome, f.text) == (outcome, final), f"typed ahead {ahead!r}")
+f = L.SimField("Hello ghbdtn a", M1)
+T(L.run_transaction(f, OLD, NEW, "ab").outcome == "VERIFIED" and f.text == "Hello привет a", "the engine recorded more than the field has")
+f = L.SimField("ghbdtn ", M1)
+T(L.run_transaction(f, OLD, NEW).outcome == "VERIFIED" and f.text == "привет ", "a word at offset 0")
+f = L.SimField("Hello ghbdtn ", M2)
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.method, f.text) == ("VERIFIED", "M2", "Hello привет "), "M2 on the hotkey path verifies")
+f = L.SimField("Hello ghbdtn  tail", M2)
+f.pos = len("Hello ghbdtn ")
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, f.text) == ("VERIFIED", "Hello привет  tail"), "M2 inside a text: the verification range ends at the Space, not beyond it")
+f = L.SimField("Hello ghbdtn ", M1_NOROLL, {("caret", 2): "back"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.incident, r.quarantine, f.text) == ("UNRECOVERED", True, True, "Hello привет "),
+  "right text with a wrong caret and no rollback is not VERIFIED")
+f = L.SimField("", M2); f.send([("bs", ""), ("ch", "a"), ("ch", "b")])
+T((f.text, f.pos) == ("ab", 2), "the test double: backspace at 0 is a no-op, insertion moves the caret by one")
+
+# Q-2 of plan 1.2: SendInput facts. A physically pressed modifier aborts M2 before anything is written;
+# a silently dropped batch (UIPI) leaves the typed text (RESTORED); a partly delivered batch is UNRECOVERED.
+f = L.SimField("Hello ghbdtn ", M2); f.modifiers = True
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.reason, f.text, f.sent) == ("ABORTED", "modifier_down", "Hello ghbdtn ", 0), "M2 with a modifier down writes nothing")
+f = L.SimField("Hello ghbdtn ", M1); f.modifiers = True
+T(L.run_transaction(f, OLD, NEW).outcome == "VERIFIED", "a pressed modifier is irrelevant to M1")
+f = L.SimField("Hello ghbdtn ", M2, {("event", k): "drop" for k in range(1, 2 * len(OLD) + 3)})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.incident, r.quarantine, f.text) == ("RESTORED", True, True, "Hello ghbdtn "), "UIPI drops the whole batch: the field is unchanged")
+f = L.SimField("Hello ghbdtn ", M2, {("event", len(OLD) + 2): "drop"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.incident, r.quarantine) == ("UNRECOVERED", True, True), "a partly delivered batch is UNRECOVERED and quarantined")
+
+# R-1 and R-2 of plan 1.3. M2 deletes by count, so a user key that arrives after the read (or while it runs) makes the
+# plan wrong: the last look before the first synthetic event aborts and nothing is written. The race that remains
+# (a key between that look and the first event) is a field-level fact, not an event-level one, and ends UNRECOVERED.
+f = L.SimField("Hello ghbdtn ", M2, {("read", 1): "user:x"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.reason, f.text, f.sent, r.incident) == ("ABORTED", "typed_ahead", "Hello ghbdtn x", 0, False), "M2: a key during the read aborts before anything is sent")
+f = L.SimField("Hello ghbdtn ", M2, {("event", 1): "user:x"})
+r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+T((r.outcome, r.reason, f.sent, f.user, r.incident, r.quarantine) == ("UNRECOVERED", "verify_failed", 14, ["x"], True, True),
+  "M2: a key after the last look is the residual race: UNRECOVERED, quarantine, the plan is still sent exactly once")
+f = L.SimField("Hello ghbdtn ", M1, {("caret", 2): "forward"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, r.reason, f.text, r.incident) == ("RESTORED", "verify_failed", "Hello ghbdtn ", True),
+  "M1: a caret that moved forward although no user key came is a failure; the rollback restores the field")
+f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, f.text, f.pos) == ("VERIFIED", "Hello привет x", 14), "M1: one user key may move the caret by one")
+f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x", ("caret", 2): "forward"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, r.reason) == ("RESTORED", "verify_failed"), "M1: one user key explains a caret one place forward, not two")
+f = L.SimField("Hello ghbdtn ", M1, {("replace", 1): "spill"})
+r = L.run_transaction(f, OLD, NEW)
+T((r.outcome, r.reason, f.text, r.incident, r.quarantine) == ("UNRECOVERED", "verify_failed", "Hello ghbdtn?", True, True),
+  "M1: damage to the Space after the range is seen by the whole-range read-back; the rollback cannot repair it")
+f = L.SimField("Hello ghbdtn a", M1, {("replace", 1): "spill"})
+r = L.run_transaction(f, OLD, NEW, "a")
+T((r.outcome, f.text) == ("UNRECOVERED", "Hello ghbdtn?a"), "M1 with a typed-ahead key: the whole fragment is verified and rolled back")
+f = L.SimField("Hello ghbdtn a", M1, {("replace", 1): "autocorrect"})
+r = L.run_transaction(f, OLD, NEW, "a")
+T((r.outcome, f.text) == ("RESTORED", "Hello ghbdtn a"), "M1 with a typed-ahead key: a restored fragment is RESTORED")
+T(L.classify_outcome(True, "ab c", "xy c", "ab c", False) == "RESTORED" and L.classify_outcome(True, "ab c", "xy c", "ab?c", False) == "UNRECOVERED"
+  and L.classify_outcome(True, "ab c", "xy c", "xy c", True) == "VERIFIED", "classification works on the whole fragment")
+M2_RACE = []
+for k in range(1, 15):                                                 # a user key before every synthetic event of M2
+    f = L.SimField("Hello ghbdtn ", M2, {("event", k): "user:x"})
+    r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
+    T(f.sent == 14 and f.user == ["x"] and r.incident and r.quarantine and r.outcome in ("UNRECOVERED", "VERIFIED"), f"M2 race at event {k}")
+    M2_RACE.append(r.outcome)
+T(M2_RACE == ["UNRECOVERED"] * 14, "a user key anywhere inside the plan always ends UNRECOVERED, never a wrong VERIFIED")
+
+# hook health: states cannot be re-armed by luck
+h = L.HookHealth()
+T(h.canary is True, "canary is the default")
+h.raw_key(0, 0); h.check(10_000)                                      # lost
+for t in (1, 2, 3, 4):
+    h.raw_key(20_000 + t, t); h.hook_key(20_000 + t, t)
+T(not h.ok, "matched pairs without a re-installed hook do not re-arm")
+h.reinstalled()
+for t in (1, 2):
+    h.raw_key(30_000 + t, t); h.hook_key(30_000 + t, t)
+h.tap_disabled("timeout")                                              # lost again before the re-arm finished
+for t in (1, 2, 3):
+    h.raw_key(40_000 + t, t); h.hook_key(40_000 + t, t)
+T(not h.ok, "a second loss resets the re-arm: pairs count only after the next reinstall")
+h.reinstalled()
+for t in (1, 2):
+    h.raw_key(50_000 + t, t); h.hook_key(50_000 + t, t)
+h.reinstalled()                                                        # installed once more: the count starts again
+h.raw_key(60_000, 0); h.hook_key(60_000, 0)
+T(not h.ok, "reinstall resets the pair count")
+for t in (1, 2):
+    h.raw_key(70_000 + t, t); h.hook_key(70_000 + t, t)
+T(h.ok, "three pairs after the last reinstall re-arm")
+
+# R-3 of plan 1.3: the canary compares events, not counts. One lost key and one extra key must not cancel out.
+A, B, C = ("scan", 0x1E, False), ("scan", 0x30, False), ("scan", 0x2E, False)
+h = L.HookHealth()
+h.raw_key(0, A); h.hook_key(3, A)                                      # healthy
+h.raw_key(100, B)                                                      # the hook never reports B ...
+h.hook_key(105, C)                                                     # ... and reports C, which the observer never saw
+T(h.check(100 + h.CANARY_MS) and h.ok, "inside the window nothing is decided")
+T(not h.check(100 + h.CANARY_MS + 1) and h.reason == "canary_missing" and h.take_gap(),
+  "lost B and extra C: the counts are equal, the signatures are not; the older unmatched event names the reason")
+h = L.HookHealth()
+h.hook_key(0, C)                                                       # a hook key the observer never saw
+T(h.check(300) and h.ok and not h.check(301) and h.reason == "canary_extra", "an extra hook key alone is a loss")
+h = L.HookHealth()
+h.hook_key(10, A); h.raw_key(12, A)                                    # the hook event may come first
+h.raw_key(20, B); h.hook_key(22, B)
+T(h.check(10_000) and h.ok and h.hook_only == [] and h.raw_only == [], "either order matches")
+h.hook_key(30, C, injected=True)                                       # our own SendInput, or another program's
+T(h.check(10_000) and h.ok and h.hook_only == [], "an injected event has no physical counterpart and is not compared")
+h = L.HookHealth()
+h.raw_key(0, A); h.raw_key(50, A); h.hook_key(55, A)                   # two physical presses, one reported
+T(h.check(350) and not h.check(351) and h.reason == "canary_missing", "equal signatures are matched one to one; the second press is the unmatched one")
+h = L.HookHealth(canary=False)
+h.raw_key(0, A); h.hook_key(1, B)
+T(h.check(10_000) and h.ok, "without a canary (macOS) nothing is compared")
+
+
+print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
+```
+
+### 20.14 Adapter contract, engine mode, replacement transaction, layout identity, hook health
+
+`lfengine.py` ends with the part below. It is the executable form of the replacement transaction (13.2), the adapter capabilities and the support matrix (13.7, 13.8), the mode of the engine (13.5), the identification of a layout by its characters (13.7) and the check that the stream of key events is complete (13.5, row 13). The OS adapters are written against `Adapter`; the engine of 20.7 is written against `engine_mode`, `run_transaction` and `HookHealth`. Nothing here calls an operating-system API, so the part runs, and is tested, in the cloud. What it proves is the algorithm (evidence level REFERENCE\_VERIFIED, 16.1); what a real application does is proved only by the integration tests RT-1 to RT-18 on the real operating systems.
+
+| Function or class | What it fixes |
+| --- | --- |
+| `engine_mode` | A pure function of facts. `AUTO` needs all four capabilities of `AUTO_REQUIRES` (read a range, replace a range in one operation, read it back with the caret, write the original back), the status `AUTO` in the support matrix, usable models, a healthy hook and a healthy watchdog. An application whose only way to write is synthetic keystrokes (M2) is `MANUAL_ONLY` at best: the support matrix can never grant more than the capabilities allow. `OFF` when the application is quarantined, a permission is missing, the layout is not supported, the support status is `UNKNOWN`, or nothing can write at all. The engine of 20.7 records and decides only in `AUTO`: in `MANUAL_ONLY` and in `OFF` it stores no key (13.5). |
+| `classify_outcome` | `ABORTED` (nothing was written), `VERIFIED` (the whole range holds the new text and the caret is where it must be), `RESTORED` (the range holds exactly what the user typed), `UNRECOVERED` (anything else, including a range that cannot be read). The classification uses observations only, never the intention of the code. |
+| `run_transaction` | The steps of 13.2: freeze, gate, read and match, the last look of M2, replace, verify, outcome. The range that is read, verified and rolled back is always the whole fragment: the word, the Space and the typed-ahead keys (at most 3). M2 is refused when any key is typed ahead or a modifier key is down. For M2 the last look comes after the match and before the first synthetic event: a user key counted since the freeze means `ABORTED` (`typed_ahead`) and nothing is written. After the write the whole fragment must read back as the new word, the Space and the typed-ahead keys, and the caret must be exactly where it was (no user key seen) or at most as many positions further as user keys were seen; a caret that moved backwards is a failure. One rollback only, and only for M1. Any failure after step 4 began is a `replacement_incident` and puts the application in quarantine. The one race that remains for M2 (a key that arrives after the last look) is not hidden: the text is classified from what is in the field, usually `UNRECOVERED`, and its frequency is measured by RT-4. This is why M2 is never `AUTO`. |
+| `Adapter`, `SimField`, `AdapterError` | The contract that an OS adapter implements (`gate`, `caret`, `read`, `replace`, `send`, `modifier_down`, `mark`, `keys_since`) and the test double with fault injection that stands in for it. `SimField` injects a failure at the n-th call of an operation: a gate that changes, a caret that moves, a read that returns nothing or stale text, a write that raises, is partial, is ignored, is changed by autocorrection, damages the Space after the range, or meets a user key (a character or a key that types nothing). Every fault row of 13.5 and every step of 13.2 has at least one scenario in `conformance.py` (20.13). |
+| `layout_fingerprint`, `identify_layout` | A layout is identified by the SHA-256 of its 94 characters (key by key, without and with Shift, Caps Lock off), never by the language id or the layout name. A layout that does not read exactly as the supported English or Russian layout is `OFF` for that layout. |
+| `HookHealth` | The completeness of the stream of key events. On Windows an independent Raw Input observer reports every physical key event with a signature (scan code, extended flag, press or release); each event of one side must meet an event with the same signature from the other side within 300 ms, in either order. A raw key that the hook never reports is `canary_missing`; a hook key that the observer never saw is `canary_extra`; events that the hook marks as injected are not compared. Equal counts prove nothing, because one lost and one extra event cancel each other. After a loss the engine receives one `gap` event and the mode is `MANUAL_ONLY` until three pairs with equal signatures are seen after the hook is installed again. On macOS the loss is a tap that the system disabled (timeout or user input) or a poll that finds the tap disabled; no canary exists there. |
+
+```python
+# ==== 20.14 Adapter contract: capabilities, modes, replacement transaction, layout identity, hook health =====
+import hashlib
+
+READ_RANGE, REPLACE_RANGE, READBACK = "READ_RANGE", "REPLACE_RANGE", "READBACK"
+ROLLBACK, SYNTHETIC_INPUT = "ROLLBACK", "SYNTHETIC_INPUT"
+CAPABILITIES = frozenset({READ_RANGE, REPLACE_RANGE, READBACK, ROLLBACK, SYNTHETIC_INPUT})
+# READ_RANGE      the text of a character range of the focused element can be read.
+# REPLACE_RANGE   a range can be replaced in ONE operation (M1) that the application cannot interleave with user keys.
+# READBACK        the range can be read again after the write, and the caret position is available.
+# ROLLBACK        the original range can be written back by one more such single operation.
+# SYNTHETIC_INPUT tagged synthetic keystrokes can be sent (M2); each one is a separate event that user keys can follow.
+AUTO_REQUIRES = frozenset({READ_RANGE, REPLACE_RANGE, READBACK, ROLLBACK})
+SUPPORT_STATUS = ("UNKNOWN", "MANUAL", "AUTO")      # the support matrix of 13.8: a test result per application
+
+
+def engine_mode(caps, support: str, *, models_ok: bool = True, layout_ok: bool = True, permission_ok: bool = True,
+                hook_ok: bool = True, watchdog_ok: bool = True, quarantined: bool = False) -> str:
+    """The mode of the engine for one application, a pure function of facts (13.5). The support matrix can never
+    grant more than the capabilities allow: AUTO needs all four capabilities of AUTO_REQUIRES AND the status AUTO.
+    M2 alone (SYNTHETIC_INPUT without REPLACE_RANGE and ROLLBACK) is MANUAL_ONLY at best."""
+    caps = frozenset(caps)
+    if not caps <= CAPABILITIES:
+        raise ValueError(f"unknown capability {sorted(caps - CAPABILITIES)}")
+    if support not in SUPPORT_STATUS:
+        raise ValueError(f"unknown support status {support!r}")
+    if quarantined or not permission_ok or not layout_ok or support == "UNKNOWN":
+        return "OFF"
+    if REPLACE_RANGE not in caps and SYNTHETIC_INPUT not in caps:
+        return "OFF"                                     # nothing can write: not even the hotkey
+    if support == "AUTO" and AUTO_REQUIRES <= caps and models_ok and hook_ok and watchdog_ok:
+        return "AUTO"
+    return "MANUAL_ONLY"
+
+
+def classify_outcome(started: bool, original: str, new: str, final: Optional[str], verified: bool) -> str:
+    """The outcome of a replacement, from observations only. `original`, `new` and `final` are texts of the WHOLE
+    range that the transaction reads (the word, the Space and the typed-ahead keys), `final` as last read (None when
+    it could not be read); `verified` is the result of the step-5 check (content and caret)."""
+    if not started:
+        return "ABORTED"                                 # nothing was written
+    if verified and final == new:
+        return "VERIFIED"
+    if final == original:
+        return "RESTORED"                                # the field holds the text the user typed
+    return "UNRECOVERED"                                 # anything else, including an unreadable range
+
+
+class AdapterError(Exception):
+    """An adapter call failed: timeout, API error, revoked permission, vanished element."""
+
+
+class Adapter:
+    """What the engine needs from an OS adapter (13.7). Offsets are code-point positions in the focused element."""
+    caps: frozenset = frozenset()
+
+    def gate(self) -> str: raise NotImplementedError                                    # ALLOW | DENY | UNKNOWN
+    def caret(self) -> int: raise NotImplementedError
+    def read(self, start: int, end: int) -> Optional[str]: raise NotImplementedError    # None: not readable
+    def replace(self, start: int, end: int, text: str) -> None: raise NotImplementedError   # M1, one operation
+    def send(self, events: Sequence[Tuple[str, str]]) -> None: raise NotImplementedError    # M2: ("bs","") / ("ch",c)
+    def modifier_down(self) -> bool: raise NotImplementedError   # M2 only: Shift, Ctrl, Alt or a Windows key is physically down
+    def mark(self) -> int: raise NotImplementedError  # an opaque token: "from now on, count the user's key events"
+    def keys_since(self, mark: int) -> int: raise NotImplementedError   # user key events seen since that token
+
+
+@dataclass
+class TxResult:
+    outcome: str                  # VERIFIED | RESTORED | UNRECOVERED | ABORTED
+    reason: str
+    method: str = ""              # M1 | M2
+    incident: bool = False        # counts as a replacement_incident (13.2, step 6)
+    quarantine: bool = False      # the application goes to DENY until restart or re-enable
+
+
+TYPED_AHEAD_MAX = 3
+
+
+def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: str = "AUTO",
+                    context_break: bool = False, layout_changed: bool = False) -> TxResult:
+    """The replacement transaction of 13.2 for the word `old` (as typed; the user's Space is already in the field),
+    replaced by `new` of the same length. `ahead`: the characters typed after the Space that the engine recorded.
+    The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys."""
+    n = len(old)
+    if len(new) != n:
+        raise ValueError("a replacement keeps the length")
+    if mode not in ("AUTO", "MANUAL_ONLY"):
+        return TxResult("ABORTED", "mode_off")
+    if mode == "AUTO" and not AUTO_REQUIRES <= ad.caps:
+        return TxResult("ABORTED", "capability")        # defence in depth: a mode can never exceed the capabilities
+    method = "M1" if REPLACE_RANGE in ad.caps else ("M2" if SYNTHETIC_INPUT in ad.caps else "")
+    if not method or READ_RANGE not in ad.caps:
+        return TxResult("ABORTED", "capability", method)
+    # 1 freeze
+    if context_break or layout_changed:
+        return TxResult("ABORTED", "context_break", method)
+    if len(ahead) > TYPED_AHEAD_MAX or (method == "M2" and ahead):
+        return TxResult("ABORTED", "typed_ahead", method)
+    if method == "M2" and ad.modifier_down():            # SendInput: pressed keys "might interfere" (13.7)
+        return TxResult("ABORTED", "modifier_down", method)
+    try:
+        m = ad.mark()                                    # every user key from here on is counted (13.2, steps 3 to 5)
+    except AdapterError:
+        return TxResult("ABORTED", "adapter_error", method)
+    # 2 gate
+    try:
+        g = ad.gate()
+    except AdapterError:
+        g = GATE_UNKNOWN
+    if g != GATE_ALLOW:
+        return TxResult("ABORTED", "gate_changed", method)
+    # 3 read and match: the range comes from the content, never from remembered offsets
+    try:
+        c = ad.caret()
+        found = None
+        for a in range(len(ahead), -1, -1):
+            start = c - (n + 1 + a)
+            if start < 0:
+                continue
+            t = ad.read(start, start + n + 1 + a)
+            if t is not None and t == old + " " + ahead[:a]:
+                found = (start, a)
+                break
+    except AdapterError:
+        return TxResult("ABORTED", "adapter_error", method)
+    if found is None:
+        return TxResult("ABORTED", "echo_mismatch", method)
+    start, a = found
+    end = start + n + 1 + a
+    before, after = old + " " + ahead[:a], new + " " + ahead[:a]
+    # 3b the last look before the first write. M2 is a sequence of events that user keys can enter, and it
+    # deletes by count, so a key that arrived since the freeze makes the plan wrong: nothing is written.
+    if method == "M2":
+        try:
+            if ad.keys_since(m) > 0:
+                return TxResult("ABORTED", "typed_ahead", method)
+        except AdapterError:
+            return TxResult("ABORTED", "adapter_error", method)
+    # 4 replace
+    failed = False
+    try:
+        if method == "M1":
+            ad.replace(start, start + n, new)
+        else:
+            ad.send([("bs", "")] * (n + 1) + [("ch", ch) for ch in new] + [("ch", " ")])
+    except AdapterError:
+        failed = True
+    # 5 verify the whole range and the caret. Without user keys the caret is exactly where it was; with k user
+    # keys it may have moved forward by at most k. Backwards, or any other change of the range, is a failure.
+    ok = False
+    if not failed:
+        try:
+            got = ad.read(start, end)
+            cur = ad.caret()
+            k = ad.keys_since(m)
+            ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)
+        except AdapterError:
+            ok = False
+    if ok:
+        return TxResult("VERIFIED", "ok", method)
+    # 6 mismatch, timeout or error after step 4 began: one rollback attempt (M1 only), then classify what is there
+    final: Optional[str] = None
+    try:
+        if method == "M1" and ROLLBACK in ad.caps:
+            ad.replace(start, start + n, old)
+        final = ad.read(start, end)
+    except AdapterError:
+        try:
+            final = ad.read(start, end)
+        except AdapterError:
+            final = None
+    outcome = classify_outcome(True, before, after, final, False)
+    return TxResult(outcome, "write_error" if failed else "verify_failed", method, True, True)
+
+
+class SimField(Adapter):
+    """In-memory text field with fault injection, the test double of the replacement transaction.
+    `faults` maps (operation, k) to a fault name, k = the 1-based number of the call of that operation:
+      gate: 'DENY' | 'UNKNOWN' | 'raise'      caret: 'back' | 'forward' | 'forward2' | 'raise'      read: 'none' | 'stale' | 'raise' | 'user:<c>' | 'key'
+      replace: 'raise' (nothing written) | 'partial' (half written, then error) | 'applied_error' (written, then error)
+               | 'autocorrect' (the application changes the last character) | 'ignored' (silently not written)
+               | 'spill' (the character after the range, the Space, is damaged as well)
+               | 'user:<c>' (the user types <c> just before the write) | 'key' (a key that types nothing: Shift, an arrow)
+      event k (M2 only): 'raise' | 'key' | 'user:<c>' (the user types <c> just before synthetic event k; a documented
+               impossibility inside one SendInput call on Windows, possible between CGEventPost calls on macOS)
+               | 'drop' (event k is silently not delivered: UIPI, or a partial insertion).
+      modifiers: True when a modifier key is physically down."""
+
+    def __init__(self, text: str, caps, faults=None, gate: str = GATE_ALLOW):
+        self.text, self.pos = text, len(text)
+        self.caps, self.faults, self._gate = frozenset(caps), dict(faults or {}), gate
+        self.count: Dict[str, int] = {}
+        self.user: List[str] = []         # every character the user typed, in order (evidence for G-EVENT)
+        self.sent = 0                     # synthetic events delivered
+        self.silent = 0                   # user key events that typed no character (Shift, arrows)
+        self.modifiers = False            # a modifier key is physically down
+
+    def _hit(self, op: str) -> Optional[str]:
+        k = self.count[op] = self.count.get(op, 0) + 1
+        return self.faults.get((op, k))
+
+    def type_user(self, ch: str):
+        self.text = self.text[:self.pos] + ch + self.text[self.pos:]
+        self.pos += 1
+        self.user.append(ch)
+
+    def gate(self) -> str:
+        f = self._hit("gate")
+        if f == "raise":
+            raise AdapterError("gate")
+        return f or self._gate
+
+    def caret(self) -> int:
+        f = self._hit("caret")
+        if f == "raise":
+            raise AdapterError("caret")
+        return {"back": -1, "forward": 1, "forward2": 2}.get(f, 0) + self.pos
+
+    def read(self, start: int, end: int) -> Optional[str]:
+        f = self._hit("read")
+        if f and f.startswith("user:"):
+            self.type_user(f[5:])
+        if f == "key":
+            self.silent += 1
+        if f == "raise":
+            raise AdapterError("timeout")
+        if f == "none":
+            return None
+        t = self.text[start:end]
+        return t[:-1] + "?" if f == "stale" and t else t
+
+    def replace(self, start: int, end: int, text: str) -> None:
+        f = self._hit("replace")
+        if f and f.startswith("user:"):
+            self.type_user(f[5:])
+        if f == "key":
+            self.silent += 1
+        if f == "raise":
+            raise AdapterError("timeout")
+        if f == "ignored":
+            return
+        w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == "partial" else text
+        if f == "autocorrect":
+            w = text[:-1] + "?"
+        tail = self.text[end:]
+        if f == "spill" and tail:
+            tail = "?" + tail[1:]
+        self.text = self.text[:start] + w + tail
+        if f in ("partial", "applied_error"):
+            raise AdapterError("timeout")
+
+    def modifier_down(self) -> bool:
+        return self.modifiers
+
+    def mark(self) -> int:
+        return len(self.user) + self.silent
+
+    def keys_since(self, mark: int) -> int:
+        return len(self.user) + self.silent - mark
+
+    def send(self, events: Sequence[Tuple[str, str]]) -> None:
+        for k, (kind, ch) in enumerate(events, 1):
+            f = self.faults.get(("event", k))
+            if f and f.startswith("user:"):
+                self.type_user(f[5:])
+            if f == "key":
+                self.silent += 1
+            if f == "raise":
+                raise AdapterError("timeout")
+            if f == "drop":
+                continue
+            if kind == "bs":
+                if self.pos > 0:
+                    self.text, self.pos = self.text[:self.pos - 1] + self.text[self.pos:], self.pos - 1
+            else:
+                self.text, self.pos = self.text[:self.pos] + ch + self.text[self.pos:], self.pos + 1
+            self.sent += 1
+
+
+def table_entries(layout: str) -> List[str]:
+    """The 94 character entries of a layout: entry 2*id + shift is the character of key `id` without or with Shift."""
+    return [TABLE[layout][s][k] for k in range(47) for s in (0, 1)]
+
+
+def layout_fingerprint(entries: Sequence[str]) -> str:
+    """SHA-256 over the 94 entries, joined by LF (an entry never contains LF). An OS adapter fills the entries from
+    the layout it is asked about: Windows ToUnicodeEx with the flag that leaves the keyboard state unchanged, Caps
+    Lock and all other modifiers off; macOS UCKeyTranslate. A dead key or a key without a character is "\\x00"."""
+    if len(entries) != 94 or any((not isinstance(e, str)) or "\n" in e for e in entries):
+        raise ValueError("a layout fingerprint needs 94 entries without line feeds")
+    return hashlib.sha256("\n".join(entries).encode("utf-8")).hexdigest()
+
+
+SUPPORTED_FINGERPRINTS = {layout_fingerprint(table_entries(lay)): lay for lay in (EN, RU)}
+
+
+def identify_layout(entries: Sequence[str]) -> Optional[str]:
+    """'en' or 'ru' when the layout reads exactly as the supported US English or Russian layout, else None (13.5 row 7:
+    OFF for that layout). The language id or the layout name is never enough on its own."""
+    return SUPPORTED_FINGERPRINTS.get(layout_fingerprint(entries))
+
+
+class HookHealth:
+    """Is the key-event stream complete? (13.5 row 13) An incomplete stream means a word can be missing its first
+    keys, so the engine must treat it as a break (Event 'gap') and the mode drops to MANUAL_ONLY until re-armed.
+    Windows: an independent Raw Input observer is the canary. Both sides report every physical key event with a
+    signature `sig` (any hashable value that identifies the event: scan code, extended flag, press or release).
+    An event of one side must meet an event with the SAME signature from the other side within CANARY_MS, in either
+    order; matching counts are not enough, because one lost and one extra event would cancel each other. A raw key
+    the hook never reports is "canary_missing" (the OS removed a slow hook silently); a hook key the observer never
+    saw is "canary_extra" (the observer or the stream is not what the engine thinks it is). Events the hook marks as
+    injected (the engine's own SendInput, other programs) have no physical counterpart and are not compared.
+    After the hook is installed again, REARM_PAIRS matched pairs are required. macOS: tapDisabledByTimeout and
+    tapDisabledByUserInput, or a poll that finds the tap disabled, mark the loss; after the tap is enabled again
+    the stream is trusted at once (no canary exists) and the engine's gap event discards the interrupted word."""
+    CANARY_MS = 300
+    REARM_PAIRS = 3
+
+    def __init__(self, canary: bool = True):
+        self.canary = canary
+        self.ok = True
+        self.reason: Optional[str] = None
+        self.raw_only: List[Tuple[int, object]] = []     # (time, sig) of physical keys the hook has not reported yet
+        self.hook_only: List[Tuple[int, object]] = []    # (time, sig) of hook keys the observer has not reported yet
+        self.pairs = 0                                   # matched pairs since the hook was installed again
+        self.reinstalled_flag = False
+        self.gap_pending = False
+
+    def _lose(self, reason: str):
+        if self.ok:
+            self.gap_pending = True
+        self.ok, self.reason = False, reason
+        self.pairs, self.reinstalled_flag = 0, False
+        self.raw_only.clear()
+        self.hook_only.clear()
+
+    def _meet(self, mine: List[Tuple[int, object]], other: List[Tuple[int, object]], ts: int, sig):
+        for i, (_, s) in enumerate(other):
+            if s == sig:                                 # the oldest event of the other side with this signature
+                del other[i]
+                if not self.ok and self.reinstalled_flag:
+                    self.pairs += 1
+                    if self.pairs >= self.REARM_PAIRS:
+                        self.ok, self.reason = True, None
+                return
+        mine.append((ts, sig))
+
+    def raw_key(self, ts: int, sig):
+        """The independent observer saw a physical key event (Windows only)."""
+        if self.canary:
+            self._meet(self.raw_only, self.hook_only, ts, sig)
+
+    def hook_key(self, ts: int, sig, injected: bool = False):
+        """The hook saw a key event; `injected` is the hook's own flag for synthetic events."""
+        if self.canary and not injected:
+            self._meet(self.hook_only, self.raw_only, ts, sig)
+
+    def check(self, now_ms: int) -> bool:
+        """Called by the runtime timer; returns the current health."""
+        if self.canary:
+            waiting = [(q[0][0], r) for q, r in ((self.raw_only, "canary_missing"), (self.hook_only, "canary_extra")) if q]
+            if waiting:
+                ts, reason = min(waiting, key=lambda w: w[0])
+                if now_ms - ts > self.CANARY_MS:
+                    self._lose(reason)
+        return self.ok
+
+    def tap_disabled(self, reason: str):
+        if reason not in ("timeout", "user_input"):
+            raise ValueError(reason)
+        self._lose("tap_" + reason)
+
+    def poll(self, enabled: bool):
+        if not enabled:
+            self._lose("poll")
+
+    def reinstalled(self):
+        """The runtime installed the hook again (Windows) or enabled the tap again (macOS)."""
+        self.raw_only.clear()
+        self.hook_only.clear()
+        self.pairs = 0
+        if self.canary:
+            self.reinstalled_flag = True
+        else:
+            self.ok, self.reason = True, None
+
+    def take_gap(self) -> bool:
+        """True once per loss: the runtime then sends Event('gap') to the engine."""
+        g, self.gap_pending = self.gap_pending, False
+        return g
 ```
