@@ -35,7 +35,10 @@ FORBIDDEN = {
 }
 # reviewed hits: (pattern name, substring that must be in the line). They state the rule, not the stale wording.
 ALLOWED = [("an assert statement relied on", "asserts disappear under"),
-           ("an assert statement relied on", "It is an exception, not an assert")]
+           ("an assert statement relied on", "It is an exception, not an assert"),
+           ("an assert statement relied on", "neither the engine nor the tests rely on the `assert` statement"),
+           ("a gate before G4 passing EV-1 or EV-12", "G2-proxy does not pass EV-1 or EV-12"),
+           ("fallback to the other scorer (a bad package is refused whole)", "there is no fallback to the other scorer")]
 bad = 0
 for name, pat in FORBIDDEN.items():
     for no, l in [(n, x) for n, x in enumerate(lines, 1)]:
@@ -56,7 +59,11 @@ for no, l in prose:
     refs = set(re.findall(r"\bsections? (\d+\.\d+)\b", l))
     for grp in re.findall(r"\bsections ((?:\d+(?:\.\d+)?(?:, | and | to )?)+)", l):
         refs |= set(re.findall(r"\d+\.\d+", grp))
-    refs |= set(re.findall(r"\((\d{1,2}\.\d{1,2})(?:[,;)]| to )", l))
+    # "(13.2)", "(13.2, step 5)", "(20.2 to 20.11)": a number in brackets is a reference only in these shapes;
+    # "(4.6 to 6.9 nats)" or "(2.09, 2.31)" are values
+    refs |= set(re.findall(r"\((\d{1,2}\.\d{1,2})(?:\)|, (?=[A-Za-z]))", l))
+    for a, b in re.findall(r"\((\d{1,2}\.\d{1,2}) to (\d{1,2}\.\d{1,2})\)", l):
+        refs |= {a, b}
     for r in sorted(refs):
         major = int(r.split(".")[0])
         if 1 <= major <= 20 and r not in headings:
