@@ -46,6 +46,10 @@ No finding below is at `INTEGRATION_VERIFIED` or higher. v3.1 is an internally c
 | R-7, R-8 | `two_key_allow` strictness; no `assert` in the binary loaders (the loaders raise `FormatError`). | `REFERENCE_VERIFIED` |
 | R-10 L6 generator | Numeric parameters and the script are fixed. | `audit/L6_ev1_simulation.py` |
 
+### Fourth review of the work (T-1 to T-4)
+
+| Item | Change | Level |
+|---|---|---|
 | T-1 hook health: the 300 ms window at the moment of matching | `_meet` first lets the watchdog catch up (`check(ts)`) and matches two events only when their times differ by at most `CANARY_MS`; a late counterpart gives `canary_missing` or `canary_extra` at once, with one `gap`. | `TEXT_FIXED`, `REFERENCE_VERIFIED` (both arrival orders, 300 and 301 ms, expiry by a later event of the same side, clock skew both ways, re-arming; four vectors) |
 | T-2 L6 generator broke its own caps | The weights are fitted so that no user exceeds 10% and no document 2% after every normalisation; every run checks the integer word counts (no violation in 360,000 runs); the simulation calls the reference `ev1_pass`; all runs repeated; section 18.9 rewritten with the new figures (false acceptance at twice the limit at most 3.3%, bound 3.64%; power 86 to 88%). | `TEXT_FIXED`, `REFERENCE_VERIFIED` |
 | T-3 L3 report on the final code | Mutation run r7 on the frozen final code, full SHA in the report. | in progress (see `audit/L3_mutation_and_fuzz.md`) |
@@ -60,4 +64,4 @@ Also fixed while transferring the code into the text: engine modes other than AU
 3. Operating-system adapters: spikes S-1 to S-7, including Raw Input against the low-level hook, SendInput under UIPI, the macOS tap, and `UCKeyTranslate` against `NSEvent.characters(byApplyingModifiers:)`.
 4. The real number of applications in `AUTO` per OS; M2 race window and key auto-repeat behaviour in the canary (RT-4, RT-16).
 5. Corpus versions, hashes and licences (8.9), crash-dump policy on real systems (RT-17).
-6. The workflow `.github/workflows/layout-corrector.yml` is written but has not been seen running on GitHub from this session; the checks were run by hand here. `audit/MANIFEST.sha256` records the files and hashes of the audited revision.
+6. The workflow `.github/workflows/layout-corrector.yml` runs `conformance.py` (normal and with `-O`), `vectors.py` at ten hash seeds against the expected JSON, `test_ref.py` and the byte-for-byte comparison of the code blocks of section 20 with `reference/`; it passed on GitHub on Python 3.9, 3.11 and 3.13 (run 41965561463, commit 5df564b). The older workflow `tests.yml` belongs to the application `punto.py` on branches main and develop and fails on the retired macOS 13 image; it is not part of this work. CI does not run the mutation test, the EV-1 simulation or the audit scripts of `audit/`. `audit/MANIFEST.sha256` records the files and hashes of the audited revision.
