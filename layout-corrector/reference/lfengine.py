@@ -1260,7 +1260,7 @@ def table_entries(layout: str) -> List[str]:
 def layout_fingerprint(entries: Sequence[str]) -> str:
     """SHA-256 over the 94 entries, joined by LF (an entry never contains LF). An OS adapter fills the entries from
     the layout it is asked about: Windows ToUnicodeEx with the flag that leaves the keyboard state unchanged, Caps
-    Lock and all other modifiers off; macOS UCKeyTranslate. A dead key or a key without a character is "\\x00"."""
+    Lock and all other modifiers off; on macOS the call chosen by spike S-6 (13.7). A dead key or a key without a character is "\\x00"."""
     if len(entries) != 94 or any((not isinstance(e, str)) or "\n" in e for e in entries):
         raise ValueError("a layout fingerprint needs 94 entries without line feeds")
     return hashlib.sha256("\n".join(entries).encode("utf-8")).hexdigest()

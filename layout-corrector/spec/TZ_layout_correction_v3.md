@@ -247,7 +247,7 @@ Shifted digit-row symbols also differ between layouts (`@ # $ ^ &` against `" �
 
 ### 5.4 The mapper is data, not code
 
-- Generate layout tables from the OS (`UCKeyTranslate` on macOS, keyboard layout files on Windows, XKB on Linux) for each supported layout pair, and store them versioned. Hand-typed tables are a test oracle only.
+- Generate layout tables from the OS (`UCKeyTranslate` or NSEvent.characters(byApplyingModifiers:) on macOS as spike S-6 decides, ToUnicodeEx for the layout's HKL on Windows, XKB on Linux) for each supported layout pair, and store them versioned. Hand-typed tables are a test oracle only.
 - Verify round trips: for every key and shift state, `map(map(c, A→B), B→A) = c`, with the exceptions listed explicitly. My table check for Windows "Russian" against US QWERTY has 0 round-trip failures over all 94 key states.
 - Characters with no counterpart (dead keys, combining marks, emoji, anything outside the 47 keys) make the candidate ineligible: no action.
 - macOS "Russian" and "Russian - PC" differ in punctuation placement, so only "Russian - PC" is supported in the first release; Windows, macOS and XKB tables must not be assumed equal, and a layout is accepted only when its fingerprint equals the table (13.7).
@@ -345,7 +345,7 @@ What the comparison says is simple: sequences of at most 22 tokens do not need a
 | 128 | 147,619 | 580 KB | 0.9640 | 0.794 / 0.919 | 105.3 µs |
 | 192 | 318,179 | 1,246 KB | 0.9672 | 0.789 / 0.930 | 220.5 µs |
 
-The native column was measured with a 16-dimension embedding, which has about 9% fewer multiply-adds than the trained models; treat it as a lower bound of 10%. The `c` = 192 row was trained for 6 epochs with the base recipe and is not strictly comparable.
+The native column was measured with a 16-dimension embedding for every `c`. Against the specified embedding of `min(32, c)` dimensions it has the same number of multiply-adds at `c` = 16, 14% fewer at `c` = 32, 8% fewer at `c` = 64, 6% fewer at `c` = 96, and more at `c` = 4 (2,880 against 1,584 per 9-key word). The column is a proxy for the reference size within about 10%, not a bound. The `c` = 192 row was trained for 6 epochs with the base recipe and is not strictly comparable.
 
 **Reading the table.** Accuracy rises steeply up to about 15,000 parameters, is within 0.2 points of its plateau at 27,000 (`c` = 48), and is flat from 43,000 to 148,000. The seed spread of the reference model is 0.001 (three seeds: 0.9639, 0.9652, 0.9659), so differences below 0.002 are not findings. Accuracy at 3 keys stays at 0.78 to 0.80 at every size: three-letter words are ambiguous between languages, not hard for a small model (section 18.2), so capacity cannot fix them.
 
@@ -402,7 +402,7 @@ The end-to-end time is P2 + P3 + P4 + P5 + P6 and must meet the 50 ms p95 and 15
 
 - A hash look-up costs 12 to 32 ns measured, so one to eight probes fit in 100 ns. Lexicon and exception look-ups meet the target; that is what the stage-4 row of the table gates.
 - The n-gram stage needs 54 probes per candidate (two readings, nine positions, three classes) and takes 0.7 to 1.7 µs, which is 7 to 17 times over.
-- The smallest network measured has 603 parameters (`c` = 4) and needs about 2,900 multiply-adds for a 9-key word. At 100 ns that is 29 billion multiply-adds per second on one core, close to the peak of a SIMD core with perfect utilisation and no overhead. A naive loop took 3.7 µs. Its type accuracy is 0.913, 5 points under the reference model.
+- The smallest network measured has 603 parameters (`c` = 4) and needs about 1,600 multiply-adds for a 9-key word (2,900 for the 16-dimension embedding of the native measurement in 7.3, which is the variant that took 3.7 µs). At 100 ns that is 16 billion multiply-adds per second on one core (29 billion for the measured variant), a large share of the peak of a SIMD core with perfect utilisation and no overhead. A naive loop took 3.7 µs. Its type accuracy is 0.913, 5 points under the reference model.
 - The reference network needs about 350,000 multiply-adds per candidate. At the peak rate of one Apple performance core (about 100 billion floating-point operations per second) the floor is 7 µs, and measured loops are at 29 µs.
 
 The specification therefore sets the budget where it is useful (section 7.5, table above) and states plainly that no model of acceptable accuracy runs in 100 ns. The two earlier drafts that called the target impossible or unrealistic were right; they did not give the numbers.
@@ -1974,6 +1974,45 @@ int main(int argc,char**argv){
   return 0;
 }
 ```
+
+### 19.3 Traceability: how each requirement is verified
+
+Every requirement identifier of this document is verified by at least one level of the test plan (15.3), by a requirement test of 13.6, by a conformance test of 20.13, or by an acceptance gate of 11.2. The table is checked by the script `audit/L5_trace.py`, which reads this document and fails when an identifier is used but not defined, defined but never used, or missing here. A requirement test (RT-1 to RT-18) or a conformance test (CT-1 to CT-6) is its own verification and is not listed.
+
+| Requirement | Verified by |
+| --- | --- |
+| MD-1, MD-4, MD-5 | Unit and Property levels (output shape, parameter count of the model built from 7.1, token bounds), CT-1 |
+| MD-2, MD-7 | Acceptance level: EV-12 on R-ACC; the baseline vectors of CT-1 |
+| MD-3, MD-9, MD-10 | Performance and Latency by phase levels; EV-14, EV-21 |
+| MD-6 | Property and Model parity levels (padded and unpadded logits agree within 1e-5) |
+| MD-8 | Acceptance level: the per-length slices of 11.4, EV-4 to EV-6; model card D9 |
+| MD-11 to MD-14 | CT-1, CT-5 and the Independent implementation level |
+| DT-1, DT-9 | Unit level: D2 rebuilds an identical manifest from a seed (15.1); EV-16 |
+| DT-2 | Property level (no character enters the model), CT-1 |
+| DT-3, DT-10 | Licence register check of D2 and of the release package D10; EV-18 |
+| DT-4 | Regression level: stress sets, EV-2, EV-9 |
+| DT-5 to DT-8 | Unit level on the pipeline and the harness (disjoint splits, hash rule, role tag, log of locked-set use); Acceptance level (11.6) |
+| TR-1 to TR-8 | Regression and Acceptance levels: run record and seeds (EV-13, EV-16); the step grid and the size grid of 9.4 |
+| CA-1 to CA-4, CA-7 | Policy level; EV-7 |
+| CA-5, CA-9, CA-10, CA-11 | CT-3 (the property, negative and fault-injection tests of `conformance.py`) |
+| CA-6 | Acceptance level: the freeze is logged before R-ACC is read (11.6) |
+| CA-8 | EV-10 |
+| DP-1, DP-2, DP-4 | Model parity and Performance levels; EV-14 |
+| DP-3 | Performance level (the written measurement on a reference device) |
+| DP-5 | CT-1 and CT-3 (64-bit lexicon keys, formats LFB1 and LFL1) |
+| DP-6 | Soak and Performance levels; RT-8 |
+| DP-7, DP-8 | End to end level; RT-12 (failure table); CT-3 (a bad package or table is refused) |
+| AP-1 to AP-9, AP-11 | End to end level; AP-5 and AP-11 also the Privacy level |
+| AP-10 | End to end level with VoiceOver and NVDA |
+| EV-1 to EV-13 | Acceptance level (each is itself a gate of 11.2) |
+| EV-14 | Performance level |
+| EV-15 | Fault injection and End to end levels; RT-4 |
+| EV-16 | Acceptance level: one command produces the report D6 |
+| EV-17 | The continuous-integration gate (unit, property, parity and regression levels) |
+| EV-18 | Release checklist: model card D9 and release package D10 |
+| EV-19 | Regression level |
+| EV-20 | Review of every report D6: each statement of readiness names its evidence level |
+| EV-21 | Latency by phase level |
 
 ## 20. Reference implementation, formats and test vectors
 
@@ -4932,7 +4971,7 @@ def table_entries(layout: str) -> List[str]:
 def layout_fingerprint(entries: Sequence[str]) -> str:
     """SHA-256 over the 94 entries, joined by LF (an entry never contains LF). An OS adapter fills the entries from
     the layout it is asked about: Windows ToUnicodeEx with the flag that leaves the keyboard state unchanged, Caps
-    Lock and all other modifiers off; macOS UCKeyTranslate. A dead key or a key without a character is "\\x00"."""
+    Lock and all other modifiers off; on macOS the call chosen by spike S-6 (13.7). A dead key or a key without a character is "\\x00"."""
     if len(entries) != 94 or any((not isinstance(e, str)) or "\n" in e for e in entries):
         raise ValueError("a layout fingerprint needs 94 entries without line feeds")
     return hashlib.sha256("\n".join(entries).encode("utf-8")).hexdigest()
