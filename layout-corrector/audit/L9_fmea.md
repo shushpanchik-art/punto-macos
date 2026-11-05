@@ -33,18 +33,18 @@ Columns: failure mode, effect, requirement (13.5 row, RT, CA), proof in this rep
 | Text changed between read and write (M1) | See B1 | RT-4 | P9 (read faults), B1 above: UNRECOVERED, window measured by RT-4 |
 | Partial write, application error | Half a word | RT-7 | P9 'partial', 'applied_error' rows; B7 |
 | Application autocorrect | Last letter changed | RT-4 | P9 'autocorrect' rows |
-| Caret or selection moved | Next typing lands elsewhere | 13.2 step 5 | P9 caret faults (back, forward, forward2); selection state is a requirement on the adapter (13.2), S-4 |
+| Caret or selection moved | Next typing lands elsewhere | 13.2 step 5 | P9 caret faults (back, forward, forward2); selection state is a requirement on the adapter (13.2) and needs a device test |
 | User key during the transaction, M1 | Key lost or duplicated | G-EVENT, 13.2 | P9 'user:x' on read and replace; P14 M1 user-key rows |
 | User key during the transaction, M2 | Plan deletes by count: wrong deletion | G-EVENT, RT-4 | R-1 tests (P14, lines 721 to 760), M2 race at each of the 14 events; residual window → UNRECOVERED, RT-4 |
-| UIPI drops synthetic input | Nothing written, return value ok | RT-4 | P14 line 707 block, S-5 |
+| UIPI drops synthetic input | Nothing written, return value ok | RT-4 | P14 line 707 block; delivery on a real system is S-3 (13.7) |
 | Modifier held down | Synthetic keys misread as shortcuts | 13.7 | P14 'modifier_down' |
 | Hook silently removed | Words lose their first keys | 13.5 row 13, RT-16 | P12, P14 (lines 761 to 830); RT-16 needs devices |
 | Raw Input and hook disagree | Same as above, or a false alarm | 13.5 row 13 | P12 signature tests, window tests (line 806 on) |
 | Permission revoked | Observation stops | 13.5 row 14 | P7 `engine_mode` truth table (permission_ok) |
 | Layout changed or unrecognised | Wrong table → wrong text | 13.5 row 7, RT-15 | P11 fingerprint tests (every single entry changed → refused) |
-| Password or secure field | Typed secrets observed | RT-2, RT-9, 13.1 | P10/P13 'no state under DENY or UNKNOWN'; gate probe needs the OS (S-4) |
-| Secure Event Input (macOS) | Secrets observed | 13.7 | gate DENY while on; S-7, no reference test |
-| IME composition, dead keys | Composed text mis-replaced | 13.1 guards, RT-15 | dead-key fingerprint (RT-15); IME gate on the OS: S-4 |
+| Password or secure field | Typed secrets observed | RT-2, RT-9, 13.1 | P10/P13 'no state under DENY or UNKNOWN'; the gate probe needs the OS (device test) |
+| Secure Event Input (macOS) | Secrets observed | 13.7 | gate DENY while it is on (13.7); no reference test |
+| IME composition, dead keys | Composed text mis-replaced | 13.1 guards, RT-15 | dead-key fingerprint (RT-15); IME gate on the OS: device test |
 | Clipboard | Typed text copied | RT-6 | The clipboard is not used in the first release (13.4); nothing to test; a code search in D-reviews |
 | Undo after the text changed | Old text restored over new | 13.3, RT-5 | P10: snapshot destroyed by break, layout change, gap, gate, mode, outcome; 10 s and 100 characters edges (P14) |
 | Calibration package corrupted or stale | Wrong thresholds | CA-9, 13.5 rows 6 and 12 | P3 (every mutation refused), P14 edges |
