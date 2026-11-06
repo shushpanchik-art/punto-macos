@@ -666,12 +666,19 @@ def manual_convert(text: str) -> Tuple[Optional[str], str]:
 
 # ==== 20.9 Acceptance statistics (EV-1) ===============================================================
 def poisson_upper(k: int, conf: float = 0.95) -> float:
-    """Exact one-sided upper limit mu with P(Poisson(mu) <= k) = 1 - conf."""
+    """Exact one-sided upper limit mu with P(Poisson(mu) <= k) = 1 - conf, for k >= 0 and 0 < conf < 1."""
+    if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and 0.0 < conf < 1.0):
+        raise ValueError("poisson_upper needs an integer k >= 0 and 0 < conf < 1")
+
+    def cdf(mu: float) -> float:
+        return sum(math.exp(-mu + i * math.log(mu) - math.lgamma(i + 1)) for i in range(k + 1))
+
     lo, hi = 0.0, 10.0 + 10.0 * k
+    while cdf(hi) > 1 - conf:                      # the interval must hold the limit for every confidence
+        lo, hi = hi, hi * 2
     for _ in range(200):
         mid = (lo + hi) / 2
-        cdf = sum(math.exp(-mid + i * math.log(mid) - math.lgamma(i + 1)) for i in range(k + 1)) if mid > 0 else 1.0
-        if cdf > 1 - conf:
+        if cdf(mid) > 1 - conf:
             lo = mid
         else:
             hi = mid

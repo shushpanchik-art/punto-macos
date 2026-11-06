@@ -1061,7 +1061,7 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 3. **Read and match.** Read the caret `c` and the text before it through the OS text interface; the selection must be empty (an adapter reports a caret only for an empty selection and raises an error otherwise, 13.7). For `a'` from `a` down to 0, read the range of `n + 1 + a'` characters that ends at `c`; the first `a'` for which it equals `old + " " + ahead[:a']` fixes the **fragment**: the word as typed, the Space the user typed and the `a'` typed-ahead characters (`n` is the number of keys in the run). The range to replace is thus fixed from the content, not from remembered offsets. If the text cannot be read, or differs because the application autocorrected, autocompleted or reformatted it, abort with `echo_mismatch`; any other error of the adapter aborts with `adapter_error`.
    - **3b. Last look (M2 only).** Immediately before the first synthetic event, read the key counter again. M2 deletes by count, so a user key that arrived since the freeze makes the plan wrong: if `keys_since(m) > 0`, abort with `typed_ahead` and send nothing. A key that arrives after this look cannot be detected in advance; it is the residual M2 race described below.
 4. **Replace** exactly the `n` characters of the run by the same keys read on the target layout (`Ghbdtn?` becomes `Привет,`; the Space the user typed is not touched). The new text has the same length as the old, so the caret and any typed-ahead characters stay where they are.
-   - **M1, range replace** (the only method of mode AUTO): one operation through the text interface that the application cannot interleave with user keys, then the caret and selection are restored. It needs the capability `REPLACE_RANGE` (13.7).
+   - **M1, range replace** (the only method of mode AUTO): one operation through the text interface that the application cannot interleave with user keys, then the caret and selection are restored. The range is addressed by the offsets read in step 3. If the application changes the text before the range between that read and the write (an autocomplete or a collaborative edit), the write lands at stale offsets: step 5 detects it, the rollback writes at the same stale offsets, and the outcome is UNRECOVERED with a quarantine, never a silent VERIFIED. This window is short but not zero, and RT-4 measures it per application, as it does for M2. A caret move or a key that types nothing (an arrow key) between the write and the read-back also fails step 5 and costs a quarantine; that is the conservative choice (attacks B1 and B2 of the audit report L9). M1 itself needs the capability `REPLACE_RANGE` (13.7).
    - **M2, tagged synthetic keystrokes** (the hotkey only, never automatic): only when `a' = 0`. Send `n + 1` Backspaces, then the new text and a Space, as tagged Unicode events in one batch (one `SendInput` call on Windows; a sequence of posted events on macOS).
    - The clipboard is not used in the first release.
 5. **Verify the whole fragment and the caret.** Read the fragment back: it must equal `new + " " + ahead[:a']`, so the Space and the typed-ahead characters are checked together with the word. Read the caret and the number `k` of user keys counted since the freeze. If `k = 0` the caret must be exactly where it was (`c`); if `k > 0` it may have moved forward by at most `k` (`c ≤ caret ≤ c + k`). A caret that moved backwards, or forward without a user key to explain it, is a failure, and so is a selection that is no longer empty. A word that is right with a wrong neighbour or a wrong caret is therefore never `VERIFIED`.
@@ -2750,17 +2750,24 @@ def manual_convert(text: str) -> Tuple[Optional[str], str]:
 
 ### 20.9 Acceptance statistics (EV-1)
 
-`ev1_bound` and `ev1_pass` are the executable form of the rule of 11.3. A cluster is one (user, document) pair; the bound is the exact Poisson 95% upper limit for the number of clusters, multiplied by the size of the largest cluster and divided by the number of correct words. The per-user and per-document caps on the share of words (8.5) are applied to the data before these functions are called.
+`ev1_bound` and `ev1_pass` are the executable form of the rule of 11.3. A cluster is one (user, document) pair; the bound is the exact Poisson 95% upper limit for the number of clusters, multiplied by the size of the largest cluster and divided by the number of correct words. The per-user and per-document caps on the share of words (8.5) are applied to the data before these functions are called. `poisson_upper(k, conf)` is defined for an integer `k` of at least 0 and `0 < conf < 1` and raises `ValueError` for anything else; the search interval grows until it holds the limit, so that every confidence gives the exact limit (the first version of the function used a fixed interval and returned a wrong limit silently for a confidence above 0.99995; the mutation run of audit line L3 found it). The EV-1 rule uses only `conf = 0.95`.
 
 ```python
 # ==== 20.9 Acceptance statistics (EV-1) ===============================================================
 def poisson_upper(k: int, conf: float = 0.95) -> float:
-    """Exact one-sided upper limit mu with P(Poisson(mu) <= k) = 1 - conf."""
+    """Exact one-sided upper limit mu with P(Poisson(mu) <= k) = 1 - conf, for k >= 0 and 0 < conf < 1."""
+    if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and 0.0 < conf < 1.0):
+        raise ValueError("poisson_upper needs an integer k >= 0 and 0 < conf < 1")
+
+    def cdf(mu: float) -> float:
+        return sum(math.exp(-mu + i * math.log(mu) - math.lgamma(i + 1)) for i in range(k + 1))
+
     lo, hi = 0.0, 10.0 + 10.0 * k
+    while cdf(hi) > 1 - conf:                      # the interval must hold the limit for every confidence
+        lo, hi = hi, hi * 2
     for _ in range(200):
         mid = (lo + hi) / 2
-        cdf = sum(math.exp(-mid + i * math.log(mid) - math.lgamma(i + 1)) for i in range(k + 1)) if mid > 0 else 1.0
-        if cdf > 1 - conf:
+        if cdf(mid) > 1 - conf:
             lo = mid
         else:
             hi = mid
@@ -4666,6 +4673,51 @@ T(h.ok and h.reason is None, "... and re-armed in the normal way")
 h = L.HookHealth(canary=False)
 h.raw_key(0, A); h.hook_key(1, B)
 T(h.check(10_000) and h.ok, "without a canary (macOS) nothing is compared")
+
+
+# ---- P15 gaps that the mutation run on the final code showed (audit/L3_mutation_and_fuzz.md) ------------------
+# Each check names the changed line that no earlier check could tell from the original.
+zq = [0.0, 1.0, 3.0]
+T(L.log_softmax(zq) == L.log_softmax(zq, 1.0) and abs(sum(math.exp(v) for v in L.log_softmax(zq)) - 1.0) < 1e-12,
+  "log_softmax: the default temperature is 1")
+
+
+def counts_refused(counts, shares):
+    c = copy.deepcopy(ok_cal)
+    c["pi_train_counts"], c["pi_train"] = counts, shares
+    try:
+        L.check_calibration_package(c)
+    except L.CalibrationError:
+        return True
+    return False
+
+
+n9 = 10 ** 9
+T(counts_refused([0, 0, 0], [1 / 3] * 3), "counts 0, 0, 0 are a CalibrationError and not a division by zero")
+T(counts_refused([0, 5, 5], [5e-10, 0.5, 0.5]), "a zero count is refused although its share is inside the tolerance of 1e-9")
+T(counts_refused([10 ** 12, 1, 1], [1.0000000005, 1 / (10 ** 12 + 2), 1 / (10 ** 12 + 2)]),
+  "a share above 1 is refused although it is inside the tolerance")
+T(counts_refused([1, n9, n9], [0.0, n9 / (2 * n9 + 1), n9 / (2 * n9 + 1)]), "a share of 0 is refused although it is inside the tolerance")
+T(not counts_refused([1, 1, 2 ** 40 - 2], [2.0 ** -40 + 1e-9, 2.0 ** -40, (2 ** 40 - 2) / 2 ** 40 - 1e-10]),
+  "a share that differs by exactly 1e-9 is accepted: the tolerance is closed")
+for conf in (0.999, 0.99999, 0.999999):                                  # the search interval is long enough for a high confidence
+    for k in (0, 1, 2, 5):
+        mu = L.poisson_upper(k, conf)
+        T(abs(sum(math.exp(-mu + i * math.log(mu) - math.lgamma(i + 1)) for i in range(k + 1)) - (1 - conf)) < 1e-12,
+          f"Poisson limit k={k} conf={conf}")
+for bad_k, bad_conf in ((-1, 0.95), (0, 0.0), (0, 1.0), (0, 1.5), (0, -0.5), (0, float("nan")), (True, 0.95), (0.5, 0.95)):
+    raises(ValueError, lambda: L.poisson_upper(bad_k, bad_conf), f"poisson_upper({bad_k!r}, {bad_conf!r}) is refused")
+T(abs(L.poisson_upper(0, 1e-6) - 1e-6) < 1e-9, "a very low confidence gives a limit near zero")
+T(abs(L.poisson_upper(0, 1 - 1e-12) + math.log(1 - (1 - 1e-12))) < 1e-9, "a confidence above 1 - 1e-5 needs the interval to grow")
+T(L.WittenBell().min_count == 1, "Witten-Bell: the default min_count is 1")
+fz = L.SimField(BASE, M1, {("read", 1): "none", ("read", 2): "raise"})     # a failed match reads the field once and aborts
+rz = L.run_transaction(fz, OLD, NEW)
+T((rz.outcome, rz.reason, fz.text, fz.count["read"]) == ("ABORTED", "echo_mismatch", BASE, 1), "a failed match makes one read and nothing else")
+fz = L.SimField(BASE, M1, {("read", 1): "key", ("read", 2): "key", ("caret", 2): "forward2"})
+rz = L.run_transaction(fz, OLD, NEW)
+T((rz.outcome, rz.reason, fz.text) == ("VERIFIED", "ok", "Hello привет "), "two keys that type nothing explain a caret two places forward")
+hz = L.HookHealth()
+T(hz.pairs == 0 and hz.reinstalled_flag is False and hz.ok and hz.reason is None, "the canary starts armed, with no pairs counted")
 
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

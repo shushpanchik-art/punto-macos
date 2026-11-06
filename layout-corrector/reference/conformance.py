@@ -836,4 +836,49 @@ h.raw_key(0, A); h.hook_key(1, B)
 T(h.check(10_000) and h.ok, "without a canary (macOS) nothing is compared")
 
 
+# ---- P15 gaps that the mutation run on the final code showed (audit/L3_mutation_and_fuzz.md) ------------------
+# Each check names the changed line that no earlier check could tell from the original.
+zq = [0.0, 1.0, 3.0]
+T(L.log_softmax(zq) == L.log_softmax(zq, 1.0) and abs(sum(math.exp(v) for v in L.log_softmax(zq)) - 1.0) < 1e-12,
+  "log_softmax: the default temperature is 1")
+
+
+def counts_refused(counts, shares):
+    c = copy.deepcopy(ok_cal)
+    c["pi_train_counts"], c["pi_train"] = counts, shares
+    try:
+        L.check_calibration_package(c)
+    except L.CalibrationError:
+        return True
+    return False
+
+
+n9 = 10 ** 9
+T(counts_refused([0, 0, 0], [1 / 3] * 3), "counts 0, 0, 0 are a CalibrationError and not a division by zero")
+T(counts_refused([0, 5, 5], [5e-10, 0.5, 0.5]), "a zero count is refused although its share is inside the tolerance of 1e-9")
+T(counts_refused([10 ** 12, 1, 1], [1.0000000005, 1 / (10 ** 12 + 2), 1 / (10 ** 12 + 2)]),
+  "a share above 1 is refused although it is inside the tolerance")
+T(counts_refused([1, n9, n9], [0.0, n9 / (2 * n9 + 1), n9 / (2 * n9 + 1)]), "a share of 0 is refused although it is inside the tolerance")
+T(not counts_refused([1, 1, 2 ** 40 - 2], [2.0 ** -40 + 1e-9, 2.0 ** -40, (2 ** 40 - 2) / 2 ** 40 - 1e-10]),
+  "a share that differs by exactly 1e-9 is accepted: the tolerance is closed")
+for conf in (0.999, 0.99999, 0.999999):                                  # the search interval is long enough for a high confidence
+    for k in (0, 1, 2, 5):
+        mu = L.poisson_upper(k, conf)
+        T(abs(sum(math.exp(-mu + i * math.log(mu) - math.lgamma(i + 1)) for i in range(k + 1)) - (1 - conf)) < 1e-12,
+          f"Poisson limit k={k} conf={conf}")
+for bad_k, bad_conf in ((-1, 0.95), (0, 0.0), (0, 1.0), (0, 1.5), (0, -0.5), (0, float("nan")), (True, 0.95), (0.5, 0.95)):
+    raises(ValueError, lambda: L.poisson_upper(bad_k, bad_conf), f"poisson_upper({bad_k!r}, {bad_conf!r}) is refused")
+T(abs(L.poisson_upper(0, 1e-6) - 1e-6) < 1e-9, "a very low confidence gives a limit near zero")
+T(abs(L.poisson_upper(0, 1 - 1e-12) + math.log(1 - (1 - 1e-12))) < 1e-9, "a confidence above 1 - 1e-5 needs the interval to grow")
+T(L.WittenBell().min_count == 1, "Witten-Bell: the default min_count is 1")
+fz = L.SimField(BASE, M1, {("read", 1): "none", ("read", 2): "raise"})     # a failed match reads the field once and aborts
+rz = L.run_transaction(fz, OLD, NEW)
+T((rz.outcome, rz.reason, fz.text, fz.count["read"]) == ("ABORTED", "echo_mismatch", BASE, 1), "a failed match makes one read and nothing else")
+fz = L.SimField(BASE, M1, {("read", 1): "key", ("read", 2): "key", ("caret", 2): "forward2"})
+rz = L.run_transaction(fz, OLD, NEW)
+T((rz.outcome, rz.reason, fz.text) == ("VERIFIED", "ok", "Hello привет "), "two keys that type nothing explain a caret two places forward")
+hz = L.HookHealth()
+T(hz.pairs == 0 and hz.reinstalled_flag is False and hz.ok and hz.reason is None, "the canary starts armed, with no pairs counted")
+
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
