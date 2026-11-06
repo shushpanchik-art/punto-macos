@@ -1,0 +1,250 @@
+{
+ "survivors": 34,
+ "classes": {
+  "DIFFERENTIAL": 13,
+  "IDENTICAL": 16,
+  "TIE_IMPOSSIBLE": 2,
+  "REDUNDANT": 1,
+  "OUTSIDE_CONTRACT": 2
+ },
+ "rows": [
+  {
+   "id": "L0212_c01",
+   "line": 212,
+   "change": "1 -> 1+1",
+   "class": "DIFFERENTIAL",
+   "evidence": "norm is subtracted from both log-probabilities so it cancels: score(...) on 20000 random inputs (logits in [-30, 30], random T, o_lat, class mix, w, both layouts) differs by at most 1.42e-14 nats (rounding)"
+  },
+  {
+   "id": "L0212_c02",
+   "line": 212,
+   "change": "1 -> 1-1",
+   "class": "DIFFERENTIAL",
+   "evidence": "norm is subtracted from both log-probabilities so it cancels: score(...) on 20000 random inputs (logits in [-30, 30], random T, o_lat, class mix, w, both layouts) differs by at most 1.42e-14 nats (rounding)"
+  },
+  {
+   "id": "L0212_c04",
+   "line": 212,
+   "change": "2 -> 2-1",
+   "class": "DIFFERENTIAL",
+   "evidence": "norm is subtracted from both log-probabilities so it cancels: score(...) on 20000 random inputs (logits in [-30, 30], random T, o_lat, class mix, w, both layouts) differs by at most 2.84e-14 nats (rounding)"
+  },
+  {
+   "id": "L0267_d01",
+   "line": 267,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0267_d02",
+   "line": 267,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  },
+  {
+   "id": "L0275_d01",
+   "line": 275,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0275_d02",
+   "line": 275,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  },
+  {
+   "id": "L0278_a01",
+   "line": 278,
+   "change": "> -> >=",
+   "class": "TIE_IMPOSSIBLE",
+   "evidence": "for a float sum in [0.5, 2] the difference `sum - 1.0` is exact and a multiple of 2**-53; 1e-9 is 9007199.254741 such units, not a whole number, so `abs(sum - 1.0) == 1e-9` cannot happen"
+  },
+  {
+   "id": "L0280_d01",
+   "line": 280,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0280_d02",
+   "line": 280,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  },
+  {
+   "id": "L0280_d03",
+   "line": 280,
+   "change": "1.0 -> 1.0*2",
+   "class": "REDUNDANT",
+   "evidence": "o_lat in [0.5, 0.999, 1.0, 1.0000001, 1.5, 2.0, 2.5, 1000000000.0, inf, nan, -1.0, 0.0]: same verdict (accepted or CalibrationError) for all, differing: []; the values between 1 and 2 that the mutant lets through the range check are refused by `o_lat >= 1.0` right after it"
+  },
+  {
+   "id": "L0670_d01",
+   "line": 670,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0670_d02",
+   "line": 670,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  },
+  {
+   "id": "L0676_d01",
+   "line": 676,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0676_d02",
+   "line": 676,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  },
+  {
+   "id": "L0676_d03",
+   "line": 676,
+   "change": "10.0 -> 10.0*2",
+   "class": "DIFFERENTIAL",
+   "evidence": "the start of the search interval only decides how many times it is doubled before the bisection: 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 107 differ, at most 1.6e-13 relative (k=200, conf=0.01); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 4.6e-15 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0676_d04",
+   "line": 676,
+   "change": "10.0 -> 10.0/2",
+   "class": "DIFFERENTIAL",
+   "evidence": "the start of the search interval only decides how many times it is doubled before the bisection: 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 116 differ, at most 4.7e-14 relative (k=37, conf=0.01); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 4.6e-15 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0676_d05",
+   "line": 676,
+   "change": "10.0 -> 10.0*2",
+   "class": "DIFFERENTIAL",
+   "evidence": "the start of the search interval only decides how many times it is doubled before the bisection: 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 116 differ, at most 4.7e-14 relative (k=37, conf=0.01); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 4.6e-15 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0676_d06",
+   "line": 676,
+   "change": "10.0 -> 10.0/2",
+   "class": "DIFFERENTIAL",
+   "evidence": "the start of the search interval only decides how many times it is doubled before the bisection: 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 107 differ, at most 1.6e-13 relative (k=200, conf=0.01); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 4.6e-15 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0677_a01",
+   "line": 677,
+   "change": "> -> >=",
+   "class": "DIFFERENTIAL",
+   "evidence": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf): 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 0 differ, at most 0.0e+00 relative (k=200, conf=0.999999999999); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 1.8e-14 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0678_c01",
+   "line": 678,
+   "change": "2 -> 2+1",
+   "class": "DIFFERENTIAL",
+   "evidence": "tripling instead of doubling changes only the bracket: 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 0 differ, at most 0.0e+00 relative (k=200, conf=0.999999999999); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 1.8e-14 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0679_c01",
+   "line": 679,
+   "change": "200 -> 200+1",
+   "class": "DIFFERENTIAL",
+   "evidence": "199 or 201 halvings of an interval that is exhausted after about 60: 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 0 differ, at most 0.0e+00 relative (k=200, conf=0.999999999999); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 1.8e-14 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0679_c02",
+   "line": 679,
+   "change": "200 -> 200-1",
+   "class": "DIFFERENTIAL",
+   "evidence": "199 or 201 halvings of an interval that is exhausted after about 60: 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 0 differ, at most 0.0e+00 relative (k=200, conf=0.999999999999); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 1.8e-14 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0681_a01",
+   "line": 681,
+   "change": "> -> >=",
+   "class": "DIFFERENTIAL",
+   "evidence": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf): 396 (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): 32 differ, at most 3.3e-14 relative (k=20, conf=0.01); against a 60-digit root on 72 pairs the original is off by at most 1.8e-14 and the mutant by at most 1.5e-14 (relative), the resolution of the rounded cdf"
+  },
+  {
+   "id": "L0705_a01",
+   "line": 705,
+   "change": "<= -> <",
+   "class": "TIE_IMPOSSIBLE",
+   "evidence": "`bound <= 1e-4` against `< 1e-4` differs only when the float bound equals 1e-4 exactly; searched 145200 (clusters 0..120, largest cluster 1..300, n next to P*s/1e-4) combinations: 0 ties"
+  },
+  {
+   "id": "L0727_a01",
+   "line": 727,
+   "change": "> -> >=",
+   "class": "OUTSIDE_CONTRACT",
+   "evidence": "with the default min_count = 1 the original keeps every count and the mutant prunes counts below 1; the two differ only when a row has multiplicity 0 (zero counts stay in the table of the original): 600 random fits with multiplicities 1 to 5 are equal, 217 of 300 fits with some multiplicity 0 differ. Section 8.3 gives a multiplicity of 1 to 5; `fit` does not validate it (finding F-3 of this report)"
+  },
+  {
+   "id": "L0727_c02",
+   "line": 727,
+   "change": "1 -> 1-1",
+   "class": "OUTSIDE_CONTRACT",
+   "evidence": "with the default min_count = 1 the original keeps every count and the mutant prunes counts below 1; the two differ only when a row has multiplicity 0 (zero counts stay in the table of the original): 600 random fits with multiplicities 1 to 5 are equal, 217 of 300 fits with some multiplicity 0 differ. Section 8.3 gives a multiplicity of 1 to 5; `fit` does not validate it (finding F-3 of this report)"
+  },
+  {
+   "id": "L0738_d01",
+   "line": 738,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0738_d02",
+   "line": 738,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  },
+  {
+   "id": "L0845_d01",
+   "line": 845,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0845_d02",
+   "line": 845,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  },
+  {
+   "id": "L0967_a01",
+   "line": 967,
+   "change": "> -> >=",
+   "class": "DIFFERENTIAL",
+   "evidence": "s >= 0 against s > 0 differs only for s == 0 (both give 0.0) or s == -0.0 (a signed zero); 400 random small networks with weights in {-1, 0, 1} (many exact zeros) give equal logits"
+  },
+  {
+   "id": "L0967_d01",
+   "line": 967,
+   "change": "0.0 -> 0.0*2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0*2` evaluate to the same number"
+  },
+  {
+   "id": "L0967_d02",
+   "line": 967,
+   "change": "0.0 -> 0.0/2",
+   "class": "IDENTICAL",
+   "evidence": "`0.0` and `0.0/2` evaluate to the same number"
+  }
+ ]
+}

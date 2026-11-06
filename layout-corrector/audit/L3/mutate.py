@@ -29,7 +29,7 @@ REPORT = os.path.join(HERE, "L3_mutation_report.md")
 SRC = "lfengine.py"
 OTHER_FILES = ["vectors.py", "conformance.py", "vectors_out.json", "test_ref.py"]
 MARKER = "# ==== 20.5"
-MAX_RUN = 700
+MAX_RUN = 1500
 SAMPLE_SEED = 5
 SKIP_INTS = {47, 94, 95, 96, 97}
 TIMEOUT = 150
@@ -271,7 +271,7 @@ def stage_gen():
     for c in cands:
         per_op[c["op"]] = per_op.get(c["op"], 0) + 1
     meta = {
-        "source": "git show 7e68d46:layout-corrector/reference/lfengine.py (copied to base/)",
+        "source": "reference/lfengine.py of the audited commit, copied to base/ (identity: SHA-256 below)",
         "marker": MARKER, "first_line": first, "total_lines": len(lines),
         "sampled": sampled, "max_run": MAX_RUN, "sample_seed": SAMPLE_SEED,
         "generated": len(cands), "not_compiling": len(dropped), "valid": len(kept),
@@ -391,7 +391,10 @@ def stage_report():
     L.append("# L3 mutation report: lfengine.py (reference engine), mutants from line %d (`%s`) to line %d"
              % (meta["first_line"], MARKER, meta["total_lines"]))
     L.append("")
-    L.append("Source: `git show 7e68d46:layout-corrector/reference/lfengine.py`, copied to `base/`. "
+    import hashlib
+    sha = lambda n: hashlib.sha256(open(os.path.join(BASE, n), "rb").read()).hexdigest()
+    L.append("Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-256 %s; conformance.py %s). "
+             % (sha(SRC), sha("conformance.py")) +
              "Baseline: `python3 conformance.py 20000` prints OK; `vectors.py` matches `vectors_out.json`; "
              "`test_ref.py` passes. Each mutant runs `timeout 150 python3 conformance.py 20000` in its own directory.")
     L.append("")

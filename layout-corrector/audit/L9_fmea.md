@@ -10,8 +10,8 @@ Part B (faults that the vocabulary of `SimField` does not contain):
 
 | Attack | Result | Class |
 |---|---|---|
-| B1 the application inserts text before the word between read and write | UNRECOVERED, quarantine; the text is damaged (`!Helloghbdtnn`) but the failure is reported, never silent. The residual window is the time between the last read and the write; RT-4 must measure it on real applications, as it does for M2 | P2: no test in `conformance.py`, no sentence in 13.2 that names this window for M1 |
-| B2 a harmless arrow-left (caret one place back) between read and verify | RESTORED and quarantine of the application | P2: safe but a false incident; one stray arrow key sends the application to OFF until the quarantine rule (13.5 row 10) releases it |
+| B1 the application inserts text before the word between read and write | UNRECOVERED, quarantine; the text is damaged (`!Helloghbdtnn`) but the failure is reported, never silent. The residual window is the time between the last read and the write; RT-4 must measure it on real applications, as it does for M2 | P2: 13.2 names this window for M1 since rev 287; still no test of its own in `conformance.py` (a `SimField` fault that shifts the text before the range would add one) |
+| B2 a harmless arrow-left (caret one place back) between read and verify | RESTORED and quarantine of the application | P2: safe but a false incident; one stray arrow key sends the application to OFF until the quarantine rule (13.5 row 10) releases it. 13.2 states that this is the conservative choice (rev 287); a caret that moved forward by at most the number of silent keys is tolerated and tested |
 | B3 a key that types nothing (Shift) between write and verify | VERIFIED | none (the caret rule counts it) |
 | B4, B5 old equal to new, empty word | VERIFIED, field unchanged | P3: the engine never makes such a call (candidates differ from the typed word) |
 | B6 two dropped synthetic events (M2) | UNRECOVERED, quarantine | none |
@@ -61,7 +61,7 @@ Columns: failure mode, effect, requirement (13.5 row, RT, CA), proof in this rep
 | Remote desktop, virtual machine windows | Keys observed in one place, text in another | 13.7 | gate UNKNOWN for unknown classes (RT-9); no reference test. P2 |
 | Full-screen games | Keys observed, nothing to replace | 13.8 | application matrix: OFF unless proven |
 
-Gaps (classified): P1: none. P2: B1 (M1 offsets shift between read and write: add a sentence to 13.2 and a `SimField` fault 'shift' with a test), B2 (a stray arrow key causes a false quarantine: decide whether a caret move by a counted silent key should be tolerated), two instances, fast user switching, remote desktop windows (add one requirement line each). P3: B4 and B5.
+Gaps (classified): P1: none. P2: B1 (the sentence in 13.2 is written; a `SimField` fault 'shift' with a test is still missing), B2 (decided in 13.2: not tolerated, conservative), two instances, fast user switching, remote desktop windows (add one requirement line each). P3: B4 and B5.
 
 ## D. Privacy review
 

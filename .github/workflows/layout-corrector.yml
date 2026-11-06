@@ -48,3 +48,6 @@ jobs:
       - name: the code blocks of section 20 of the specification are byte-identical to the reference files
         working-directory: layout-corrector/audit
         run: python L7_check_spec_blocks.py
+      - name: the files of the audited revision have the hashes recorded in audit/MANIFEST.sha256
+        working-directory: .
+        run: sha256sum -c layout-corrector/audit/MANIFEST.sha256
