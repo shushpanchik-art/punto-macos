@@ -93,3 +93,9 @@
 - Reference: modes other than AUTO record nothing (13.5); conformance.py: 1,860,821 checks, 1,665 faults, `python3 -O` same count; test_ref.py OK.
 - Mutation run r6 (692 mutants) on the final code is running in scratchpad mut_L3_r6 (resume: `bash loop.sh`); the L3 report still describes the older run and must be updated.
 - spec/CHANGELOG_v3.1.md written. Remaining: finish r6 and L3 report; audit lanes L1 (blind Node re-implementation), L2 (numbers), L5 (traceability), L7 (reproducibility), L8 (stale phrases), L9 (FMEA), L10 (audit/MANIFEST.sha256 with the full commit SHA); fix findings; final report with the list of blockers that cannot be closed in the cloud.
+
+## 2026-11-07 (after the fourth review T-1..T-4; state of the audit)
+- Mutation run r8 on the final code: 708 mutants, 674 killed = 95.2% (criterion met literally). The tests added after r7 found a real defect: poisson_upper returned a wrong limit for conf > 0.99995; fixed (interval grows, domain checked), spec 20.9 and 20.13 updated, blocks byte-identical (L7). Report: audit/L3_mutation_and_fuzz.md, evidence script audit/L3/L3_equivalence_evidence.py. F-3 open: WittenBell.fit does not validate multiplicity >= 1.
+- L1 (blind Node.js re-implementation): round 1 partial (292/309 entries, 25/29 keys), agent interrupted by the usage limit; report assembled from its code (audit/L1/L1_report.md). Three text gaps fixed in rev 295 (row formats of the vectors in 20.12, EV-1 bound for no error in 11.3, tok25 rule). Round 2 open (needs vectors.py and 7.7 in the input).
+- Reports L2, L5, L7, L8, L9 re-run on the final files; audit/README.md lists every line and what is not closed; audit/MANIFEST.sha256 + make_manifest.sh + CI step added. The audit is NOT complete (L1 round 2, independent L9).
+- Doc: rev 295. Repo spec/TZ_layout_correction_v3.md = rev 295.

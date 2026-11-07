@@ -1,6 +1,6 @@
 # L9 safety and privacy review: what can corrupt the user's text, what can leak
 
-Built on repository commit `188b597a5f17b12a0339c19bfb38035d6f1009ae` (parent of the commit that adds this file), specification rev 286. Author of this file: the author of the specification (the independent fresh-reviewer run of this lane could not be started: the agents stopped at the usage limit of the session three times). The attacks below are therefore the author's own, and the lane stays open for an external reviewer.
+Re-run on the final files: `reference/lfengine.py` (git blob `6c5fc74041e38623b93b5641088673450258464f`), `reference/conformance.py` (blob `1c1f761a4e7cb38a2ddac39938f8d9d11839004a`), first commit holding them `053489e504766b11b96d689c5db89eaaef276451`; specification rev 295. The first run of this report (rev 286, commit `5df564b`) gave the same verdicts; the figures below are those of the re-run. Author of this file: the author of the specification (the independent fresh-reviewer run of this lane could not be started: the agents stopped at the usage limit of the session three times). The attacks below are therefore the author's own, and the lane stays open for an external reviewer.
 
 ## A. Attacks on the replacement transaction (`L9_attacks.py`)
 

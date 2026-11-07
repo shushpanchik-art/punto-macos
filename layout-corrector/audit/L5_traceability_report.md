@@ -1,6 +1,6 @@
 # L5 traceability
 
-Built on repository commit `5df564b859a0ee91145c74246550de4b836d8891` (parent of the commit that adds this file); specification rev 286. Run from `layout-corrector/audit/`.
+Re-run on the final files: `reference/lfengine.py` (git blob `6c5fc74041e38623b93b5641088673450258464f`), `reference/conformance.py` (blob `1c1f761a4e7cb38a2ddac39938f8d9d11839004a`), first commit holding them `053489e504766b11b96d689c5db89eaaef276451`; specification rev 295. The first run of this report (rev 286, commit `5df564b`) gave the same verdicts; the figures below are those of the re-run. Run from `layout-corrector/audit/`.
 
 Command: `python3 L5_trace.py` (writes `L5_matrix.csv`). Identifier families: MD, DT, TR, CA, EV, DP, AP, RT, CT, D1 to D10.
 

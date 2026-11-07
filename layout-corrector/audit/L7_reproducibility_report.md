@@ -1,15 +1,15 @@
 # L7 reproducibility
 
-Built on repository commit `5df564b859a0ee91145c74246550de4b836d8891` (parent of the commit that adds this file); specification rev 286. Run from `layout-corrector/audit/`.
+Re-run on the final files: `reference/lfengine.py` (git blob `6c5fc74041e38623b93b5641088673450258464f`), `reference/conformance.py` (blob `1c1f761a4e7cb38a2ddac39938f8d9d11839004a`), first commit holding them `053489e504766b11b96d689c5db89eaaef276451`; specification rev 295. The first run of this report (rev 286, commit `5df564b`) gave the same verdicts; the figures below are those of the re-run. Run from `layout-corrector/audit/`.
 
 Command: `bash L7_run_all.sh`. Extraction is deterministic (see the docstring of `L7_check_spec_blocks.py`): LF line ends, fenced blocks from the heading of section 20, `lfengine.py` = the blocks of 20.2 to 20.11 and 20.14 joined by two empty lines, `conformance.py` = the three blocks of 20.13 joined by nothing, the rest one block each. The same check runs in CI (`.github/workflows/layout-corrector.yml`).
 
 ```
 == block check: code blocks of section 20 against reference/ (byte for byte)
-lfengine.py        IDENTICAL  spec sha256 8799db30c4d45c48  file sha256 8799db30c4d45c48  (65211 bytes)
+lfengine.py        IDENTICAL  spec sha256 0d3bef6cac73e69d  file sha256 0d3bef6cac73e69d  (65570 bytes)
 vectors.py         IDENTICAL  spec sha256 c5f791852a0a7f1a  file sha256 c5f791852a0a7f1a  (27933 bytes)
 vectors_out.json   IDENTICAL  spec sha256 a31e225c8fcc36fb  file sha256 a31e225c8fcc36fb  (24674 bytes)
-conformance.py     IDENTICAL  spec sha256 1ad2c9d3ac6dee19  file sha256 1ad2c9d3ac6dee19  (54586 bytes)
+conformance.py     IDENTICAL  spec sha256 679472ef940f6a3c  file sha256 679472ef940f6a3c  (57593 bytes)
 blocks per section: {'20.10': 1, '20.11': 1, '20.12': 2, '20.13': 3, '20.14': 1, '20.2': 1, '20.3': 1, '20.4': 1, '20.5': 1, '20.6': 1, '20.7': 1, '20.8': 1, '20.9': 1}
 == vectors.py at ten PYTHONHASHSEED values against vectors_out.json
 seed 0: identical
@@ -23,8 +23,8 @@ seed 1337: identical
 seed 2147483647: identical
 seed 4294967295: identical
 == conformance.py, normal and optimised (same number of checks expected)
-OK (1860829 checks, 1665 single and double faults, 627 fuzz conversions, 414 fuzz undos)
-OK (1860829 checks, 1665 single and double faults, 627 fuzz conversions, 414 fuzz undos)
+OK (1860861 checks, 1665 single and double faults, 627 fuzz conversions, 414 fuzz undos)
+OK (1860861 checks, 1665 single and double faults, 627 fuzz conversions, 414 fuzz undos)
 == test_ref.py
 OK property tests; Russian words checked: 19653
 == static check: iteration over set or dict values in the reference without sorted()

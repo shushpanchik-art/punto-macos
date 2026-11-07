@@ -840,7 +840,7 @@ For recall, a 95% interval of ±1 point needs about 1,830 positives at R = 0.95,
 
 1. `n` ≥ 100,000, the words come from at least 20 users and at least 100 documents, and `n` was fixed before the first evaluation (8.5).
 2. `k / n` ≤ 4.8e-5. At `n` = 100,000 this allows at most 4 false corrections; at a larger `n` the allowance grows in proportion.
-3. `U(c) · m / n` ≤ 1e-4, where `U(c)` is the exact one-sided 95% Poisson upper limit for `c` observed events: 2.9957, 4.7439, 6.2958, 7.7537, 9.1535 and 10.5130 for `c` = 0 to 5 (the function `poisson_upper` of 20.9 computes it for any `c`).
+3. `U(c) · m / n` ≤ 1e-4, where `U(c)` is the exact one-sided 95% Poisson upper limit for `c` observed events (with no false correction there is no cluster and m is taken as 1, so the bound is U(0) / n): 2.9957, 4.7439, 6.2958, 7.7537, 9.1535 and 10.5130 for `c` = 0 to 5 (the function `poisson_upper` of 20.9 computes it for any `c`).
 4. The evaluation is the one that the log of `R-ACC` records (8.4); a pass found in a repeated, tuned or extended evaluation does not count.
 
 If every false correction sits in a different cluster, then `c` = `k`, `m` = 1 and condition 3 is the independent-words bound of the table above. If the errors bunch together, `c` falls (the errors are one problem seen several times) and `m` rises, and the bound rises with `m`: the rule assumes that every independent source of error could produce as many errors as the worst one that was observed. This is conservative on purpose, and it is a decision rule, not a confidence interval with exact coverage. How often it accepts a system of a given true error rate, with errors spread or bunched, is simulated in section 18.9 with pre-registered scenarios and seeds; that simulation is evidence about the rule, and not a proof of coverage. A cluster bootstrap is not used as the gate because with 4 or fewer events most resamples contain none of them and the interval degenerates; it stays in the report as a diagnostic.
@@ -3106,6 +3106,29 @@ def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1)
 | `hook` | The model of the stream check (17 steps): whether the stream is trusted, whether a gap was reported, and why | 20.14 |
 
 **How to read the traces.** In `trace_run` the word `ghbdtn` is converted in the state `default` and sets the run credit to 3; `z` (one key) is KEEP and leaves the credit at 3; the next three words are decided in the state `run` and lower the credit to 2, 1 and 0; the following `ntcn` is decided in the state `default` again and is KEEP (`abstain`, margin −2.707), so a chain of run-assisted conversions stops after three words. In `trace_undo` an undo at 1,000 ms makes the next words KEEP (`cooldown`) until 3 word decisions have been suppressed and 10,000 ms have passed; at 11,500 ms the same word is still KEEP, now with the reason user\_exception: the undo put the pair on the exception list (13.3), and only the cool-down has ended. In `scen`, Enter and Tab are context breaks and give no decision; a layout change inside a word drops the word; a Space read on another layout gives `layout_changed_at_boundary`; a closed gate stores nothing, and the first word after the gate reopens is decided normally; 65 keys give `overflow`; a second Space after a decision gives nothing. The keys of 20.14 are lists of cases. An entry of tx is: name, capabilities, field text, faults (operation:k means the k-th call of that operation), typed-ahead keys, extra arguments, outcome, reason, final text of the field, incident flag. An entry of modes is: name, capabilities, support status, health facts that are false, mode. An entry of fingerprint is: name, digest, the layout identified (null: not supported). An entry of hook is: name, whether the stream is trusted, whether a gap was reported, and the reason when there is one.
+
+**Row formats of the keys of 20.2 to 20.11** (found missing by the blind re-implementation of audit line L1; the inputs of every row are in `vectors.py`, and the fixture is `example_cal`, so the text below only names the columns). Floats are rounded to the decimals shown in the JSON.
+
+| Key | One row is |
+| --- | --- |
+| `render` | typed text, layout the keys were typed on, the text of the other layout, tokens with `BOS` and `EOS` |
+| `caps`, `caps_all` | key id, Shift, Caps Lock, character on the English layout, character on the Russian layout, token |
+| `prefix` | the tokens of `ghb` typed on the English layout, without `EOS` |
+| `tok25` | the number of tokens of a word of 25 keys: `BOS` and the first 20 keys; a truncated word gets no `EOS`, so 21 |
+| `cands` | typed text, target layout, \[leading, core, trailing\] written in the target layout, or null; the typed text is on the other layout |
+| `guards` | typed text, active layout, reason code of the guard or `no_candidate` |
+| `priors` | active layout, state, `w`, deployment prior over (EN, RU, OTHER) |
+| `lambdas` | threshold on the probability, its logit in nats |
+| `scores` | logits (EN, RU, OTHER), active layout, state, score in nats |
+| `decide` | typed text, active layout, stub logits, state, run credit above 0, user exception present, action, reason, replacement, margin, number of keys |
+| `trace_run` | word, state before it, action, reason, margin, run credit after it |
+| `trace_undo` | word and time, or the undo, action, reason, run credit after it |
+| `scen` | name, the list of \[action, reason\] of every decision the sequence produced |
+| `manual` | selection, direction (`en2ru`, `ru2en` or null), result |
+| `ev1` | name, pass, bound; no false correction means no cluster and the bound is U(0) / n, that is m is taken as 1 |
+| `poisson` | U(k) for k = 0 to 5 |
+| `undo` | name of the step, then what it returns: the action and replacement of a conversion and whether a snapshot exists; the text that an undo restores or null; after the first undo also the exception list, the run credit, the number of suppressed cool-down words and whether a snapshot is left |
+| `wb`, `lfw`, `lfl`, `cal_json` | one object; the names of its fields say what each value is (`lfb_bytes`, `lfb_sha256_16`, `logits_ghbdtn`, `keys`, `member`, `bytes`, `sha256_16`) |
 
 ```python
 """vectors.py - generates the golden test vectors of section 20.12 from lfengine.py.

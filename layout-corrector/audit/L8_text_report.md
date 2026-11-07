@@ -1,6 +1,6 @@
 # L8 text: stale phrases, terminology, cross-references
 
-Built on repository commit `5df564b859a0ee91145c74246550de4b836d8891` (parent of the commit that adds this file); specification rev 286. Run from `layout-corrector/audit/`.
+Re-run on the final files: `reference/lfengine.py` (git blob `6c5fc74041e38623b93b5641088673450258464f`), `reference/conformance.py` (blob `1c1f761a4e7cb38a2ddac39938f8d9d11839004a`), first commit holding them `053489e504766b11b96d689c5db89eaaef276451`; specification rev 295. The first run of this report (rev 286, commit `5df564b`) gave the same verdicts; the figures below are those of the re-run. Run from `layout-corrector/audit/`.
 
 Command: `python3 L8_scan.py`. The scanner checks forbidden phrases (cluster-adjusted bound, four modes, a gate before G4 that passes EV-1 or EV-12, fallback to the other scorer, a layout decision by KLID or the low word of the HKL, undo buffer, M2 admitted to AUTO, TBD or TODO, old version labels, a relied-on assert), every reference of the form 'section N.M', '(N.M)' and '(N.M to K.L)' against the headings, and leftovers outside the code blocks. Reviewed hits that state a rule by negating the old wording are listed in `ALLOWED` in the script.
 

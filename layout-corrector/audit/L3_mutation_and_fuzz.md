@@ -127,7 +127,7 @@ recorded layout. Full-size runs on the final files (`N = 1,000,000` events per g
 | `python3 conformance.py 1000000` | `OK (9222553 checks, 1665 single and double faults, 3303 fuzz conversions, 2274 fuzz undos)` |
 | `python3 -O conformance.py 1000000` | `OK (9222553 checks, 1665 single and double faults, 3303 fuzz conversions, 2274 fuzz undos)` (the same number of checks: none disappears under `-O`) |
 
-(Python 3.12 of the audit container; the workflow runs 3.9, 3.11 and 3.13 with `N = 200000`.)
+(Python 3.13 of the audit container; the workflow runs 3.9, 3.11 and 3.13 with `N = 200000`.)
 
 The fault matrix of 13.2 has 57 named rows; in addition every single fault and every pair of faults of the transaction (1,665 combinations, M1 with
 rollback) and the M2 sweep are executed, with the invariants "never VERIFIED with a wrong text", "never ABORTED after a change",

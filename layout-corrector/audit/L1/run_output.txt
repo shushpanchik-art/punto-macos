@@ -1,0 +1,30 @@
+PASS render       10/10 
+PASS caps          4/4  
+PASS caps_all     48/48 
+PASS prefix        1/1    # input "ghb" guessed from the tokens
+PASS tok25         1/1    # input (25 keys) and the cut rule guessed; only the length 21 is pinned
+PASS cands        14/14   # column 2 = TARGET layout T (undocumented)
+PASS guards        8/8    # column 2 = ACTIVE layout (differs from cands); suffix list is a guess
+PASS manual        6/6  
+PASS priors        6/6  
+PASS lambdas       6/6  
+PASS scores        6/6    # needs T=1 and class mix 38/40/22 (T is not in the text)
+PASS decide       13/13   # columns 4-6 (state, credit>0, exception) undocumented
+PASS trace_run     6/6    # stimulus words from the vector; scorer stub needs a 5-key rule, see report
+PASS trace_undo    7/7    # event timing designed from the names
+PASS scen         11/11   # event sequences designed from the names
+PASS ev1           7/7    # inputs live in the name only; m floored at 1, n for "19 users" inferred
+PASS poisson       6/6  
+PASS fnv           5/5    # one byte per token assumed (confirmed)
+FAIL lfl           6/8    # keys+membership only; bytes/sha not derivable (format and lex_key are not in the text)
+PASS wb_score      1/1    # uses the logits stored in wb; T=1 assumed
+FAIL wb            1/9    # NOT REACHED except logits=logp+ln(mix): Witten-Bell (7.7), the S-TRAIN fixture and the LFB1 layout are not in the text
+FAIL lfw           0/5    # NOT REACHED: toy_weights and LFW1 header layout are not in the text
+FAIL cal_json      0/2    # NOT REACHED: schema LFC1 / JSON serialisation of 20.5 are not in the text
+PASS undo         17/17   # column meaning of steps 1-2 guessed (true / 3 / false)
+PASS modes        14/14 
+PASS outcome       6/6  
+PASS tx           57/57   # SimField fault semantics inferred from names and final texts
+PASS fingerprint   4/4    # the two modified tables: edit rule and rotation direction guessed, digest recomputed
+PASS hook         21/21   # stimuli designed from the names; reason element sometimes omitted, sometimes null
+TOTAL entries 292/309; keys fully passing 25/29
