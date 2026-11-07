@@ -2811,15 +2811,28 @@ class WittenBell:
         self.cnt = [dict() for _ in range(self.ORDER)]     # cnt[k][context tuple (len k)] -> {next: count}
 
     def fit(self, rows: Sequence[Sequence[int]], weights: Optional[Sequence[int]] = None):
-        """rows: BOS + key tokens + EOS (tokens(core, True)); weights: multiplicity of each row."""
-        for r, row in enumerate(rows):
+        """rows: BOS + key tokens + EOS (tokens(core, True)); weights: multiplicity of each row, an integer of 1 to 5
+        (8.3), one per row. Anything else raises ValueError before the model is touched."""
+        if weights is not None:
+            if len(weights) != len(rows):
+                raise ValueError("fit: %d weights for %d rows" % (len(weights), len(rows)))
+            for w in weights:
+                if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):
+                    raise ValueError("fit: a multiplicity is an integer of 1 to 5, not %r" % (w,))
+        add: List[Dict[Tuple[int, ...], Dict[int, int]]] = [dict() for _ in range(self.ORDER)]
+        for r, row in enumerate(rows):                    # counted aside: a failure in the middle leaves the model as it was
             m = 1 if weights is None else weights[r]
             for i in range(1, len(row)):
                 for k in range(self.ORDER):
                     if i - k < 0:
                         break
-                    d = self.cnt[k].setdefault(tuple(row[i - k:i]), {})
+                    d = add[k].setdefault(tuple(row[i - k:i]), {})
                     d[row[i]] = d.get(row[i], 0) + m
+        for k in range(self.ORDER):
+            for ctx, d in add[k].items():
+                t = self.cnt[k].setdefault(ctx, {})
+                for w, c in d.items():
+                    t[w] = t.get(w, 0) + c
         if self.min_count > 1:                              # prune BEFORE the totals are derived
             for k in range(1, self.ORDER):
                 for ctx in list(self.cnt[k]):
@@ -4743,6 +4756,45 @@ hz = L.HookHealth()
 T(hz.pairs == 0 and hz.reinstalled_flag is False and hz.ok and hz.reason is None, "the canary starts armed, with no pairs counted")
 
 
+# ---- P16 finding F-3 of audit line L3 (the multiplicities of WittenBell.fit) and the attacks B1 and B2 of audit line L9 --------
+rows_wb = [[L.BOS, 5, 7, L.EOS], [L.BOS, 5, 9, L.EOS]]
+for bad_w, why in (([0, 1], "a multiplicity of 0"), ([1, -1], "a negative multiplicity"), ([1, 2.5], "a fractional multiplicity"),
+                   ([1.0, 2], "a float that is a whole number"), ([True, 2], "a bool"), ([1, 6], "a multiplicity above 5"),
+                   ([1, "2"], "a string"), ([1], "fewer weights than rows"), ([1, 2, 3], "more weights than rows"), ([], "no weights for two rows")):
+    m0 = L.WittenBell().fit([[L.BOS, 3, L.EOS]])
+    before = copy.deepcopy(m0.cnt)
+    raises(ValueError, lambda: m0.fit(rows_wb, bad_w), f"fit refuses {why}")
+    T(m0.cnt == before, f"fit leaves the model as it was after {why}")
+T(L.WittenBell().fit(rows_wb, [1, 5]).cnt[1][(L.BOS,)] == {5: 6}, "multiplicities 1 and 5 are accepted and counted")
+T(L.WittenBell().fit(rows_wb, [5, 1]).cnt[1][(L.BOS,)] == {5: 6}, "the multiplicity 5 is accepted in the first place too")
+T(L.WittenBell().fit(rows_wb, None).cnt[1][(L.BOS,)] == {5: 2}, "no weights means multiplicity 1")
+T(L.WittenBell().fit([], []).cnt == [{}, {}, {}], "no rows and no weights is an empty model")
+m0 = L.WittenBell().fit([[L.BOS, 3, L.EOS]])
+before = copy.deepcopy(m0.cnt)
+raises(TypeError, lambda: m0.fit([[L.BOS, 5, L.EOS], [L.BOS, [1], L.EOS]]), "a row that cannot be counted")
+T(m0.cnt == before, "a row that fails in the middle of counting leaves the model as it was")
+
+
+class ShiftBefore(L.SimField):
+    """B1 of L9: the application inserts text before the word between the read and the write (autocomplete, collaboration)."""
+    def replace(self, start, end, text):
+        if not getattr(self, "shifted", False):
+            self.shifted = True
+            self.text, self.pos = "!" + self.text, self.pos + 1
+        return super().replace(start, end, text)
+
+
+fb = ShiftBefore(BASE, M1)
+rb = L.run_transaction(fb, OLD, NEW)
+T((rb.outcome, rb.reason, rb.incident, rb.quarantine) == ("UNRECOVERED", "verify_failed", True, True),
+  "B1: text inserted before the range between read and write is UNRECOVERED with an incident, never VERIFIED")
+T(fb.text.startswith("!Hello") and fb.user == [], "B1: the application's own insertion is kept and no user key is invented")
+fb = L.SimField(BASE, M1, {("caret", 2): "back"})
+rb = L.run_transaction(fb, OLD, NEW)
+T((rb.outcome, rb.incident, rb.quarantine, fb.text) == ("RESTORED", True, True, BASE),
+  "B2: a caret one place back after the write restores the text and costs a quarantine (conservative)")
+
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
 ```
 
@@ -4755,7 +4807,7 @@ print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conve
 | `engine_mode` | A pure function of facts. `AUTO` needs all four capabilities of `AUTO_REQUIRES` (read a range, replace a range in one operation, read it back with the caret, write the original back), the status `AUTO` in the support matrix, usable models, a healthy hook and a healthy watchdog. An application whose only way to write is synthetic keystrokes (M2) is `MANUAL_ONLY` at best: the support matrix can never grant more than the capabilities allow. `OFF` when the application is quarantined, a permission is missing, the layout is not supported, the support status is `UNKNOWN`, or nothing can write at all. The engine of 20.7 records and decides only in `AUTO`: in `MANUAL_ONLY` and in `OFF` it stores no key (13.5). |
 | `classify_outcome` | `ABORTED` (nothing was written), `VERIFIED` (the whole range holds the new text and the caret is where it must be), `RESTORED` (the range holds exactly what the user typed), `UNRECOVERED` (anything else, including a range that cannot be read). The classification uses observations only, never the intention of the code. |
 | `run_transaction` | The steps of 13.2: freeze, gate, read and match, the last look of M2, replace, verify, outcome. The range that is read, verified and rolled back is always the whole fragment: the word, the Space and the typed-ahead keys (at most 3). M2 is refused when any key is typed ahead or a modifier key is down. For M2 the last look comes after the match and before the first synthetic event: a user key counted since the freeze means `ABORTED` (`typed_ahead`) and nothing is written. After the write the whole fragment must read back as the new word, the Space and the typed-ahead keys, and the caret must be exactly where it was (no user key seen) or at most as many positions further as user keys were seen; a caret that moved backwards is a failure. One rollback only, and only for M1. Any failure after step 4 began is a `replacement_incident` and puts the application in quarantine. The one race that remains for M2 (a key that arrives after the last look) is not hidden: the text is classified from what is in the field, usually `UNRECOVERED`, and its frequency is measured by RT-4. This is why M2 is never `AUTO`. |
-| `Adapter`, `SimField`, `AdapterError` | The contract that an OS adapter implements (`gate`, `caret`, `read`, `replace`, `send`, `modifier_down`, `mark`, `keys_since`) and the test double with fault injection that stands in for it. `SimField` injects a failure at the n-th call of an operation: a gate that changes, a caret that moves, a read that returns nothing or stale text, a write that raises, is partial, is ignored, is changed by autocorrection, damages the Space after the range, or meets a user key (a character or a key that types nothing). Every fault row of 13.5 and every step of 13.2 has at least one scenario in `conformance.py` (20.13). |
+| `Adapter`, `SimField`, `AdapterError` | The contract that an OS adapter implements (`gate`, `caret`, `read`, `replace`, `send`, `modifier_down`, `mark`, `keys_since`) and the test double with fault injection that stands in for it. `SimField` injects a failure at the n-th call of an operation: a gate that changes, a caret that moves, a read that returns nothing or stale text, a write that raises, is partial, is ignored, is changed by autocorrection, damages the Space after the range, or meets a user key (a character or a key that types nothing). The fault names of the vectors of 20.12 are: gate DENY, UNKNOWN and raise; caret back, forward, forward2 (two places forward) and raise; read none, stale, raise, user:c (the user types the character c just before the call) and key (a key that types nothing arrives); replace raise (nothing is written), partial (half is written, then an error), applied\_error (written, then an error), autocorrect (the application changes the last character), ignored (silently not written), spill (the Space after the range is damaged as well), user:c and key; event, for M2 only, raise, key, user:c and drop (the event is silently not delivered); and the flag that a modifier key is down. Every fault row of 13.5 and every step of 13.2 has at least one scenario in `conformance.py` (20.13). |
 | `layout_fingerprint`, `identify_layout` | A layout is identified by the SHA-256 of its 94 characters (key by key, without and with Shift, Caps Lock off), never by the language id or the layout name. A layout that does not read exactly as the supported English or Russian layout is `OFF` for that layout. |
 | `HookHealth` | The completeness of the stream of key events. On Windows an independent Raw Input observer reports every physical key event with a signature (scan code, extended flag, press or release); each event of one side must meet an event with the same signature from the other side within 300 ms, in either order; a counterpart that arrives later is too late, and the loss is declared when it arrives or at the next check, whichever comes first, even if the watchdog timer has not run yet. A raw key that the hook never reports is `canary_missing`; a hook key that the observer never saw is `canary_extra`; events that the hook marks as injected are not compared. Equal counts prove nothing, because one lost and one extra event cancel each other. After a loss the engine receives one `gap` event and the mode is `MANUAL_ONLY` until three pairs with equal signatures are seen after the hook is installed again. On macOS the loss is a tap that the system disabled (timeout or user input) or a poll that finds the tap disabled; no canary exists there. |
 

@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-13, macos-14]
+        os: [macos-14]            # macos-13 is a retired GitHub image: it made the whole file invalid (a failed run without jobs on every push)
         python-version: ['3.10', '3.11', '3.12', '3.13']
     
     steps:

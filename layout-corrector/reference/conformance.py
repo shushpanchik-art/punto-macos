@@ -881,4 +881,43 @@ hz = L.HookHealth()
 T(hz.pairs == 0 and hz.reinstalled_flag is False and hz.ok and hz.reason is None, "the canary starts armed, with no pairs counted")
 
 
+# ---- P16 finding F-3 of audit line L3 (the multiplicities of WittenBell.fit) and the attacks B1 and B2 of audit line L9 --------
+rows_wb = [[L.BOS, 5, 7, L.EOS], [L.BOS, 5, 9, L.EOS]]
+for bad_w, why in (([0, 1], "a multiplicity of 0"), ([1, -1], "a negative multiplicity"), ([1, 2.5], "a fractional multiplicity"),
+                   ([1.0, 2], "a float that is a whole number"), ([True, 2], "a bool"), ([1, 6], "a multiplicity above 5"),
+                   ([1, "2"], "a string"), ([1], "fewer weights than rows"), ([1, 2, 3], "more weights than rows"), ([], "no weights for two rows")):
+    m0 = L.WittenBell().fit([[L.BOS, 3, L.EOS]])
+    before = copy.deepcopy(m0.cnt)
+    raises(ValueError, lambda: m0.fit(rows_wb, bad_w), f"fit refuses {why}")
+    T(m0.cnt == before, f"fit leaves the model as it was after {why}")
+T(L.WittenBell().fit(rows_wb, [1, 5]).cnt[1][(L.BOS,)] == {5: 6}, "multiplicities 1 and 5 are accepted and counted")
+T(L.WittenBell().fit(rows_wb, [5, 1]).cnt[1][(L.BOS,)] == {5: 6}, "the multiplicity 5 is accepted in the first place too")
+T(L.WittenBell().fit(rows_wb, None).cnt[1][(L.BOS,)] == {5: 2}, "no weights means multiplicity 1")
+T(L.WittenBell().fit([], []).cnt == [{}, {}, {}], "no rows and no weights is an empty model")
+m0 = L.WittenBell().fit([[L.BOS, 3, L.EOS]])
+before = copy.deepcopy(m0.cnt)
+raises(TypeError, lambda: m0.fit([[L.BOS, 5, L.EOS], [L.BOS, [1], L.EOS]]), "a row that cannot be counted")
+T(m0.cnt == before, "a row that fails in the middle of counting leaves the model as it was")
+
+
+class ShiftBefore(L.SimField):
+    """B1 of L9: the application inserts text before the word between the read and the write (autocomplete, collaboration)."""
+    def replace(self, start, end, text):
+        if not getattr(self, "shifted", False):
+            self.shifted = True
+            self.text, self.pos = "!" + self.text, self.pos + 1
+        return super().replace(start, end, text)
+
+
+fb = ShiftBefore(BASE, M1)
+rb = L.run_transaction(fb, OLD, NEW)
+T((rb.outcome, rb.reason, rb.incident, rb.quarantine) == ("UNRECOVERED", "verify_failed", True, True),
+  "B1: text inserted before the range between read and write is UNRECOVERED with an incident, never VERIFIED")
+T(fb.text.startswith("!Hello") and fb.user == [], "B1: the application's own insertion is kept and no user key is invented")
+fb = L.SimField(BASE, M1, {("caret", 2): "back"})
+rb = L.run_transaction(fb, OLD, NEW)
+T((rb.outcome, rb.incident, rb.quarantine, fb.text) == ("RESTORED", True, True, BASE),
+  "B2: a caret one place back after the write restores the text and costs a quarantine (conservative)")
+
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

@@ -715,15 +715,28 @@ class WittenBell:
         self.cnt = [dict() for _ in range(self.ORDER)]     # cnt[k][context tuple (len k)] -> {next: count}
 
     def fit(self, rows: Sequence[Sequence[int]], weights: Optional[Sequence[int]] = None):
-        """rows: BOS + key tokens + EOS (tokens(core, True)); weights: multiplicity of each row."""
-        for r, row in enumerate(rows):
+        """rows: BOS + key tokens + EOS (tokens(core, True)); weights: multiplicity of each row, an integer of 1 to 5
+        (8.3), one per row. Anything else raises ValueError before the model is touched."""
+        if weights is not None:
+            if len(weights) != len(rows):
+                raise ValueError("fit: %d weights for %d rows" % (len(weights), len(rows)))
+            for w in weights:
+                if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):
+                    raise ValueError("fit: a multiplicity is an integer of 1 to 5, not %r" % (w,))
+        add: List[Dict[Tuple[int, ...], Dict[int, int]]] = [dict() for _ in range(self.ORDER)]
+        for r, row in enumerate(rows):                    # counted aside: a failure in the middle leaves the model as it was
             m = 1 if weights is None else weights[r]
             for i in range(1, len(row)):
                 for k in range(self.ORDER):
                     if i - k < 0:
                         break
-                    d = self.cnt[k].setdefault(tuple(row[i - k:i]), {})
+                    d = add[k].setdefault(tuple(row[i - k:i]), {})
                     d[row[i]] = d.get(row[i], 0) + m
+        for k in range(self.ORDER):
+            for ctx, d in add[k].items():
+                t = self.cnt[k].setdefault(ctx, {})
+                for w, c in d.items():
+                    t[w] = t.get(w, 0) + c
         if self.min_count > 1:                              # prune BEFORE the totals are derived
             for k in range(1, self.ORDER):
                 for ctx in list(self.cnt[k]):
