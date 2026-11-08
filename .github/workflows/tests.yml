@@ -89,22 +89,22 @@ jobs:
     - name: Check conversion speed baseline
       run: |
         python -c "
-import time
-import sys
-sys.path.insert(0, '.')
-from punto import convert
+        import time
+        import sys
+        sys.path.insert(0, '.')
+        from punto import convert
 
-iterations = 10000
-start = time.time()
-for i in range(iterations):
-    convert('hello', 'ru')
-elapsed = time.time() - start
-ops_per_sec = iterations / elapsed
+        iterations = 10000
+        start = time.time()
+        for i in range(iterations):
+            convert('hello', 'ru')
+        elapsed = time.time() - start
+        ops_per_sec = iterations / elapsed
 
-print(f'Performance: {ops_per_sec:.0f} conversions/sec')
+        print(f'Performance: {ops_per_sec:.0f} conversions/sec')
 
-if ops_per_sec < 1000:
-    print(f'FAIL: Performance too low')
-    sys.exit(1)
-print('PASS: Performance OK')
-"
+        if ops_per_sec < 1000:
+            print(f'FAIL: Performance too low')
+            sys.exit(1)
+        print('PASS: Performance OK')
+        "
