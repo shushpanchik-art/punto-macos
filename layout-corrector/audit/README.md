@@ -19,14 +19,15 @@ whose code blocks are byte-identical to the files (L7). `MANIFEST.sha256` record
 | L6 | EV-1 decision rule under clustering (simulation) | `L6_ev1_simulation.py`, `.json`; section 18.9 of the text | 36 cells × 10,000 runs, 0 cap violations; false acceptance at twice the limit at most 3.3%; power 86 to 88% | done (synthetic data only) |
 | L7 | The repository equals the document; reproducibility | `L7_reproducibility_report.md`, `L7_check_spec_blocks.py`, `L7_run_all.sh`, the workflow | blocks byte-identical; vectors identical at ten hash seeds; same check count with `-O` | done |
 | L8 | Stale phrases, terminology, cross-references | `L8_text_report.md`, `L8_scan.py` | 128 headings, 0 findings | done |
-| L9 | What can corrupt the text or leak | `L9_fmea.md`, `L9_attacks.py` | 60,000 random attacks, 0 violations; B1 and B2 now have regression tests (group P16); RT-19 to RT-21 (two instances, session switching, remote desktop) are requirements since rev 305 | done by the author of the text, **not independent** |
+| L9 | What can corrupt the text or leak | `L9_fmea.md`, `L9_attacks.py` | 60,000 random attacks, 0 violations; B1 and B2 now have regression tests (group P16); RT-19 to RT-21 (two instances, session switching, remote desktop) are requirements since rev 305 | author's own attacks (0 violations) **and** an independent review of 2026-11-09 (`L9_independent/`): 4 P1, 5 P2, about 13 P3, every script reproduced; **findings not yet fixed** |
 | L10 | Manifest and the honest final report | `MANIFEST.sha256`, `make_manifest.sh`, `../spec/CHANGELOG_v3.1.md` | the manifest is built last | done once the manifest is committed |
 
 ## What is not closed
 
 1. **L1 round 2** on an input rebuilt from the final specification edition (not the rev 287 file of round 1), without code blocks, with `vectors.py` and section 7.7; its SHA-256 is to be recorded. Round 1 is partial. L1-5 (fault names) is P3: the docstring of `SimField` is normative, and since rev 300 20.14 lists the names.
 2. **L9 by an independent reviewer.** Every attack in L9 is the author's own.
-3. L3, F-3 is closed (commit `6d7d14d`). The independent L9 attempt of 2026-11-09 stopped at the usage limit before a report; it is still to be run.
+2a. **L9 findings F1 to F9** (`L9_independent/L9_independent_report.md`): four P1 (wrong word converted after caret move; arrow key in the middle of M2; half-converted word when the gate turns ALLOW mid-word or the first key is lost; focus moved between steps 3 and 4) are open. Code, text and tests change next; r9 and the manifest must then be redone.
+3. L3, F-3 is closed (commit `6d7d14d`). 
 4. Everything in "What v3.1 does not prove" in `../spec/CHANGELOG_v3.1.md`: real calibration and acceptance data, latency on the two devices,
    operating-system adapters and the spikes S-1 to S-7, the number of applications in `AUTO`, corpus hashes and licences, crash-dump policy.
 
