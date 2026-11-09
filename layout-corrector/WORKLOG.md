@@ -99,3 +99,7 @@
 - L1 (blind Node.js re-implementation): round 1 partial (292/309 entries, 25/29 keys), agent interrupted by the usage limit; report assembled from its code (audit/L1/L1_report.md). Three text gaps fixed in rev 295 (row formats of the vectors in 20.12, EV-1 bound for no error in 11.3, tok25 rule). Round 2 open (needs vectors.py and 7.7 in the input).
 - Reports L2, L5, L7, L8, L9 re-run on the final files; audit/README.md lists every line and what is not closed; audit/MANIFEST.sha256 + make_manifest.sh + CI step added. The audit is NOT complete (L1 round 2, independent L9).
 - Doc: rev 295. Repo spec/TZ_layout_correction_v3.md = rev 295.
+
+## 2026-11-09
+- F-3 closed (6d7d14d). L3 run r9 on the code of 6d7d14d: 718 mutants, 684 killed = 95.3%, 34 survivors classified (audit/L3). Spec rev 305 committed (720713e). tests.yml had invalid YAML (python at column 0 inside `run: |`), re-indented.
+- Independent L9 and L1 round 2: agent launches stopped at the usage limit (reset 21:30 local); not done, audit not declared complete.

@@ -1,29 +1,29 @@
-# L3 mutation report: lfengine.py (reference engine), mutants from line 173 (`# ==== 20.5`) to line 1380
+# L3 mutation report: lfengine.py (reference engine), mutants from line 173 (`# ==== 20.5`) to line 1393
 
-Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-256 0d3bef6cac73e69d468a8cf5ae1721a7d284bd85c4eb89292c6e73273aa59930; conformance.py 679472ef940f6a3cf7dfa02c49c497eec23f4c80673e1d2f2fb19c176bb6a5fa). Baseline: `python3 conformance.py 20000` prints OK; `vectors.py` matches `vectors_out.json`; `test_ref.py` passes. Each mutant runs `timeout 150 python3 conformance.py 20000` in its own directory.
+Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-256 bf6082dc1fafafd7d076daae2d70fdc08a674d7a661be4a2bf3f79b2d62b5cae; conformance.py 132efe38baad8f3c8e99dc7baaeea79261f1f61037f120e7cef3e19bdddab3a6). Baseline: `python3 conformance.py 20000` prints OK; `vectors.py` matches `vectors_out.json`; `test_ref.py` passes. Each mutant runs `timeout 150 python3 conformance.py 20000` in its own directory.
 
 ## Counts
 
 | quantity | value |
 |---|---|
-| generated (all operators, before compile check) | 708 |
+| generated (all operators, before compile check) | 718 |
 | did not compile (discarded) | 0 |
-| valid mutants | 708 |
-| run | 708 (sampled: no, all valid mutants) |
-| killed (incl. timeouts) | 674 |
+| valid mutants | 718 |
+| run | 718 (sampled: no, all valid mutants) |
+| killed (incl. timeouts) | 684 |
 | of which TIMEOUT | 1 |
 | survived | 34 |
 | survived-but-vectors-differ (subset of survived) | 0 |
 | survivors where test_ref.py also fails | 0 |
-| **kill rate = killed / run** | **95.2%** (674/708) |
+| **kill rate = killed / run** | **95.3%** (684/718) |
 
 ## Per operator
 
 | op | kind | generated | not compiling | valid | run | killed | survived |
 |---|---|---|---|---|---|---|---|
-| a | comparison | 122 | 0 | 122 | 122 | 116 | 6 |
-| b | boolean | 93 | 0 | 93 | 93 | 93 | 0 |
-| c | integer literal | 274 | 0 | 274 | 274 | 267 | 7 |
+| a | comparison | 125 | 0 | 125 | 125 | 119 | 6 |
+| b | boolean | 96 | 0 | 96 | 96 | 96 | 0 |
+| c | integer literal | 278 | 0 | 278 | 278 | 271 | 7 |
 | d | float literal | 80 | 0 | 80 | 80 | 59 | 21 |
 | e | statement deletion | 82 | 0 | 82 | 82 | 82 | 0 |
 | f | True/False | 57 | 0 | 57 | 57 | 57 | 0 |
@@ -81,30 +81,30 @@ Flags: `VECTORS_DIFFER` = vectors.py output differs from vectors_out.json (label
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0727_a01 | 727 | a | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count >= 1:                              # prune BEFORE the totals are derived` |  |
-| L0727_c02 | 727 | c | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count > (1-1):                              # prune BEFORE the totals are derived` |  |
+| L0740_a01 | 740 | a | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count >= 1:                              # prune BEFORE the totals are derived` |  |
+| L0740_c02 | 740 | c | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count > (1-1):                              # prune BEFORE the totals are derived` |  |
 
 ### `WittenBell.logp` (2)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0738_d01 | 738 | d | `total = 0.0` | `total = (0.0*2)` |  |
-| L0738_d02 | 738 | d | `total = 0.0` | `total = (0.0/2)` |  |
+| L0751_d01 | 751 | d | `total = 0.0` | `total = (0.0*2)` |  |
+| L0751_d02 | 751 | d | `total = 0.0` | `total = (0.0/2)` |  |
 
 ### `lfb_logp` (2)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0845_d01 | 845 | d | `total = 0.0` | `total = (0.0*2)` |  |
-| L0845_d02 | 845 | d | `total = 0.0` | `total = (0.0/2)` |  |
+| L0858_d01 | 858 | d | `total = 0.0` | `total = (0.0*2)` |  |
+| L0858_d02 | 858 | d | `total = 0.0` | `total = (0.0/2)` |  |
 
 ### `lfw_forward` (3)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0967_a01 | 967 | a | `row.append(s if s > 0 else 0.0)` | `row.append(s if s >= 0 else 0.0)` |  |
-| L0967_d01 | 967 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0*2))` |  |
-| L0967_d02 | 967 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0/2))` |  |
+| L0980_a01 | 980 | a | `row.append(s if s > 0 else 0.0)` | `row.append(s if s >= 0 else 0.0)` |  |
+| L0980_d01 | 980 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0*2))` |  |
+| L0980_d02 | 980 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0/2))` |  |
 
 ## Notes on how mutants were built
 

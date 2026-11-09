@@ -222,10 +222,11 @@ def c_ev1(mid):
 
 
 def c_wb(mid):
+    """`if self.min_count > 1` against `>= 1` and `> 0` in WittenBell.fit. Since F-3 the multiplicity is an integer of 1 to 5, so every
+    count is at least 1 and pruning below 1 removes nothing."""
     mod = M(mid)
     rnd = random.Random(11)
-    diff = n = 0
-    zero_diff = 0
+    diff = n = refused = 0
     for _ in range(300):
         rows = [[O.BOS] + [rnd.randint(1, 6) for _ in range(rnd.randint(1, 6))] + [O.EOS] for _ in range(rnd.randint(1, 8))]
         for w in (None, [rnd.randint(1, 5) for _ in rows]):
@@ -233,14 +234,22 @@ def c_wb(mid):
             n += 1
             if a.cnt != b.cnt or abs(a.logp(rows[0]) - b.logp(rows[0])) > 1e-12:
                 diff += 1
-        wz = [rnd.randint(0, 2) for _ in rows]
-        a, b = O.WittenBell().fit(rows, wz), mod.WittenBell().fit(rows, wz)
-        zero_diff += a.cnt != b.cnt
+        wz = [rnd.randint(-1, 7) for _ in rows]
+        if any(not 1 <= x <= 5 for x in wz):
+            ro = rm = None
+            try:
+                O.WittenBell().fit(rows, wz)
+            except ValueError:
+                ro = True
+            try:
+                mod.WittenBell().fit(rows, wz)
+            except ValueError:
+                rm = True
+            refused += ro == rm == True
     if diff:
         return "GAP", f"{diff} of {n} fits with multiplicities 1 to 5 differ"
-    return "OUTSIDE_CONTRACT", (f"with the default min_count = 1 the original keeps every count and the mutant prunes counts below 1; the two differ only when a row has multiplicity 0 "
-                                f"(zero counts stay in the table of the original): {n} random fits with multiplicities 1 to 5 are equal, {zero_diff} of 300 fits with some multiplicity 0 differ. "
-                                f"Section 8.3 gives a multiplicity of 1 to 5; `fit` does not validate it (finding F-3 of this report)")
+    return "REDUNDANT", (f"with the default min_count = 1 the mutant prunes counts below 1, and every count is at least 1 because the multiplicity is an integer of 1 to 5 "
+                         f"(F-3, checked before anything is counted): {n} random fits are equal, and original and mutant both refuse the weights outside 1 to 5")
 
 
 def c_relu(mid):
@@ -269,7 +278,7 @@ def classify(mid):
         return r
     ln = MUTANTS[mid]["line"]
     for line_range, f in ((range(212, 213), c_score_cancels), (range(267, 281), c_cal), (range(676, 682), c_poisson),
-                          (range(705, 706), c_ev1), (range(727, 728), c_wb), (range(967, 968), c_relu)):
+                          (range(705, 706), c_ev1), (range(740, 741), c_wb), (range(980, 981), c_relu)):
         if ln in line_range:
             r = f(mid)
             if r:

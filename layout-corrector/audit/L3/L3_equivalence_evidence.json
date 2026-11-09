@@ -4,8 +4,7 @@
   "DIFFERENTIAL": 13,
   "IDENTICAL": 16,
   "TIE_IMPOSSIBLE": 2,
-  "REDUNDANT": 1,
-  "OUTSIDE_CONTRACT": 2
+  "REDUNDANT": 3
  },
  "rows": [
   {
@@ -184,64 +183,64 @@
    "evidence": "`bound <= 1e-4` against `< 1e-4` differs only when the float bound equals 1e-4 exactly; searched 145200 (clusters 0..120, largest cluster 1..300, n next to P*s/1e-4) combinations: 0 ties"
   },
   {
-   "id": "L0727_a01",
-   "line": 727,
+   "id": "L0740_a01",
+   "line": 740,
    "change": "> -> >=",
-   "class": "OUTSIDE_CONTRACT",
-   "evidence": "with the default min_count = 1 the original keeps every count and the mutant prunes counts below 1; the two differ only when a row has multiplicity 0 (zero counts stay in the table of the original): 600 random fits with multiplicities 1 to 5 are equal, 217 of 300 fits with some multiplicity 0 differ. Section 8.3 gives a multiplicity of 1 to 5; `fit` does not validate it (finding F-3 of this report)"
+   "class": "REDUNDANT",
+   "evidence": "with the default min_count = 1 the mutant prunes counts below 1, and every count is at least 1 because the multiplicity is an integer of 1 to 5 (F-3, checked before anything is counted): 600 random fits are equal, and original and mutant both refuse the weights outside 1 to 5"
   },
   {
-   "id": "L0727_c02",
-   "line": 727,
+   "id": "L0740_c02",
+   "line": 740,
    "change": "1 -> 1-1",
-   "class": "OUTSIDE_CONTRACT",
-   "evidence": "with the default min_count = 1 the original keeps every count and the mutant prunes counts below 1; the two differ only when a row has multiplicity 0 (zero counts stay in the table of the original): 600 random fits with multiplicities 1 to 5 are equal, 217 of 300 fits with some multiplicity 0 differ. Section 8.3 gives a multiplicity of 1 to 5; `fit` does not validate it (finding F-3 of this report)"
+   "class": "REDUNDANT",
+   "evidence": "with the default min_count = 1 the mutant prunes counts below 1, and every count is at least 1 because the multiplicity is an integer of 1 to 5 (F-3, checked before anything is counted): 600 random fits are equal, and original and mutant both refuse the weights outside 1 to 5"
   },
   {
-   "id": "L0738_d01",
-   "line": 738,
+   "id": "L0751_d01",
+   "line": 751,
    "change": "0.0 -> 0.0*2",
    "class": "IDENTICAL",
    "evidence": "`0.0` and `0.0*2` evaluate to the same number"
   },
   {
-   "id": "L0738_d02",
-   "line": 738,
+   "id": "L0751_d02",
+   "line": 751,
    "change": "0.0 -> 0.0/2",
    "class": "IDENTICAL",
    "evidence": "`0.0` and `0.0/2` evaluate to the same number"
   },
   {
-   "id": "L0845_d01",
-   "line": 845,
+   "id": "L0858_d01",
+   "line": 858,
    "change": "0.0 -> 0.0*2",
    "class": "IDENTICAL",
    "evidence": "`0.0` and `0.0*2` evaluate to the same number"
   },
   {
-   "id": "L0845_d02",
-   "line": 845,
+   "id": "L0858_d02",
+   "line": 858,
    "change": "0.0 -> 0.0/2",
    "class": "IDENTICAL",
    "evidence": "`0.0` and `0.0/2` evaluate to the same number"
   },
   {
-   "id": "L0967_a01",
-   "line": 967,
+   "id": "L0980_a01",
+   "line": 980,
    "change": "> -> >=",
    "class": "DIFFERENTIAL",
    "evidence": "s >= 0 against s > 0 differs only for s == 0 (both give 0.0) or s == -0.0 (a signed zero); 400 random small networks with weights in {-1, 0, 1} (many exact zeros) give equal logits"
   },
   {
-   "id": "L0967_d01",
-   "line": 967,
+   "id": "L0980_d01",
+   "line": 980,
    "change": "0.0 -> 0.0*2",
    "class": "IDENTICAL",
    "evidence": "`0.0` and `0.0*2` evaluate to the same number"
   },
   {
-   "id": "L0967_d02",
-   "line": 967,
+   "id": "L0980_d02",
+   "line": 980,
    "change": "0.0 -> 0.0/2",
    "class": "IDENTICAL",
    "evidence": "`0.0` and `0.0/2` evaluate to the same number"

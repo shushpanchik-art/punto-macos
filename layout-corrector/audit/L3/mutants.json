@@ -1,22 +1,22 @@
 {
- "source": "git show 7e68d46:layout-corrector/reference/lfengine.py (copied to base/)",
+ "source": "reference/lfengine.py of the audited commit, copied to base/ (identity: SHA-256 below)",
  "marker": "# ==== 20.5",
  "first_line": 173,
- "total_lines": 1380,
+ "total_lines": 1393,
  "sampled": false,
  "max_run": 1500,
  "sample_seed": 5,
- "generated": 708,
+ "generated": 718,
  "not_compiling": 0,
- "valid": 708,
- "run": 708,
+ "valid": 718,
+ "run": 718,
  "per_op_generated": {
   "d": 80,
-  "a": 122,
-  "c": 274,
+  "a": 125,
+  "c": 278,
   "e": 82,
   "f": 57,
-  "b": 93
+  "b": 96
  },
  "mutants": [
   {
@@ -3233,75 +3233,93 @@
    "run": true
   },
   {
-   "id": "L0720_c01",
-   "line": 720,
-   "op": "c",
-   "change": "1 -> 1+1",
-   "original": "m = 1 if weights is None else weights[r]",
-   "mutated": "m = (1+1) if weights is None else weights[r]",
-   "run": true
-  },
-  {
-   "id": "L0720_c02",
-   "line": 720,
-   "op": "c",
-   "change": "1 -> 1-1",
-   "original": "m = 1 if weights is None else weights[r]",
-   "mutated": "m = (1-1) if weights is None else weights[r]",
-   "run": true
-  },
-  {
-   "id": "L0721_c01",
+   "id": "L0721_a01",
    "line": 721,
+   "op": "a",
+   "change": "!= -> ==",
+   "original": "if len(weights) != len(rows):",
+   "mutated": "if len(weights) == len(rows):",
+   "run": true
+  },
+  {
+   "id": "L0724_a01",
+   "line": 724,
+   "op": "a",
+   "change": "<= -> <",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 < w <= 5):",
+   "run": true
+  },
+  {
+   "id": "L0724_a02",
+   "line": 724,
+   "op": "a",
+   "change": "<= -> <",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w < 5):",
+   "run": true
+  },
+  {
+   "id": "L0724_b01",
+   "line": 724,
+   "op": "b",
+   "change": "remove 'not' (if not)",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "run": true
+  },
+  {
+   "id": "L0724_b02",
+   "line": 724,
+   "op": "b",
+   "change": "and -> or",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) or not isinstance(w, bool) and 1 <= w <= 5):",
+   "run": true
+  },
+  {
+   "id": "L0724_b03",
+   "line": 724,
+   "op": "b",
+   "change": "and -> or",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) and not isinstance(w, bool) or 1 <= w <= 5):",
+   "run": true
+  },
+  {
+   "id": "L0724_c01",
+   "line": 724,
    "op": "c",
    "change": "1 -> 1+1",
-   "original": "for i in range(1, len(row)):",
-   "mutated": "for i in range((1+1), len(row)):",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) and not isinstance(w, bool) and (1+1) <= w <= 5):",
    "run": true
   },
   {
-   "id": "L0721_c02",
-   "line": 721,
+   "id": "L0724_c02",
+   "line": 724,
    "op": "c",
    "change": "1 -> 1-1",
-   "original": "for i in range(1, len(row)):",
-   "mutated": "for i in range((1-1), len(row)):",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) and not isinstance(w, bool) and (1-1) <= w <= 5):",
    "run": true
   },
   {
-   "id": "L0723_a01",
-   "line": 723,
-   "op": "a",
-   "change": "< -> <=",
-   "original": "if i - k < 0:",
-   "mutated": "if i - k <= 0:",
-   "run": true
-  },
-  {
-   "id": "L0727_a01",
-   "line": 727,
-   "op": "a",
-   "change": "> -> >=",
-   "original": "if self.min_count > 1:                              # prune BEFORE the totals are derived",
-   "mutated": "if self.min_count >= 1:                              # prune BEFORE the totals are derived",
-   "run": true
-  },
-  {
-   "id": "L0727_c01",
-   "line": 727,
+   "id": "L0724_c03",
+   "line": 724,
    "op": "c",
-   "change": "1 -> 1+1",
-   "original": "if self.min_count > 1:                              # prune BEFORE the totals are derived",
-   "mutated": "if self.min_count > (1+1):                              # prune BEFORE the totals are derived",
+   "change": "5 -> 5+1",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= (5+1)):",
    "run": true
   },
   {
-   "id": "L0727_c02",
-   "line": 727,
+   "id": "L0724_c04",
+   "line": 724,
    "op": "c",
-   "change": "1 -> 1-1",
-   "original": "if self.min_count > 1:                              # prune BEFORE the totals are derived",
-   "mutated": "if self.min_count > (1-1):                              # prune BEFORE the totals are derived",
+   "change": "5 -> 5-1",
+   "original": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 5):",
+   "mutated": "if not (isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= (5-1)):",
    "run": true
   },
   {
@@ -3309,8 +3327,8 @@
    "line": 728,
    "op": "c",
    "change": "1 -> 1+1",
-   "original": "for k in range(1, self.ORDER):",
-   "mutated": "for k in range((1+1), self.ORDER):",
+   "original": "m = 1 if weights is None else weights[r]",
+   "mutated": "m = (1+1) if weights is None else weights[r]",
    "run": true
   },
   {
@@ -3318,13 +3336,85 @@
    "line": 728,
    "op": "c",
    "change": "1 -> 1-1",
+   "original": "m = 1 if weights is None else weights[r]",
+   "mutated": "m = (1-1) if weights is None else weights[r]",
+   "run": true
+  },
+  {
+   "id": "L0729_c01",
+   "line": 729,
+   "op": "c",
+   "change": "1 -> 1+1",
+   "original": "for i in range(1, len(row)):",
+   "mutated": "for i in range((1+1), len(row)):",
+   "run": true
+  },
+  {
+   "id": "L0729_c02",
+   "line": 729,
+   "op": "c",
+   "change": "1 -> 1-1",
+   "original": "for i in range(1, len(row)):",
+   "mutated": "for i in range((1-1), len(row)):",
+   "run": true
+  },
+  {
+   "id": "L0731_a01",
+   "line": 731,
+   "op": "a",
+   "change": "< -> <=",
+   "original": "if i - k < 0:",
+   "mutated": "if i - k <= 0:",
+   "run": true
+  },
+  {
+   "id": "L0740_a01",
+   "line": 740,
+   "op": "a",
+   "change": "> -> >=",
+   "original": "if self.min_count > 1:                              # prune BEFORE the totals are derived",
+   "mutated": "if self.min_count >= 1:                              # prune BEFORE the totals are derived",
+   "run": true
+  },
+  {
+   "id": "L0740_c01",
+   "line": 740,
+   "op": "c",
+   "change": "1 -> 1+1",
+   "original": "if self.min_count > 1:                              # prune BEFORE the totals are derived",
+   "mutated": "if self.min_count > (1+1):                              # prune BEFORE the totals are derived",
+   "run": true
+  },
+  {
+   "id": "L0740_c02",
+   "line": 740,
+   "op": "c",
+   "change": "1 -> 1-1",
+   "original": "if self.min_count > 1:                              # prune BEFORE the totals are derived",
+   "mutated": "if self.min_count > (1-1):                              # prune BEFORE the totals are derived",
+   "run": true
+  },
+  {
+   "id": "L0741_c01",
+   "line": 741,
+   "op": "c",
+   "change": "1 -> 1+1",
+   "original": "for k in range(1, self.ORDER):",
+   "mutated": "for k in range((1+1), self.ORDER):",
+   "run": true
+  },
+  {
+   "id": "L0741_c02",
+   "line": 741,
+   "op": "c",
+   "change": "1 -> 1-1",
    "original": "for k in range(1, self.ORDER):",
    "mutated": "for k in range((1-1), self.ORDER):",
    "run": true
   },
   {
-   "id": "L0730_a01",
-   "line": 730,
+   "id": "L0743_a01",
+   "line": 743,
    "op": "a",
    "change": ">= -> >",
    "original": "d = {w: c for w, c in self.cnt[k][ctx].items() if c >= self.min_count}",
@@ -3332,8 +3422,8 @@
    "run": true
   },
   {
-   "id": "L0738_d01",
-   "line": 738,
+   "id": "L0751_d01",
+   "line": 751,
    "op": "d",
    "change": "0.0 -> 0.0*2",
    "original": "total = 0.0",
@@ -3341,8 +3431,8 @@
    "run": true
   },
   {
-   "id": "L0738_d02",
-   "line": 738,
+   "id": "L0751_d02",
+   "line": 751,
    "op": "d",
    "change": "0.0 -> 0.0/2",
    "original": "total = 0.0",
@@ -3350,8 +3440,8 @@
    "run": true
   },
   {
-   "id": "L0739_c01",
-   "line": 739,
+   "id": "L0752_c01",
+   "line": 752,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "for i in range(1, len(row)):",
@@ -3359,8 +3449,8 @@
    "run": true
   },
   {
-   "id": "L0739_c02",
-   "line": 739,
+   "id": "L0752_c02",
+   "line": 752,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "for i in range(1, len(row)):",
@@ -3368,8 +3458,8 @@
    "run": true
   },
   {
-   "id": "L0740_d01",
-   "line": 740,
+   "id": "L0753_d01",
+   "line": 753,
    "op": "d",
    "change": "1.0 -> 1.0*2",
    "original": "p = 1.0 / self.V                                 # order -1: uniform",
@@ -3377,8 +3467,8 @@
    "run": true
   },
   {
-   "id": "L0740_d02",
-   "line": 740,
+   "id": "L0753_d02",
+   "line": 753,
    "op": "d",
    "change": "1.0 -> 1.0/2",
    "original": "p = 1.0 / self.V                                 # order -1: uniform",
@@ -3386,8 +3476,8 @@
    "run": true
   },
   {
-   "id": "L0742_a01",
-   "line": 742,
+   "id": "L0755_a01",
+   "line": 755,
    "op": "a",
    "change": "< -> <=",
    "original": "if i - k < 0:",
@@ -3395,8 +3485,8 @@
    "run": true
   },
   {
-   "id": "L0779_c01",
-   "line": 779,
+   "id": "L0792_c01",
+   "line": 792,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1",
@@ -3404,8 +3494,8 @@
    "run": true
   },
   {
-   "id": "L0779_c02",
-   "line": 779,
+   "id": "L0792_c02",
+   "line": 792,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1",
@@ -3413,8 +3503,8 @@
    "run": true
   },
   {
-   "id": "L0779_c03",
-   "line": 779,
+   "id": "L0792_c03",
+   "line": 792,
    "op": "c",
    "change": "64 -> 64+1",
    "original": "FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1",
@@ -3422,8 +3512,8 @@
    "run": true
   },
   {
-   "id": "L0779_c04",
-   "line": 779,
+   "id": "L0792_c04",
+   "line": 792,
    "op": "c",
    "change": "64 -> 64-1",
    "original": "FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1",
@@ -3431,8 +3521,8 @@
    "run": true
   },
   {
-   "id": "L0779_c05",
-   "line": 779,
+   "id": "L0792_c05",
+   "line": 792,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1",
@@ -3440,8 +3530,8 @@
    "run": true
   },
   {
-   "id": "L0779_c06",
-   "line": 779,
+   "id": "L0792_c06",
+   "line": 792,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "FNV_OFFSET, FNV_PRIME, MASK64 = 0xCBF29CE484222325, 0x100000001B3, (1 << 64) - 1",
@@ -3449,8 +3539,8 @@
    "run": true
   },
   {
-   "id": "L0807_a01",
-   "line": 807,
+   "id": "L0820_a01",
+   "line": 820,
    "op": "a",
    "change": "!= -> ==",
    "original": "if len({r[0] for r in ctxs}) != len(ctxs) or len({a for a, _ in pairs}) != len(pairs):",
@@ -3458,8 +3548,8 @@
    "run": true
   },
   {
-   "id": "L0807_a02",
-   "line": 807,
+   "id": "L0820_a02",
+   "line": 820,
    "op": "a",
    "change": "!= -> ==",
    "original": "if len({r[0] for r in ctxs}) != len(ctxs) or len({a for a, _ in pairs}) != len(pairs):",
@@ -3467,8 +3557,8 @@
    "run": true
   },
   {
-   "id": "L0807_b01",
-   "line": 807,
+   "id": "L0820_b01",
+   "line": 820,
    "op": "b",
    "change": "or -> and",
    "original": "if len({r[0] for r in ctxs}) != len(ctxs) or len({a for a, _ in pairs}) != len(pairs):",
@@ -3476,8 +3566,8 @@
    "run": true
   },
   {
-   "id": "L0816_a01",
-   "line": 816,
+   "id": "L0829_a01",
+   "line": 829,
    "op": "a",
    "change": "!= -> ==",
    "original": "if b[:4] != b\"LFB1\":",
@@ -3485,8 +3575,8 @@
    "run": true
   },
   {
-   "id": "L0816_c01",
-   "line": 816,
+   "id": "L0829_c01",
+   "line": 829,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "if b[:4] != b\"LFB1\":",
@@ -3494,8 +3584,8 @@
    "run": true
   },
   {
-   "id": "L0816_c02",
-   "line": 816,
+   "id": "L0829_c02",
+   "line": 829,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "if b[:4] != b\"LFB1\":",
@@ -3503,8 +3593,8 @@
    "run": true
   },
   {
-   "id": "L0818_c01",
-   "line": 818,
+   "id": "L0831_c01",
+   "line": 831,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "order, vocab, ncls = struct.unpack_from(\"<III\", b, 4)",
@@ -3512,8 +3602,8 @@
    "run": true
   },
   {
-   "id": "L0818_c02",
-   "line": 818,
+   "id": "L0831_c02",
+   "line": 831,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "order, vocab, ncls = struct.unpack_from(\"<III\", b, 4)",
@@ -3521,8 +3611,8 @@
    "run": true
   },
   {
-   "id": "L0819_c01",
-   "line": 819,
+   "id": "L0832_c01",
+   "line": 832,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "log_prior = list(struct.unpack_from(\"<%dd\" % ncls, b, 16))",
@@ -3530,8 +3620,8 @@
    "run": true
   },
   {
-   "id": "L0819_c02",
-   "line": 819,
+   "id": "L0832_c02",
+   "line": 832,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "log_prior = list(struct.unpack_from(\"<%dd\" % ncls, b, 16))",
@@ -3539,8 +3629,8 @@
    "run": true
   },
   {
-   "id": "L0820_c01",
-   "line": 820,
+   "id": "L0833_c01",
+   "line": 833,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "off, classes = 16 + 8 * ncls, []",
@@ -3548,8 +3638,8 @@
    "run": true
   },
   {
-   "id": "L0820_c02",
-   "line": 820,
+   "id": "L0833_c02",
+   "line": 833,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "off, classes = 16 + 8 * ncls, []",
@@ -3557,8 +3647,8 @@
    "run": true
   },
   {
-   "id": "L0820_c03",
-   "line": 820,
+   "id": "L0833_c03",
+   "line": 833,
    "op": "c",
    "change": "8 -> 8+1",
    "original": "off, classes = 16 + 8 * ncls, []",
@@ -3566,8 +3656,8 @@
    "run": true
   },
   {
-   "id": "L0820_c04",
-   "line": 820,
+   "id": "L0833_c04",
+   "line": 833,
    "op": "c",
    "change": "8 -> 8-1",
    "original": "off, classes = 16 + 8 * ncls, []",
@@ -3575,8 +3665,8 @@
    "run": true
   },
   {
-   "id": "L0824_c01",
-   "line": 824,
+   "id": "L0837_c01",
+   "line": 837,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "(nc,) = struct.unpack_from(\"<I\", b, off); off += 4",
@@ -3584,8 +3674,8 @@
    "run": true
   },
   {
-   "id": "L0824_c02",
-   "line": 824,
+   "id": "L0837_c02",
+   "line": 837,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "(nc,) = struct.unpack_from(\"<I\", b, off); off += 4",
@@ -3593,8 +3683,8 @@
    "run": true
   },
   {
-   "id": "L0827_c01",
-   "line": 827,
+   "id": "L0840_c01",
+   "line": 840,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "key, t, u = struct.unpack_from(\"<QII\", b, off + 16 * i)",
@@ -3602,8 +3692,8 @@
    "run": true
   },
   {
-   "id": "L0827_c02",
-   "line": 827,
+   "id": "L0840_c02",
+   "line": 840,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "key, t, u = struct.unpack_from(\"<QII\", b, off + 16 * i)",
@@ -3611,8 +3701,8 @@
    "run": true
   },
   {
-   "id": "L0829_c01",
-   "line": 829,
+   "id": "L0842_c01",
+   "line": 842,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "off += 16 * nc",
@@ -3620,8 +3710,8 @@
    "run": true
   },
   {
-   "id": "L0829_c02",
-   "line": 829,
+   "id": "L0842_c02",
+   "line": 842,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "off += 16 * nc",
@@ -3629,8 +3719,8 @@
    "run": true
   },
   {
-   "id": "L0830_c01",
-   "line": 830,
+   "id": "L0843_c01",
+   "line": 843,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "(npair,) = struct.unpack_from(\"<I\", b, off); off += 4",
@@ -3638,8 +3728,8 @@
    "run": true
   },
   {
-   "id": "L0830_c02",
-   "line": 830,
+   "id": "L0843_c02",
+   "line": 843,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "(npair,) = struct.unpack_from(\"<I\", b, off); off += 4",
@@ -3647,8 +3737,8 @@
    "run": true
   },
   {
-   "id": "L0833_c01",
-   "line": 833,
+   "id": "L0846_c01",
+   "line": 846,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "key, n, _z = struct.unpack_from(\"<QII\", b, off + 16 * i)",
@@ -3656,8 +3746,8 @@
    "run": true
   },
   {
-   "id": "L0833_c02",
-   "line": 833,
+   "id": "L0846_c02",
+   "line": 846,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "key, n, _z = struct.unpack_from(\"<QII\", b, off + 16 * i)",
@@ -3665,8 +3755,8 @@
    "run": true
   },
   {
-   "id": "L0835_c01",
-   "line": 835,
+   "id": "L0848_c01",
+   "line": 848,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "off += 16 * npair",
@@ -3674,8 +3764,8 @@
    "run": true
   },
   {
-   "id": "L0835_c02",
-   "line": 835,
+   "id": "L0848_c02",
+   "line": 848,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "off += 16 * npair",
@@ -3683,8 +3773,8 @@
    "run": true
   },
   {
-   "id": "L0838_a01",
-   "line": 838,
+   "id": "L0851_a01",
+   "line": 851,
    "op": "a",
    "change": "!= -> ==",
    "original": "if off != len(b):",
@@ -3692,8 +3782,8 @@
    "run": true
   },
   {
-   "id": "L0845_d01",
-   "line": 845,
+   "id": "L0858_d01",
+   "line": 858,
    "op": "d",
    "change": "0.0 -> 0.0*2",
    "original": "total = 0.0",
@@ -3701,8 +3791,8 @@
    "run": true
   },
   {
-   "id": "L0845_d02",
-   "line": 845,
+   "id": "L0858_d02",
+   "line": 858,
    "op": "d",
    "change": "0.0 -> 0.0/2",
    "original": "total = 0.0",
@@ -3710,8 +3800,8 @@
    "run": true
   },
   {
-   "id": "L0846_c01",
-   "line": 846,
+   "id": "L0859_c01",
+   "line": 859,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "for i in range(1, len(row)):",
@@ -3719,8 +3809,8 @@
    "run": true
   },
   {
-   "id": "L0846_c02",
-   "line": 846,
+   "id": "L0859_c02",
+   "line": 859,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "for i in range(1, len(row)):",
@@ -3728,8 +3818,8 @@
    "run": true
   },
   {
-   "id": "L0847_d01",
-   "line": 847,
+   "id": "L0860_d01",
+   "line": 860,
    "op": "d",
    "change": "1.0 -> 1.0*2",
    "original": "p = 1.0 / pkg[\"V\"]",
@@ -3737,8 +3827,8 @@
    "run": true
   },
   {
-   "id": "L0847_d02",
-   "line": 847,
+   "id": "L0860_d02",
+   "line": 860,
    "op": "d",
    "change": "1.0 -> 1.0/2",
    "original": "p = 1.0 / pkg[\"V\"]",
@@ -3746,8 +3836,8 @@
    "run": true
   },
   {
-   "id": "L0849_a01",
-   "line": 849,
+   "id": "L0862_a01",
+   "line": 862,
    "op": "a",
    "change": "< -> <=",
    "original": "if i - k < 0:",
@@ -3755,8 +3845,8 @@
    "run": true
   },
   {
-   "id": "L0856_c01",
-   "line": 856,
+   "id": "L0869_c01",
+   "line": 869,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "c = pkg[\"classes\"][cls][k][1].get(pair_key(k, ctx, row[i]), 0)",
@@ -3764,8 +3854,8 @@
    "run": true
   },
   {
-   "id": "L0856_c02",
-   "line": 856,
+   "id": "L0869_c02",
+   "line": 869,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "c = pkg[\"classes\"][cls][k][1].get(pair_key(k, ctx, row[i]), 0)",
@@ -3773,8 +3863,8 @@
    "run": true
   },
   {
-   "id": "L0863_c01",
-   "line": 863,
+   "id": "L0876_c01",
+   "line": 876,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3782,8 +3872,8 @@
    "run": true
   },
   {
-   "id": "L0863_c02",
-   "line": 863,
+   "id": "L0876_c02",
+   "line": 876,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3791,8 +3881,8 @@
    "run": true
   },
   {
-   "id": "L0863_c03",
-   "line": 863,
+   "id": "L0876_c03",
+   "line": 876,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3800,8 +3890,8 @@
    "run": true
   },
   {
-   "id": "L0863_c04",
-   "line": 863,
+   "id": "L0876_c04",
+   "line": 876,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3809,8 +3899,8 @@
    "run": true
   },
   {
-   "id": "L0863_c05",
-   "line": 863,
+   "id": "L0876_c05",
+   "line": 876,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3818,8 +3908,8 @@
    "run": true
   },
   {
-   "id": "L0863_c06",
-   "line": 863,
+   "id": "L0876_c06",
+   "line": 876,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3827,8 +3917,8 @@
    "run": true
   },
   {
-   "id": "L0863_c07",
-   "line": 863,
+   "id": "L0876_c07",
+   "line": 876,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3836,8 +3926,8 @@
    "run": true
   },
   {
-   "id": "L0863_c08",
-   "line": 863,
+   "id": "L0876_c08",
+   "line": 876,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3845,8 +3935,8 @@
    "run": true
   },
   {
-   "id": "L0863_c09",
-   "line": 863,
+   "id": "L0876_c09",
+   "line": 876,
    "op": "c",
    "change": "5 -> 5+1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3854,8 +3944,8 @@
    "run": true
   },
   {
-   "id": "L0863_c10",
-   "line": 863,
+   "id": "L0876_c10",
+   "line": 876,
    "op": "c",
    "change": "5 -> 5-1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3863,8 +3953,8 @@
    "run": true
   },
   {
-   "id": "L0863_c11",
-   "line": 863,
+   "id": "L0876_c11",
+   "line": 876,
    "op": "c",
    "change": "6 -> 6+1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3872,8 +3962,8 @@
    "run": true
   },
   {
-   "id": "L0863_c12",
-   "line": 863,
+   "id": "L0876_c12",
+   "line": 876,
    "op": "c",
    "change": "6 -> 6-1",
    "original": "LEX_TAGS = {\"lex_en\": 1, \"lex_ru\": 2, \"acr_en\": 3, \"acr_ru\": 4, \"exc_en2ru\": 5, \"exc_ru2en\": 6}",
@@ -3881,8 +3971,8 @@
    "run": true
   },
   {
-   "id": "L0893_a01",
-   "line": 893,
+   "id": "L0906_a01",
+   "line": 906,
    "op": "a",
    "change": "!= -> ==",
    "original": "if b[:4] != b\"LFL1\":",
@@ -3890,8 +3980,8 @@
    "run": true
   },
   {
-   "id": "L0893_c01",
-   "line": 893,
+   "id": "L0906_c01",
+   "line": 906,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "if b[:4] != b\"LFL1\":",
@@ -3899,8 +3989,8 @@
    "run": true
   },
   {
-   "id": "L0893_c02",
-   "line": 893,
+   "id": "L0906_c02",
+   "line": 906,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "if b[:4] != b\"LFL1\":",
@@ -3908,8 +3998,8 @@
    "run": true
   },
   {
-   "id": "L0895_c01",
-   "line": 895,
+   "id": "L0908_c01",
+   "line": 908,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "(nt,) = struct.unpack_from(\"<I\", b, 4)",
@@ -3917,8 +4007,8 @@
    "run": true
   },
   {
-   "id": "L0895_c02",
-   "line": 895,
+   "id": "L0908_c02",
+   "line": 908,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "(nt,) = struct.unpack_from(\"<I\", b, 4)",
@@ -3926,8 +4016,8 @@
    "run": true
   },
   {
-   "id": "L0896_c01",
-   "line": 896,
+   "id": "L0909_c01",
+   "line": 909,
    "op": "c",
    "change": "8 -> 8+1",
    "original": "off, res, by_tag = 8, {}, {v: k for k, v in LEX_TAGS.items()}",
@@ -3935,8 +4025,8 @@
    "run": true
   },
   {
-   "id": "L0896_c02",
-   "line": 896,
+   "id": "L0909_c02",
+   "line": 909,
    "op": "c",
    "change": "8 -> 8-1",
    "original": "off, res, by_tag = 8, {}, {v: k for k, v in LEX_TAGS.items()}",
@@ -3944,8 +4034,8 @@
    "run": true
   },
   {
-   "id": "L0899_c01",
-   "line": 899,
+   "id": "L0912_c01",
+   "line": 912,
    "op": "c",
    "change": "5 -> 5+1",
    "original": "off += 5",
@@ -3953,8 +4043,8 @@
    "run": true
   },
   {
-   "id": "L0899_c02",
-   "line": 899,
+   "id": "L0912_c02",
+   "line": 912,
    "op": "c",
    "change": "5 -> 5-1",
    "original": "off += 5",
@@ -3962,8 +4052,8 @@
    "run": true
   },
   {
-   "id": "L0901_c01",
-   "line": 901,
+   "id": "L0914_c01",
+   "line": 914,
    "op": "c",
    "change": "8 -> 8+1",
    "original": "off += 8 * n",
@@ -3971,8 +4061,8 @@
    "run": true
   },
   {
-   "id": "L0901_c02",
-   "line": 901,
+   "id": "L0914_c02",
+   "line": 914,
    "op": "c",
    "change": "8 -> 8-1",
    "original": "off += 8 * n",
@@ -3980,8 +4070,8 @@
    "run": true
   },
   {
-   "id": "L0902_a01",
-   "line": 902,
+   "id": "L0915_a01",
+   "line": 915,
    "op": "a",
    "change": "!= -> ==",
    "original": "if off != len(b):",
@@ -3989,8 +4079,8 @@
    "run": true
   },
   {
-   "id": "L0923_c01",
-   "line": 923,
+   "id": "L0936_c01",
+   "line": 936,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "return n + 3 * 2 * ch + 3",
@@ -3998,8 +4088,8 @@
    "run": true
   },
   {
-   "id": "L0923_c02",
-   "line": 923,
+   "id": "L0936_c02",
+   "line": 936,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "return n + 3 * 2 * ch + 3",
@@ -4007,8 +4097,8 @@
    "run": true
   },
   {
-   "id": "L0923_c03",
-   "line": 923,
+   "id": "L0936_c03",
+   "line": 936,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "return n + 3 * 2 * ch + 3",
@@ -4016,8 +4106,8 @@
    "run": true
   },
   {
-   "id": "L0923_c04",
-   "line": 923,
+   "id": "L0936_c04",
+   "line": 936,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "return n + 3 * 2 * ch + 3",
@@ -4025,8 +4115,8 @@
    "run": true
   },
   {
-   "id": "L0923_c05",
-   "line": 923,
+   "id": "L0936_c05",
+   "line": 936,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "return n + 3 * 2 * ch + 3",
@@ -4034,8 +4124,8 @@
    "run": true
   },
   {
-   "id": "L0923_c06",
-   "line": 923,
+   "id": "L0936_c06",
+   "line": 936,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "return n + 3 * 2 * ch + 3",
@@ -4043,8 +4133,8 @@
    "run": true
   },
   {
-   "id": "L0928_a01",
-   "line": 928,
+   "id": "L0941_a01",
+   "line": 941,
    "op": "a",
    "change": "!= -> ==",
    "original": "if b[:4] != LFW_MAGIC:",
@@ -4052,8 +4142,8 @@
    "run": true
   },
   {
-   "id": "L0928_c01",
-   "line": 928,
+   "id": "L0941_c01",
+   "line": 941,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "if b[:4] != LFW_MAGIC:",
@@ -4061,8 +4151,8 @@
    "run": true
   },
   {
-   "id": "L0928_c02",
-   "line": 928,
+   "id": "L0941_c02",
+   "line": 941,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "if b[:4] != LFW_MAGIC:",
@@ -4070,8 +4160,8 @@
    "run": true
   },
   {
-   "id": "L0930_c01",
-   "line": 930,
+   "id": "L0943_c01",
+   "line": 943,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "ch, e, nc = struct.unpack_from(\"<III\", b, 4)",
@@ -4079,8 +4169,8 @@
    "run": true
   },
   {
-   "id": "L0930_c02",
-   "line": 930,
+   "id": "L0943_c02",
+   "line": 943,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "ch, e, nc = struct.unpack_from(\"<III\", b, 4)",
@@ -4088,8 +4178,8 @@
    "run": true
   },
   {
-   "id": "L0931_c01",
-   "line": 931,
+   "id": "L0944_c01",
+   "line": 944,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "kernels = list(struct.unpack_from(\"<\" + \"I\" * nc, b, 16))",
@@ -4097,8 +4187,8 @@
    "run": true
   },
   {
-   "id": "L0931_c02",
-   "line": 931,
+   "id": "L0944_c02",
+   "line": 944,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "kernels = list(struct.unpack_from(\"<\" + \"I\" * nc, b, 16))",
@@ -4106,8 +4196,8 @@
    "run": true
   },
   {
-   "id": "L0932_c01",
-   "line": 932,
+   "id": "L0945_c01",
+   "line": 945,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "off = 16 + 4 * nc",
@@ -4115,8 +4205,8 @@
    "run": true
   },
   {
-   "id": "L0932_c02",
-   "line": 932,
+   "id": "L0945_c02",
+   "line": 945,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "off = 16 + 4 * nc",
@@ -4124,8 +4214,8 @@
    "run": true
   },
   {
-   "id": "L0932_c03",
-   "line": 932,
+   "id": "L0945_c03",
+   "line": 945,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "off = 16 + 4 * nc",
@@ -4133,8 +4223,8 @@
    "run": true
   },
   {
-   "id": "L0932_c04",
-   "line": 932,
+   "id": "L0945_c04",
+   "line": 945,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "off = 16 + 4 * nc",
@@ -4142,8 +4232,8 @@
    "run": true
   },
   {
-   "id": "L0933_a01",
-   "line": 933,
+   "id": "L0946_a01",
+   "line": 946,
    "op": "a",
    "change": "!= -> ==",
    "original": "if len(b) - off != 4 * lfw_size(ch, e, kernels):",
@@ -4151,8 +4241,8 @@
    "run": true
   },
   {
-   "id": "L0933_c01",
-   "line": 933,
+   "id": "L0946_c01",
+   "line": 946,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "if len(b) - off != 4 * lfw_size(ch, e, kernels):",
@@ -4160,8 +4250,8 @@
    "run": true
   },
   {
-   "id": "L0933_c02",
-   "line": 933,
+   "id": "L0946_c02",
+   "line": 946,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "if len(b) - off != 4 * lfw_size(ch, e, kernels):",
@@ -4169,8 +4259,8 @@
    "run": true
   },
   {
-   "id": "L0939_c01",
-   "line": 939,
+   "id": "L0952_c01",
+   "line": 952,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "off += 4 * n",
@@ -4178,8 +4268,8 @@
    "run": true
   },
   {
-   "id": "L0939_c02",
-   "line": 939,
+   "id": "L0952_c02",
+   "line": 952,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "off += 4 * n",
@@ -4187,8 +4277,8 @@
    "run": true
   },
   {
-   "id": "L0946_c01",
-   "line": 946,
+   "id": "L0959_c01",
+   "line": 959,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "W[\"hw\"], W[\"hb\"] = take(3 * 2 * ch), take(3)",
@@ -4196,8 +4286,8 @@
    "run": true
   },
   {
-   "id": "L0946_c02",
-   "line": 946,
+   "id": "L0959_c02",
+   "line": 959,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "W[\"hw\"], W[\"hb\"] = take(3 * 2 * ch), take(3)",
@@ -4205,8 +4295,8 @@
    "run": true
   },
   {
-   "id": "L0946_c03",
-   "line": 946,
+   "id": "L0959_c03",
+   "line": 959,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "W[\"hw\"], W[\"hb\"] = take(3 * 2 * ch), take(3)",
@@ -4214,8 +4304,8 @@
    "run": true
   },
   {
-   "id": "L0946_c04",
-   "line": 946,
+   "id": "L0959_c04",
+   "line": 959,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "W[\"hw\"], W[\"hb\"] = take(3 * 2 * ch), take(3)",
@@ -4223,8 +4313,8 @@
    "run": true
   },
   {
-   "id": "L0946_c05",
-   "line": 946,
+   "id": "L0959_c05",
+   "line": 959,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "W[\"hw\"], W[\"hb\"] = take(3 * 2 * ch), take(3)",
@@ -4232,8 +4322,8 @@
    "run": true
   },
   {
-   "id": "L0946_c06",
-   "line": 946,
+   "id": "L0959_c06",
+   "line": 959,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "W[\"hw\"], W[\"hb\"] = take(3 * 2 * ch), take(3)",
@@ -4241,8 +4331,8 @@
    "run": true
   },
   {
-   "id": "L0956_c01",
-   "line": 956,
+   "id": "L0969_c01",
+   "line": 969,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "pad, y = k // 2, []",
@@ -4250,8 +4340,8 @@
    "run": true
   },
   {
-   "id": "L0956_c02",
-   "line": 956,
+   "id": "L0969_c02",
+   "line": 969,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "pad, y = k // 2, []",
@@ -4259,8 +4349,8 @@
    "run": true
   },
   {
-   "id": "L0963_a01",
-   "line": 963,
+   "id": "L0976_a01",
+   "line": 976,
    "op": "a",
    "change": "<= -> <",
    "original": "if 0 <= u < T:",
@@ -4268,8 +4358,8 @@
    "run": true
   },
   {
-   "id": "L0963_a02",
-   "line": 963,
+   "id": "L0976_a02",
+   "line": 976,
    "op": "a",
    "change": "< -> <=",
    "original": "if 0 <= u < T:",
@@ -4277,8 +4367,8 @@
    "run": true
   },
   {
-   "id": "L0967_a01",
-   "line": 967,
+   "id": "L0980_a01",
+   "line": 980,
    "op": "a",
    "change": "> -> >=",
    "original": "row.append(s if s > 0 else 0.0)",
@@ -4286,8 +4376,8 @@
    "run": true
   },
   {
-   "id": "L0967_d01",
-   "line": 967,
+   "id": "L0980_d01",
+   "line": 980,
    "op": "d",
    "change": "0.0 -> 0.0*2",
    "original": "row.append(s if s > 0 else 0.0)",
@@ -4295,8 +4385,8 @@
    "run": true
   },
   {
-   "id": "L0967_d02",
-   "line": 967,
+   "id": "L0980_d02",
+   "line": 980,
    "op": "d",
    "change": "0.0 -> 0.0/2",
    "original": "row.append(s if s > 0 else 0.0)",
@@ -4304,8 +4394,8 @@
    "run": true
   },
   {
-   "id": "L0971_c01",
-   "line": 971,
+   "id": "L0984_c01",
+   "line": 984,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "return [W[\"hb\"][c] + sum(W[\"hw\"][c * 2 * ch + j] * feat[j] for j in range(2 * ch)) for c in range(3)]",
@@ -4313,8 +4403,8 @@
    "run": true
   },
   {
-   "id": "L0971_c02",
-   "line": 971,
+   "id": "L0984_c02",
+   "line": 984,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "return [W[\"hb\"][c] + sum(W[\"hw\"][c * 2 * ch + j] * feat[j] for j in range(2 * ch)) for c in range(3)]",
@@ -4322,8 +4412,8 @@
    "run": true
   },
   {
-   "id": "L0971_c03",
-   "line": 971,
+   "id": "L0984_c03",
+   "line": 984,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "return [W[\"hb\"][c] + sum(W[\"hw\"][c * 2 * ch + j] * feat[j] for j in range(2 * ch)) for c in range(3)]",
@@ -4331,8 +4421,8 @@
    "run": true
   },
   {
-   "id": "L0971_c04",
-   "line": 971,
+   "id": "L0984_c04",
+   "line": 984,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "return [W[\"hb\"][c] + sum(W[\"hw\"][c * 2 * ch + j] * feat[j] for j in range(2 * ch)) for c in range(3)]",
@@ -4340,8 +4430,8 @@
    "run": true
   },
   {
-   "id": "L0971_c05",
-   "line": 971,
+   "id": "L0984_c05",
+   "line": 984,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "return [W[\"hb\"][c] + sum(W[\"hw\"][c * 2 * ch + j] * feat[j] for j in range(2 * ch)) for c in range(3)]",
@@ -4349,8 +4439,8 @@
    "run": true
   },
   {
-   "id": "L0971_c06",
-   "line": 971,
+   "id": "L0984_c06",
+   "line": 984,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "return [W[\"hb\"][c] + sum(W[\"hw\"][c * 2 * ch + j] * feat[j] for j in range(2 * ch)) for c in range(3)]",
@@ -4358,8 +4448,8 @@
    "run": true
   },
   {
-   "id": "L0974_c01",
-   "line": 974,
+   "id": "L0987_c01",
+   "line": 987,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4367,8 +4457,8 @@
    "run": true
   },
   {
-   "id": "L0974_c02",
-   "line": 974,
+   "id": "L0987_c02",
+   "line": 987,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4376,8 +4466,8 @@
    "run": true
   },
   {
-   "id": "L0974_c03",
-   "line": 974,
+   "id": "L0987_c03",
+   "line": 987,
    "op": "c",
    "change": "4 -> 4+1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4385,8 +4475,8 @@
    "run": true
   },
   {
-   "id": "L0974_c04",
-   "line": 974,
+   "id": "L0987_c04",
+   "line": 987,
    "op": "c",
    "change": "4 -> 4-1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4394,8 +4484,8 @@
    "run": true
   },
   {
-   "id": "L0974_c05",
-   "line": 974,
+   "id": "L0987_c05",
+   "line": 987,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4403,8 +4493,8 @@
    "run": true
   },
   {
-   "id": "L0974_c06",
-   "line": 974,
+   "id": "L0987_c06",
+   "line": 987,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4412,8 +4502,8 @@
    "run": true
   },
   {
-   "id": "L0974_c07",
-   "line": 974,
+   "id": "L0987_c07",
+   "line": 987,
    "op": "c",
    "change": "5 -> 5+1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4421,8 +4511,8 @@
    "run": true
   },
   {
-   "id": "L0974_c08",
-   "line": 974,
+   "id": "L0987_c08",
+   "line": 987,
    "op": "c",
    "change": "5 -> 5-1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4430,8 +4520,8 @@
    "run": true
   },
   {
-   "id": "L0974_c09",
-   "line": 974,
+   "id": "L0987_c09",
+   "line": 987,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4439,8 +4529,8 @@
    "run": true
   },
   {
-   "id": "L0974_c10",
-   "line": 974,
+   "id": "L0987_c10",
+   "line": 987,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4448,8 +4538,8 @@
    "run": true
   },
   {
-   "id": "L0974_c11",
-   "line": 974,
+   "id": "L0987_c11",
+   "line": 987,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4457,8 +4547,8 @@
    "run": true
   },
   {
-   "id": "L0974_c12",
-   "line": 974,
+   "id": "L0987_c12",
+   "line": 987,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1) -> bytes:",
@@ -4466,8 +4556,8 @@
    "run": true
   },
   {
-   "id": "L0979_c01",
-   "line": 979,
+   "id": "L0992_c01",
+   "line": 992,
    "op": "c",
    "change": "1103515245 -> 1103515245+1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4475,8 +4565,8 @@
    "run": true
   },
   {
-   "id": "L0979_c02",
-   "line": 979,
+   "id": "L0992_c02",
+   "line": 992,
    "op": "c",
    "change": "1103515245 -> 1103515245-1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4484,8 +4574,8 @@
    "run": true
   },
   {
-   "id": "L0979_c03",
-   "line": 979,
+   "id": "L0992_c03",
+   "line": 992,
    "op": "c",
    "change": "12345 -> 12345+1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4493,8 +4583,8 @@
    "run": true
   },
   {
-   "id": "L0979_c04",
-   "line": 979,
+   "id": "L0992_c04",
+   "line": 992,
    "op": "c",
    "change": "12345 -> 12345-1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4502,8 +4592,8 @@
    "run": true
   },
   {
-   "id": "L0979_c05",
-   "line": 979,
+   "id": "L0992_c05",
+   "line": 992,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4511,8 +4601,8 @@
    "run": true
   },
   {
-   "id": "L0979_c06",
-   "line": 979,
+   "id": "L0992_c06",
+   "line": 992,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4520,8 +4610,8 @@
    "run": true
   },
   {
-   "id": "L0979_c07",
-   "line": 979,
+   "id": "L0992_c07",
+   "line": 992,
    "op": "c",
    "change": "31 -> 31+1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4529,8 +4619,8 @@
    "run": true
   },
   {
-   "id": "L0979_c08",
-   "line": 979,
+   "id": "L0992_c08",
+   "line": 992,
    "op": "c",
    "change": "31 -> 31-1",
    "original": "state = (state * 1103515245 + 12345) % (2 ** 31)",
@@ -4538,8 +4628,8 @@
    "run": true
   },
   {
-   "id": "L0980_c01",
-   "line": 980,
+   "id": "L0993_c01",
+   "line": 993,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4547,8 +4637,8 @@
    "run": true
   },
   {
-   "id": "L0980_c02",
-   "line": 980,
+   "id": "L0993_c02",
+   "line": 993,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4556,8 +4646,8 @@
    "run": true
   },
   {
-   "id": "L0980_c03",
-   "line": 980,
+   "id": "L0993_c03",
+   "line": 993,
    "op": "c",
    "change": "33 -> 33+1",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4565,8 +4655,8 @@
    "run": true
   },
   {
-   "id": "L0980_c04",
-   "line": 980,
+   "id": "L0993_c04",
+   "line": 993,
    "op": "c",
    "change": "33 -> 33-1",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4574,8 +4664,8 @@
    "run": true
   },
   {
-   "id": "L0980_c05",
-   "line": 980,
+   "id": "L0993_c05",
+   "line": 993,
    "op": "c",
    "change": "16 -> 16+1",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4583,8 +4673,8 @@
    "run": true
   },
   {
-   "id": "L0980_c06",
-   "line": 980,
+   "id": "L0993_c06",
+   "line": 993,
    "op": "c",
    "change": "16 -> 16-1",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4592,8 +4682,8 @@
    "run": true
   },
   {
-   "id": "L0980_d01",
-   "line": 980,
+   "id": "L0993_d01",
+   "line": 993,
    "op": "d",
    "change": "32.0 -> 32.0*2",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4601,8 +4691,8 @@
    "run": true
   },
   {
-   "id": "L0980_d02",
-   "line": 980,
+   "id": "L0993_d02",
+   "line": 993,
    "op": "d",
    "change": "32.0 -> 32.0/2",
    "original": "floats.append(((state >> 16) % 33 - 16) / 32.0)       # multiples of 1/32 in [-0.5, 0.5]",
@@ -4610,8 +4700,8 @@
    "run": true
   },
   {
-   "id": "L0999_f01",
-   "line": 999,
+   "id": "L1012_f01",
+   "line": 1012,
    "op": "f",
    "change": "True -> False",
    "original": "def engine_mode(caps, support: str, *, models_ok: bool = True, layout_ok: bool = True, permission_ok: bool = True,",
@@ -4619,8 +4709,8 @@
    "run": true
   },
   {
-   "id": "L0999_f02",
-   "line": 999,
+   "id": "L1012_f02",
+   "line": 1012,
    "op": "f",
    "change": "True -> False",
    "original": "def engine_mode(caps, support: str, *, models_ok: bool = True, layout_ok: bool = True, permission_ok: bool = True,",
@@ -4628,8 +4718,8 @@
    "run": true
   },
   {
-   "id": "L0999_f03",
-   "line": 999,
+   "id": "L1012_f03",
+   "line": 1012,
    "op": "f",
    "change": "True -> False",
    "original": "def engine_mode(caps, support: str, *, models_ok: bool = True, layout_ok: bool = True, permission_ok: bool = True,",
@@ -4637,8 +4727,8 @@
    "run": true
   },
   {
-   "id": "L1000_f01",
-   "line": 1000,
+   "id": "L1013_f01",
+   "line": 1013,
    "op": "f",
    "change": "True -> False",
    "original": "hook_ok: bool = True, watchdog_ok: bool = True, quarantined: bool = False) -> str:",
@@ -4646,8 +4736,8 @@
    "run": true
   },
   {
-   "id": "L1000_f02",
-   "line": 1000,
+   "id": "L1013_f02",
+   "line": 1013,
    "op": "f",
    "change": "True -> False",
    "original": "hook_ok: bool = True, watchdog_ok: bool = True, quarantined: bool = False) -> str:",
@@ -4655,8 +4745,8 @@
    "run": true
   },
   {
-   "id": "L1000_f03",
-   "line": 1000,
+   "id": "L1013_f03",
+   "line": 1013,
    "op": "f",
    "change": "False -> True",
    "original": "hook_ok: bool = True, watchdog_ok: bool = True, quarantined: bool = False) -> str:",
@@ -4664,8 +4754,8 @@
    "run": true
   },
   {
-   "id": "L1005_a01",
-   "line": 1005,
+   "id": "L1018_a01",
+   "line": 1018,
    "op": "a",
    "change": "<= -> <",
    "original": "if not caps <= CAPABILITIES:",
@@ -4673,8 +4763,8 @@
    "run": true
   },
   {
-   "id": "L1005_b01",
-   "line": 1005,
+   "id": "L1018_b01",
+   "line": 1018,
    "op": "b",
    "change": "remove 'not' (if not)",
    "original": "if not caps <= CAPABILITIES:",
@@ -4682,8 +4772,8 @@
    "run": true
   },
   {
-   "id": "L1007_b01",
-   "line": 1007,
+   "id": "L1020_b01",
+   "line": 1020,
    "op": "b",
    "change": "remove 'not' (not in)",
    "original": "if support not in SUPPORT_STATUS:",
@@ -4691,8 +4781,8 @@
    "run": true
   },
   {
-   "id": "L1009_a01",
-   "line": 1009,
+   "id": "L1022_a01",
+   "line": 1022,
    "op": "a",
    "change": "== -> !=",
    "original": "if quarantined or not permission_ok or not layout_ok or support == \"UNKNOWN\":",
@@ -4700,8 +4790,8 @@
    "run": true
   },
   {
-   "id": "L1009_b01",
-   "line": 1009,
+   "id": "L1022_b01",
+   "line": 1022,
    "op": "b",
    "change": "or -> and",
    "original": "if quarantined or not permission_ok or not layout_ok or support == \"UNKNOWN\":",
@@ -4709,8 +4799,8 @@
    "run": true
   },
   {
-   "id": "L1009_b02",
-   "line": 1009,
+   "id": "L1022_b02",
+   "line": 1022,
    "op": "b",
    "change": "or -> and",
    "original": "if quarantined or not permission_ok or not layout_ok or support == \"UNKNOWN\":",
@@ -4718,8 +4808,8 @@
    "run": true
   },
   {
-   "id": "L1009_b03",
-   "line": 1009,
+   "id": "L1022_b03",
+   "line": 1022,
    "op": "b",
    "change": "or -> and",
    "original": "if quarantined or not permission_ok or not layout_ok or support == \"UNKNOWN\":",
@@ -4727,8 +4817,8 @@
    "run": true
   },
   {
-   "id": "L1011_b01",
-   "line": 1011,
+   "id": "L1024_b01",
+   "line": 1024,
    "op": "b",
    "change": "remove 'not' (not in)",
    "original": "if REPLACE_RANGE not in caps and SYNTHETIC_INPUT not in caps:",
@@ -4736,8 +4826,8 @@
    "run": true
   },
   {
-   "id": "L1011_b02",
-   "line": 1011,
+   "id": "L1024_b02",
+   "line": 1024,
    "op": "b",
    "change": "and -> or",
    "original": "if REPLACE_RANGE not in caps and SYNTHETIC_INPUT not in caps:",
@@ -4745,8 +4835,8 @@
    "run": true
   },
   {
-   "id": "L1011_b03",
-   "line": 1011,
+   "id": "L1024_b03",
+   "line": 1024,
    "op": "b",
    "change": "remove 'not' (not in)",
    "original": "if REPLACE_RANGE not in caps and SYNTHETIC_INPUT not in caps:",
@@ -4754,8 +4844,8 @@
    "run": true
   },
   {
-   "id": "L1013_a01",
-   "line": 1013,
+   "id": "L1026_a01",
+   "line": 1026,
    "op": "a",
    "change": "== -> !=",
    "original": "if support == \"AUTO\" and AUTO_REQUIRES <= caps and models_ok and hook_ok and watchdog_ok:",
@@ -4763,8 +4853,8 @@
    "run": true
   },
   {
-   "id": "L1013_a02",
-   "line": 1013,
+   "id": "L1026_a02",
+   "line": 1026,
    "op": "a",
    "change": "<= -> <",
    "original": "if support == \"AUTO\" and AUTO_REQUIRES <= caps and models_ok and hook_ok and watchdog_ok:",
@@ -4772,8 +4862,8 @@
    "run": true
   },
   {
-   "id": "L1013_b01",
-   "line": 1013,
+   "id": "L1026_b01",
+   "line": 1026,
    "op": "b",
    "change": "and -> or",
    "original": "if support == \"AUTO\" and AUTO_REQUIRES <= caps and models_ok and hook_ok and watchdog_ok:",
@@ -4781,8 +4871,8 @@
    "run": true
   },
   {
-   "id": "L1013_b02",
-   "line": 1013,
+   "id": "L1026_b02",
+   "line": 1026,
    "op": "b",
    "change": "and -> or",
    "original": "if support == \"AUTO\" and AUTO_REQUIRES <= caps and models_ok and hook_ok and watchdog_ok:",
@@ -4790,8 +4880,8 @@
    "run": true
   },
   {
-   "id": "L1013_b03",
-   "line": 1013,
+   "id": "L1026_b03",
+   "line": 1026,
    "op": "b",
    "change": "and -> or",
    "original": "if support == \"AUTO\" and AUTO_REQUIRES <= caps and models_ok and hook_ok and watchdog_ok:",
@@ -4799,8 +4889,8 @@
    "run": true
   },
   {
-   "id": "L1013_b04",
-   "line": 1013,
+   "id": "L1026_b04",
+   "line": 1026,
    "op": "b",
    "change": "and -> or",
    "original": "if support == \"AUTO\" and AUTO_REQUIRES <= caps and models_ok and hook_ok and watchdog_ok:",
@@ -4808,8 +4898,8 @@
    "run": true
   },
   {
-   "id": "L1022_b01",
-   "line": 1022,
+   "id": "L1035_b01",
+   "line": 1035,
    "op": "b",
    "change": "remove 'not' (if not)",
    "original": "if not started:",
@@ -4817,8 +4907,8 @@
    "run": true
   },
   {
-   "id": "L1024_a01",
-   "line": 1024,
+   "id": "L1037_a01",
+   "line": 1037,
    "op": "a",
    "change": "== -> !=",
    "original": "if verified and final == new:",
@@ -4826,8 +4916,8 @@
    "run": true
   },
   {
-   "id": "L1024_b01",
-   "line": 1024,
+   "id": "L1037_b01",
+   "line": 1037,
    "op": "b",
    "change": "and -> or",
    "original": "if verified and final == new:",
@@ -4835,8 +4925,8 @@
    "run": true
   },
   {
-   "id": "L1026_a01",
-   "line": 1026,
+   "id": "L1039_a01",
+   "line": 1039,
    "op": "a",
    "change": "== -> !=",
    "original": "if final == original:",
@@ -4844,8 +4934,8 @@
    "run": true
   },
   {
-   "id": "L1054_f01",
-   "line": 1054,
+   "id": "L1067_f01",
+   "line": 1067,
    "op": "f",
    "change": "False -> True",
    "original": "incident: bool = False        # counts as a replacement_incident (13.2, step 6)",
@@ -4853,8 +4943,8 @@
    "run": true
   },
   {
-   "id": "L1055_f01",
-   "line": 1055,
+   "id": "L1068_f01",
+   "line": 1068,
    "op": "f",
    "change": "False -> True",
    "original": "quarantine: bool = False      # the application goes to DENY until restart or re-enable",
@@ -4862,8 +4952,8 @@
    "run": true
   },
   {
-   "id": "L1058_c01",
-   "line": 1058,
+   "id": "L1071_c01",
+   "line": 1071,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "TYPED_AHEAD_MAX = 3",
@@ -4871,8 +4961,8 @@
    "run": true
   },
   {
-   "id": "L1058_c02",
-   "line": 1058,
+   "id": "L1071_c02",
+   "line": 1071,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "TYPED_AHEAD_MAX = 3",
@@ -4880,8 +4970,8 @@
    "run": true
   },
   {
-   "id": "L1062_f01",
-   "line": 1062,
+   "id": "L1075_f01",
+   "line": 1075,
    "op": "f",
    "change": "False -> True",
    "original": "context_break: bool = False, layout_changed: bool = False) -> TxResult:",
@@ -4889,8 +4979,8 @@
    "run": true
   },
   {
-   "id": "L1062_f02",
-   "line": 1062,
+   "id": "L1075_f02",
+   "line": 1075,
    "op": "f",
    "change": "False -> True",
    "original": "context_break: bool = False, layout_changed: bool = False) -> TxResult:",
@@ -4898,8 +4988,8 @@
    "run": true
   },
   {
-   "id": "L1067_a01",
-   "line": 1067,
+   "id": "L1080_a01",
+   "line": 1080,
    "op": "a",
    "change": "!= -> ==",
    "original": "if len(new) != n:",
@@ -4907,8 +4997,8 @@
    "run": true
   },
   {
-   "id": "L1069_b01",
-   "line": 1069,
+   "id": "L1082_b01",
+   "line": 1082,
    "op": "b",
    "change": "remove 'not' (not in)",
    "original": "if mode not in (\"AUTO\", \"MANUAL_ONLY\"):",
@@ -4916,8 +5006,8 @@
    "run": true
   },
   {
-   "id": "L1071_a01",
-   "line": 1071,
+   "id": "L1084_a01",
+   "line": 1084,
    "op": "a",
    "change": "== -> !=",
    "original": "if mode == \"AUTO\" and not AUTO_REQUIRES <= ad.caps:",
@@ -4925,8 +5015,8 @@
    "run": true
   },
   {
-   "id": "L1071_a02",
-   "line": 1071,
+   "id": "L1084_a02",
+   "line": 1084,
    "op": "a",
    "change": "<= -> <",
    "original": "if mode == \"AUTO\" and not AUTO_REQUIRES <= ad.caps:",
@@ -4934,8 +5024,8 @@
    "run": true
   },
   {
-   "id": "L1071_b01",
-   "line": 1071,
+   "id": "L1084_b01",
+   "line": 1084,
    "op": "b",
    "change": "and -> or",
    "original": "if mode == \"AUTO\" and not AUTO_REQUIRES <= ad.caps:",
@@ -4943,8 +5033,8 @@
    "run": true
   },
   {
-   "id": "L1074_b01",
-   "line": 1074,
+   "id": "L1087_b01",
+   "line": 1087,
    "op": "b",
    "change": "remove 'not' (if not)",
    "original": "if not method or READ_RANGE not in ad.caps:",
@@ -4952,8 +5042,8 @@
    "run": true
   },
   {
-   "id": "L1074_b02",
-   "line": 1074,
+   "id": "L1087_b02",
+   "line": 1087,
    "op": "b",
    "change": "or -> and",
    "original": "if not method or READ_RANGE not in ad.caps:",
@@ -4961,8 +5051,8 @@
    "run": true
   },
   {
-   "id": "L1074_b03",
-   "line": 1074,
+   "id": "L1087_b03",
+   "line": 1087,
    "op": "b",
    "change": "remove 'not' (not in)",
    "original": "if not method or READ_RANGE not in ad.caps:",
@@ -4970,8 +5060,8 @@
    "run": true
   },
   {
-   "id": "L1077_b01",
-   "line": 1077,
+   "id": "L1090_b01",
+   "line": 1090,
    "op": "b",
    "change": "or -> and",
    "original": "if context_break or layout_changed:",
@@ -4979,8 +5069,8 @@
    "run": true
   },
   {
-   "id": "L1079_a01",
-   "line": 1079,
+   "id": "L1092_a01",
+   "line": 1092,
    "op": "a",
    "change": "> -> >=",
    "original": "if len(ahead) > TYPED_AHEAD_MAX or (method == \"M2\" and ahead):",
@@ -4988,8 +5078,8 @@
    "run": true
   },
   {
-   "id": "L1079_a02",
-   "line": 1079,
+   "id": "L1092_a02",
+   "line": 1092,
    "op": "a",
    "change": "== -> !=",
    "original": "if len(ahead) > TYPED_AHEAD_MAX or (method == \"M2\" and ahead):",
@@ -4997,8 +5087,8 @@
    "run": true
   },
   {
-   "id": "L1079_b01",
-   "line": 1079,
+   "id": "L1092_b01",
+   "line": 1092,
    "op": "b",
    "change": "or -> and",
    "original": "if len(ahead) > TYPED_AHEAD_MAX or (method == \"M2\" and ahead):",
@@ -5006,8 +5096,8 @@
    "run": true
   },
   {
-   "id": "L1079_b02",
-   "line": 1079,
+   "id": "L1092_b02",
+   "line": 1092,
    "op": "b",
    "change": "and -> or",
    "original": "if len(ahead) > TYPED_AHEAD_MAX or (method == \"M2\" and ahead):",
@@ -5015,8 +5105,8 @@
    "run": true
   },
   {
-   "id": "L1081_a01",
-   "line": 1081,
+   "id": "L1094_a01",
+   "line": 1094,
    "op": "a",
    "change": "== -> !=",
    "original": "if method == \"M2\" and ad.modifier_down():            # SendInput: pressed keys \"might interfere\" (13.7)",
@@ -5024,8 +5114,8 @@
    "run": true
   },
   {
-   "id": "L1081_b01",
-   "line": 1081,
+   "id": "L1094_b01",
+   "line": 1094,
    "op": "b",
    "change": "and -> or",
    "original": "if method == \"M2\" and ad.modifier_down():            # SendInput: pressed keys \"might interfere\" (13.7)",
@@ -5033,8 +5123,8 @@
    "run": true
   },
   {
-   "id": "L1092_a01",
-   "line": 1092,
+   "id": "L1105_a01",
+   "line": 1105,
    "op": "a",
    "change": "!= -> ==",
    "original": "if g != GATE_ALLOW:",
@@ -5042,8 +5132,8 @@
    "run": true
   },
   {
-   "id": "L1098_c01",
-   "line": 1098,
+   "id": "L1111_c01",
+   "line": 1111,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "for a in range(len(ahead), -1, -1):",
@@ -5051,8 +5141,8 @@
    "run": true
   },
   {
-   "id": "L1098_c02",
-   "line": 1098,
+   "id": "L1111_c02",
+   "line": 1111,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "for a in range(len(ahead), -1, -1):",
@@ -5060,8 +5150,8 @@
    "run": true
   },
   {
-   "id": "L1098_c03",
-   "line": 1098,
+   "id": "L1111_c03",
+   "line": 1111,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "for a in range(len(ahead), -1, -1):",
@@ -5069,8 +5159,8 @@
    "run": true
   },
   {
-   "id": "L1098_c04",
-   "line": 1098,
+   "id": "L1111_c04",
+   "line": 1111,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "for a in range(len(ahead), -1, -1):",
@@ -5078,8 +5168,8 @@
    "run": true
   },
   {
-   "id": "L1099_c01",
-   "line": 1099,
+   "id": "L1112_c01",
+   "line": 1112,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "start = c - (n + 1 + a)",
@@ -5087,8 +5177,8 @@
    "run": true
   },
   {
-   "id": "L1099_c02",
-   "line": 1099,
+   "id": "L1112_c02",
+   "line": 1112,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "start = c - (n + 1 + a)",
@@ -5096,8 +5186,8 @@
    "run": true
   },
   {
-   "id": "L1100_a01",
-   "line": 1100,
+   "id": "L1113_a01",
+   "line": 1113,
    "op": "a",
    "change": "< -> <=",
    "original": "if start < 0:",
@@ -5105,8 +5195,8 @@
    "run": true
   },
   {
-   "id": "L1102_c01",
-   "line": 1102,
+   "id": "L1115_c01",
+   "line": 1115,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "t = ad.read(start, start + n + 1 + a)",
@@ -5114,8 +5204,8 @@
    "run": true
   },
   {
-   "id": "L1102_c02",
-   "line": 1102,
+   "id": "L1115_c02",
+   "line": 1115,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "t = ad.read(start, start + n + 1 + a)",
@@ -5123,8 +5213,8 @@
    "run": true
   },
   {
-   "id": "L1103_a01",
-   "line": 1103,
+   "id": "L1116_a01",
+   "line": 1116,
    "op": "a",
    "change": "== -> !=",
    "original": "if t is not None and t == old + \" \" + ahead[:a]:",
@@ -5132,8 +5222,8 @@
    "run": true
   },
   {
-   "id": "L1103_b01",
-   "line": 1103,
+   "id": "L1116_b01",
+   "line": 1116,
    "op": "b",
    "change": "and -> or",
    "original": "if t is not None and t == old + \" \" + ahead[:a]:",
@@ -5141,8 +5231,8 @@
    "run": true
   },
   {
-   "id": "L1111_c01",
-   "line": 1111,
+   "id": "L1124_c01",
+   "line": 1124,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "end = start + n + 1 + a",
@@ -5150,8 +5240,8 @@
    "run": true
   },
   {
-   "id": "L1111_c02",
-   "line": 1111,
+   "id": "L1124_c02",
+   "line": 1124,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "end = start + n + 1 + a",
@@ -5159,8 +5249,8 @@
    "run": true
   },
   {
-   "id": "L1115_a01",
-   "line": 1115,
+   "id": "L1128_a01",
+   "line": 1128,
    "op": "a",
    "change": "== -> !=",
    "original": "if method == \"M2\":",
@@ -5168,8 +5258,8 @@
    "run": true
   },
   {
-   "id": "L1117_a01",
-   "line": 1117,
+   "id": "L1130_a01",
+   "line": 1130,
    "op": "a",
    "change": "> -> >=",
    "original": "if ad.keys_since(m) > 0:",
@@ -5177,8 +5267,8 @@
    "run": true
   },
   {
-   "id": "L1122_f01",
-   "line": 1122,
+   "id": "L1135_f01",
+   "line": 1135,
    "op": "f",
    "change": "False -> True",
    "original": "failed = False",
@@ -5186,8 +5276,8 @@
    "run": true
   },
   {
-   "id": "L1124_a01",
-   "line": 1124,
+   "id": "L1137_a01",
+   "line": 1137,
    "op": "a",
    "change": "== -> !=",
    "original": "if method == \"M1\":",
@@ -5195,8 +5285,8 @@
    "run": true
   },
   {
-   "id": "L1127_c01",
-   "line": 1127,
+   "id": "L1140_c01",
+   "line": 1140,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "ad.send([(\"bs\", \"\")] * (n + 1) + [(\"ch\", ch) for ch in new] + [(\"ch\", \" \")])",
@@ -5204,8 +5294,8 @@
    "run": true
   },
   {
-   "id": "L1127_c02",
-   "line": 1127,
+   "id": "L1140_c02",
+   "line": 1140,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "ad.send([(\"bs\", \"\")] * (n + 1) + [(\"ch\", ch) for ch in new] + [(\"ch\", \" \")])",
@@ -5213,8 +5303,8 @@
    "run": true
   },
   {
-   "id": "L1129_f01",
-   "line": 1129,
+   "id": "L1142_f01",
+   "line": 1142,
    "op": "f",
    "change": "True -> False",
    "original": "failed = True",
@@ -5222,8 +5312,8 @@
    "run": true
   },
   {
-   "id": "L1132_f01",
-   "line": 1132,
+   "id": "L1145_f01",
+   "line": 1145,
    "op": "f",
    "change": "False -> True",
    "original": "ok = False",
@@ -5231,8 +5321,8 @@
    "run": true
   },
   {
-   "id": "L1133_b01",
-   "line": 1133,
+   "id": "L1146_b01",
+   "line": 1146,
    "op": "b",
    "change": "remove 'not' (if not)",
    "original": "if not failed:",
@@ -5240,8 +5330,8 @@
    "run": true
   },
   {
-   "id": "L1138_a01",
-   "line": 1138,
+   "id": "L1151_a01",
+   "line": 1151,
    "op": "a",
    "change": "== -> !=",
    "original": "ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)",
@@ -5249,8 +5339,8 @@
    "run": true
   },
   {
-   "id": "L1138_a02",
-   "line": 1138,
+   "id": "L1151_a02",
+   "line": 1151,
    "op": "a",
    "change": "== -> !=",
    "original": "ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)",
@@ -5258,8 +5348,8 @@
    "run": true
   },
   {
-   "id": "L1138_a03",
-   "line": 1138,
+   "id": "L1151_a03",
+   "line": 1151,
    "op": "a",
    "change": "== -> !=",
    "original": "ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)",
@@ -5267,8 +5357,8 @@
    "run": true
   },
   {
-   "id": "L1138_a04",
-   "line": 1138,
+   "id": "L1151_a04",
+   "line": 1151,
    "op": "a",
    "change": "<= -> <",
    "original": "ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)",
@@ -5276,8 +5366,8 @@
    "run": true
   },
   {
-   "id": "L1138_a05",
-   "line": 1138,
+   "id": "L1151_a05",
+   "line": 1151,
    "op": "a",
    "change": "<= -> <",
    "original": "ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)",
@@ -5285,8 +5375,8 @@
    "run": true
   },
   {
-   "id": "L1138_b01",
-   "line": 1138,
+   "id": "L1151_b01",
+   "line": 1151,
    "op": "b",
    "change": "and -> or",
    "original": "ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)",
@@ -5294,8 +5384,8 @@
    "run": true
   },
   {
-   "id": "L1140_f01",
-   "line": 1140,
+   "id": "L1153_f01",
+   "line": 1153,
    "op": "f",
    "change": "False -> True",
    "original": "ok = False",
@@ -5303,8 +5393,8 @@
    "run": true
   },
   {
-   "id": "L1146_a01",
-   "line": 1146,
+   "id": "L1159_a01",
+   "line": 1159,
    "op": "a",
    "change": "== -> !=",
    "original": "if method == \"M1\" and ROLLBACK in ad.caps:",
@@ -5312,8 +5402,8 @@
    "run": true
   },
   {
-   "id": "L1146_b01",
-   "line": 1146,
+   "id": "L1159_b01",
+   "line": 1159,
    "op": "b",
    "change": "and -> or",
    "original": "if method == \"M1\" and ROLLBACK in ad.caps:",
@@ -5321,8 +5411,8 @@
    "run": true
   },
   {
-   "id": "L1154_f01",
-   "line": 1154,
+   "id": "L1167_f01",
+   "line": 1167,
    "op": "f",
    "change": "True -> False",
    "original": "outcome = classify_outcome(True, before, after, final, False)",
@@ -5330,8 +5420,8 @@
    "run": true
   },
   {
-   "id": "L1154_f02",
-   "line": 1154,
+   "id": "L1167_f02",
+   "line": 1167,
    "op": "f",
    "change": "False -> True",
    "original": "outcome = classify_outcome(True, before, after, final, False)",
@@ -5339,8 +5429,8 @@
    "run": true
   },
   {
-   "id": "L1155_f01",
-   "line": 1155,
+   "id": "L1168_f01",
+   "line": 1168,
    "op": "f",
    "change": "True -> False",
    "original": "return TxResult(outcome, \"write_error\" if failed else \"verify_failed\", method, True, True)",
@@ -5348,8 +5438,8 @@
    "run": true
   },
   {
-   "id": "L1155_f02",
-   "line": 1155,
+   "id": "L1168_f02",
+   "line": 1168,
    "op": "f",
    "change": "True -> False",
    "original": "return TxResult(outcome, \"write_error\" if failed else \"verify_failed\", method, True, True)",
@@ -5357,8 +5447,8 @@
    "run": true
   },
   {
-   "id": "L1173_b01",
-   "line": 1173,
+   "id": "L1186_b01",
+   "line": 1186,
    "op": "b",
    "change": "or -> and",
    "original": "self.caps, self.faults, self._gate = frozenset(caps), dict(faults or {}), gate",
@@ -5366,8 +5456,8 @@
    "run": true
   },
   {
-   "id": "L1176_e01",
-   "line": 1176,
+   "id": "L1189_e01",
+   "line": 1189,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.sent = 0                     # synthetic events delivered",
@@ -5375,8 +5465,8 @@
    "run": true
   },
   {
-   "id": "L1177_e01",
-   "line": 1177,
+   "id": "L1190_e01",
+   "line": 1190,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.silent = 0                   # user key events that typed no character (Shift, arrows)",
@@ -5384,8 +5474,8 @@
    "run": true
   },
   {
-   "id": "L1178_e01",
-   "line": 1178,
+   "id": "L1191_e01",
+   "line": 1191,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.modifiers = False            # a modifier key is physically down",
@@ -5393,8 +5483,8 @@
    "run": true
   },
   {
-   "id": "L1178_f01",
-   "line": 1178,
+   "id": "L1191_f01",
+   "line": 1191,
    "op": "f",
    "change": "False -> True",
    "original": "self.modifiers = False            # a modifier key is physically down",
@@ -5402,8 +5492,8 @@
    "run": true
   },
   {
-   "id": "L1181_c01",
-   "line": 1181,
+   "id": "L1194_c01",
+   "line": 1194,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "k = self.count[op] = self.count.get(op, 0) + 1",
@@ -5411,8 +5501,8 @@
    "run": true
   },
   {
-   "id": "L1181_c02",
-   "line": 1181,
+   "id": "L1194_c02",
+   "line": 1194,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "k = self.count[op] = self.count.get(op, 0) + 1",
@@ -5420,8 +5510,8 @@
    "run": true
   },
   {
-   "id": "L1185_e01",
-   "line": 1185,
+   "id": "L1198_e01",
+   "line": 1198,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.text = self.text[:self.pos] + ch + self.text[self.pos:]",
@@ -5429,8 +5519,8 @@
    "run": true
   },
   {
-   "id": "L1186_c01",
-   "line": 1186,
+   "id": "L1199_c01",
+   "line": 1199,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "self.pos += 1",
@@ -5438,8 +5528,8 @@
    "run": true
   },
   {
-   "id": "L1186_c02",
-   "line": 1186,
+   "id": "L1199_c02",
+   "line": 1199,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "self.pos += 1",
@@ -5447,8 +5537,8 @@
    "run": true
   },
   {
-   "id": "L1191_a01",
-   "line": 1191,
+   "id": "L1204_a01",
+   "line": 1204,
    "op": "a",
    "change": "== -> !=",
    "original": "if f == \"raise\":",
@@ -5456,8 +5546,8 @@
    "run": true
   },
   {
-   "id": "L1193_b01",
-   "line": 1193,
+   "id": "L1206_b01",
+   "line": 1206,
    "op": "b",
    "change": "or -> and",
    "original": "return f or self._gate",
@@ -5465,8 +5555,8 @@
    "run": true
   },
   {
-   "id": "L1197_a01",
-   "line": 1197,
+   "id": "L1210_a01",
+   "line": 1210,
    "op": "a",
    "change": "== -> !=",
    "original": "if f == \"raise\":",
@@ -5474,8 +5564,8 @@
    "run": true
   },
   {
-   "id": "L1199_c01",
-   "line": 1199,
+   "id": "L1212_c01",
+   "line": 1212,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "return {\"back\": -1, \"forward\": 1, \"forward2\": 2}.get(f, 0) + self.pos",
@@ -5483,8 +5573,8 @@
    "run": true
   },
   {
-   "id": "L1199_c02",
-   "line": 1199,
+   "id": "L1212_c02",
+   "line": 1212,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "return {\"back\": -1, \"forward\": 1, \"forward2\": 2}.get(f, 0) + self.pos",
@@ -5492,8 +5582,8 @@
    "run": true
   },
   {
-   "id": "L1199_c03",
-   "line": 1199,
+   "id": "L1212_c03",
+   "line": 1212,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "return {\"back\": -1, \"forward\": 1, \"forward2\": 2}.get(f, 0) + self.pos",
@@ -5501,8 +5591,8 @@
    "run": true
   },
   {
-   "id": "L1199_c04",
-   "line": 1199,
+   "id": "L1212_c04",
+   "line": 1212,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "return {\"back\": -1, \"forward\": 1, \"forward2\": 2}.get(f, 0) + self.pos",
@@ -5510,8 +5600,8 @@
    "run": true
   },
   {
-   "id": "L1199_c05",
-   "line": 1199,
+   "id": "L1212_c05",
+   "line": 1212,
    "op": "c",
    "change": "2 -> 2+1",
    "original": "return {\"back\": -1, \"forward\": 1, \"forward2\": 2}.get(f, 0) + self.pos",
@@ -5519,120 +5609,12 @@
    "run": true
   },
   {
-   "id": "L1199_c06",
-   "line": 1199,
+   "id": "L1212_c06",
+   "line": 1212,
    "op": "c",
    "change": "2 -> 2-1",
    "original": "return {\"back\": -1, \"forward\": 1, \"forward2\": 2}.get(f, 0) + self.pos",
    "mutated": "return {\"back\": -1, \"forward\": 1, \"forward2\": (2-1)}.get(f, 0) + self.pos",
-   "run": true
-  },
-  {
-   "id": "L1203_b01",
-   "line": 1203,
-   "op": "b",
-   "change": "and -> or",
-   "original": "if f and f.startswith(\"user:\"):",
-   "mutated": "if f or f.startswith(\"user:\"):",
-   "run": true
-  },
-  {
-   "id": "L1204_c01",
-   "line": 1204,
-   "op": "c",
-   "change": "5 -> 5+1",
-   "original": "self.type_user(f[5:])",
-   "mutated": "self.type_user(f[(5+1):])",
-   "run": true
-  },
-  {
-   "id": "L1204_c02",
-   "line": 1204,
-   "op": "c",
-   "change": "5 -> 5-1",
-   "original": "self.type_user(f[5:])",
-   "mutated": "self.type_user(f[(5-1):])",
-   "run": true
-  },
-  {
-   "id": "L1204_e01",
-   "line": 1204,
-   "op": "e",
-   "change": "delete statement (-> pass)",
-   "original": "self.type_user(f[5:])",
-   "mutated": "pass",
-   "run": true
-  },
-  {
-   "id": "L1205_a01",
-   "line": 1205,
-   "op": "a",
-   "change": "== -> !=",
-   "original": "if f == \"key\":",
-   "mutated": "if f != \"key\":",
-   "run": true
-  },
-  {
-   "id": "L1206_c01",
-   "line": 1206,
-   "op": "c",
-   "change": "1 -> 1+1",
-   "original": "self.silent += 1",
-   "mutated": "self.silent += (1+1)",
-   "run": true
-  },
-  {
-   "id": "L1206_c02",
-   "line": 1206,
-   "op": "c",
-   "change": "1 -> 1-1",
-   "original": "self.silent += 1",
-   "mutated": "self.silent += (1-1)",
-   "run": true
-  },
-  {
-   "id": "L1207_a01",
-   "line": 1207,
-   "op": "a",
-   "change": "== -> !=",
-   "original": "if f == \"raise\":",
-   "mutated": "if f != \"raise\":",
-   "run": true
-  },
-  {
-   "id": "L1209_a01",
-   "line": 1209,
-   "op": "a",
-   "change": "== -> !=",
-   "original": "if f == \"none\":",
-   "mutated": "if f != \"none\":",
-   "run": true
-  },
-  {
-   "id": "L1210_e01",
-   "line": 1210,
-   "op": "e",
-   "change": "delete statement (-> pass)",
-   "original": "return None",
-   "mutated": "pass",
-   "run": true
-  },
-  {
-   "id": "L1212_a01",
-   "line": 1212,
-   "op": "a",
-   "change": "== -> !=",
-   "original": "return t[:-1] + \"?\" if f == \"stale\" and t else t",
-   "mutated": "return t[:-1] + \"?\" if f != \"stale\" and t else t",
-   "run": true
-  },
-  {
-   "id": "L1212_b01",
-   "line": 1212,
-   "op": "b",
-   "change": "and -> or",
-   "original": "return t[:-1] + \"?\" if f == \"stale\" and t else t",
-   "mutated": "return t[:-1] + \"?\" if f == \"stale\" or t else t",
    "run": true
   },
   {
@@ -5712,53 +5694,17 @@
    "line": 1222,
    "op": "a",
    "change": "== -> !=",
-   "original": "if f == \"ignored\":",
-   "mutated": "if f != \"ignored\":",
+   "original": "if f == \"none\":",
+   "mutated": "if f != \"none\":",
    "run": true
   },
   {
-   "id": "L1224_a01",
-   "line": 1224,
-   "op": "a",
-   "change": "== -> !=",
-   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
-   "mutated": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f != \"partial\" else text",
-   "run": true
-  },
-  {
-   "id": "L1224_c01",
-   "line": 1224,
-   "op": "c",
-   "change": "2 -> 2+1",
-   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
-   "mutated": "w = text[:len(text) // (2+1)] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
-   "run": true
-  },
-  {
-   "id": "L1224_c02",
-   "line": 1224,
-   "op": "c",
-   "change": "2 -> 2-1",
-   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
-   "mutated": "w = text[:len(text) // (2-1)] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
-   "run": true
-  },
-  {
-   "id": "L1224_c03",
-   "line": 1224,
-   "op": "c",
-   "change": "2 -> 2+1",
-   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
-   "mutated": "w = text[:len(text) // 2] + self.text[start + len(text) // (2+1):end] if f == \"partial\" else text",
-   "run": true
-  },
-  {
-   "id": "L1224_c04",
-   "line": 1224,
-   "op": "c",
-   "change": "2 -> 2-1",
-   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
-   "mutated": "w = text[:len(text) // 2] + self.text[start + len(text) // (2-1):end] if f == \"partial\" else text",
+   "id": "L1223_e01",
+   "line": 1223,
+   "op": "e",
+   "change": "delete statement (-> pass)",
+   "original": "return None",
+   "mutated": "pass",
    "run": true
   },
   {
@@ -5766,58 +5712,22 @@
    "line": 1225,
    "op": "a",
    "change": "== -> !=",
-   "original": "if f == \"autocorrect\":",
-   "mutated": "if f != \"autocorrect\":",
+   "original": "return t[:-1] + \"?\" if f == \"stale\" and t else t",
+   "mutated": "return t[:-1] + \"?\" if f != \"stale\" and t else t",
    "run": true
   },
   {
-   "id": "L1228_a01",
-   "line": 1228,
-   "op": "a",
-   "change": "== -> !=",
-   "original": "if f == \"spill\" and tail:",
-   "mutated": "if f != \"spill\" and tail:",
-   "run": true
-  },
-  {
-   "id": "L1228_b01",
-   "line": 1228,
+   "id": "L1225_b01",
+   "line": 1225,
    "op": "b",
    "change": "and -> or",
-   "original": "if f == \"spill\" and tail:",
-   "mutated": "if f == \"spill\" or tail:",
+   "original": "return t[:-1] + \"?\" if f == \"stale\" and t else t",
+   "mutated": "return t[:-1] + \"?\" if f == \"stale\" or t else t",
    "run": true
   },
   {
-   "id": "L1230_e01",
-   "line": 1230,
-   "op": "e",
-   "change": "delete statement (-> pass)",
-   "original": "self.text = self.text[:start] + w + tail",
-   "mutated": "pass",
-   "run": true
-  },
-  {
-   "id": "L1244_c01",
-   "line": 1244,
-   "op": "c",
-   "change": "1 -> 1+1",
-   "original": "for k, (kind, ch) in enumerate(events, 1):",
-   "mutated": "for k, (kind, ch) in enumerate(events, (1+1)):",
-   "run": true
-  },
-  {
-   "id": "L1244_c02",
-   "line": 1244,
-   "op": "c",
-   "change": "1 -> 1-1",
-   "original": "for k, (kind, ch) in enumerate(events, 1):",
-   "mutated": "for k, (kind, ch) in enumerate(events, (1-1)):",
-   "run": true
-  },
-  {
-   "id": "L1246_b01",
-   "line": 1246,
+   "id": "L1229_b01",
+   "line": 1229,
    "op": "b",
    "change": "and -> or",
    "original": "if f and f.startswith(\"user:\"):",
@@ -5825,8 +5735,8 @@
    "run": true
   },
   {
-   "id": "L1247_c01",
-   "line": 1247,
+   "id": "L1230_c01",
+   "line": 1230,
    "op": "c",
    "change": "5 -> 5+1",
    "original": "self.type_user(f[5:])",
@@ -5834,8 +5744,8 @@
    "run": true
   },
   {
-   "id": "L1247_c02",
-   "line": 1247,
+   "id": "L1230_c02",
+   "line": 1230,
    "op": "c",
    "change": "5 -> 5-1",
    "original": "self.type_user(f[5:])",
@@ -5843,8 +5753,8 @@
    "run": true
   },
   {
-   "id": "L1247_e01",
-   "line": 1247,
+   "id": "L1230_e01",
+   "line": 1230,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.type_user(f[5:])",
@@ -5852,8 +5762,8 @@
    "run": true
   },
   {
-   "id": "L1248_a01",
-   "line": 1248,
+   "id": "L1231_a01",
+   "line": 1231,
    "op": "a",
    "change": "== -> !=",
    "original": "if f == \"key\":",
@@ -5861,8 +5771,8 @@
    "run": true
   },
   {
-   "id": "L1249_c01",
-   "line": 1249,
+   "id": "L1232_c01",
+   "line": 1232,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "self.silent += 1",
@@ -5870,8 +5780,8 @@
    "run": true
   },
   {
-   "id": "L1249_c02",
-   "line": 1249,
+   "id": "L1232_c02",
+   "line": 1232,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "self.silent += 1",
@@ -5879,8 +5789,8 @@
    "run": true
   },
   {
-   "id": "L1250_a01",
-   "line": 1250,
+   "id": "L1233_a01",
+   "line": 1233,
    "op": "a",
    "change": "== -> !=",
    "original": "if f == \"raise\":",
@@ -5888,8 +5798,188 @@
    "run": true
   },
   {
-   "id": "L1252_a01",
-   "line": 1252,
+   "id": "L1235_a01",
+   "line": 1235,
+   "op": "a",
+   "change": "== -> !=",
+   "original": "if f == \"ignored\":",
+   "mutated": "if f != \"ignored\":",
+   "run": true
+  },
+  {
+   "id": "L1237_a01",
+   "line": 1237,
+   "op": "a",
+   "change": "== -> !=",
+   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
+   "mutated": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f != \"partial\" else text",
+   "run": true
+  },
+  {
+   "id": "L1237_c01",
+   "line": 1237,
+   "op": "c",
+   "change": "2 -> 2+1",
+   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
+   "mutated": "w = text[:len(text) // (2+1)] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
+   "run": true
+  },
+  {
+   "id": "L1237_c02",
+   "line": 1237,
+   "op": "c",
+   "change": "2 -> 2-1",
+   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
+   "mutated": "w = text[:len(text) // (2-1)] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
+   "run": true
+  },
+  {
+   "id": "L1237_c03",
+   "line": 1237,
+   "op": "c",
+   "change": "2 -> 2+1",
+   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
+   "mutated": "w = text[:len(text) // 2] + self.text[start + len(text) // (2+1):end] if f == \"partial\" else text",
+   "run": true
+  },
+  {
+   "id": "L1237_c04",
+   "line": 1237,
+   "op": "c",
+   "change": "2 -> 2-1",
+   "original": "w = text[:len(text) // 2] + self.text[start + len(text) // 2:end] if f == \"partial\" else text",
+   "mutated": "w = text[:len(text) // 2] + self.text[start + len(text) // (2-1):end] if f == \"partial\" else text",
+   "run": true
+  },
+  {
+   "id": "L1238_a01",
+   "line": 1238,
+   "op": "a",
+   "change": "== -> !=",
+   "original": "if f == \"autocorrect\":",
+   "mutated": "if f != \"autocorrect\":",
+   "run": true
+  },
+  {
+   "id": "L1241_a01",
+   "line": 1241,
+   "op": "a",
+   "change": "== -> !=",
+   "original": "if f == \"spill\" and tail:",
+   "mutated": "if f != \"spill\" and tail:",
+   "run": true
+  },
+  {
+   "id": "L1241_b01",
+   "line": 1241,
+   "op": "b",
+   "change": "and -> or",
+   "original": "if f == \"spill\" and tail:",
+   "mutated": "if f == \"spill\" or tail:",
+   "run": true
+  },
+  {
+   "id": "L1243_e01",
+   "line": 1243,
+   "op": "e",
+   "change": "delete statement (-> pass)",
+   "original": "self.text = self.text[:start] + w + tail",
+   "mutated": "pass",
+   "run": true
+  },
+  {
+   "id": "L1257_c01",
+   "line": 1257,
+   "op": "c",
+   "change": "1 -> 1+1",
+   "original": "for k, (kind, ch) in enumerate(events, 1):",
+   "mutated": "for k, (kind, ch) in enumerate(events, (1+1)):",
+   "run": true
+  },
+  {
+   "id": "L1257_c02",
+   "line": 1257,
+   "op": "c",
+   "change": "1 -> 1-1",
+   "original": "for k, (kind, ch) in enumerate(events, 1):",
+   "mutated": "for k, (kind, ch) in enumerate(events, (1-1)):",
+   "run": true
+  },
+  {
+   "id": "L1259_b01",
+   "line": 1259,
+   "op": "b",
+   "change": "and -> or",
+   "original": "if f and f.startswith(\"user:\"):",
+   "mutated": "if f or f.startswith(\"user:\"):",
+   "run": true
+  },
+  {
+   "id": "L1260_c01",
+   "line": 1260,
+   "op": "c",
+   "change": "5 -> 5+1",
+   "original": "self.type_user(f[5:])",
+   "mutated": "self.type_user(f[(5+1):])",
+   "run": true
+  },
+  {
+   "id": "L1260_c02",
+   "line": 1260,
+   "op": "c",
+   "change": "5 -> 5-1",
+   "original": "self.type_user(f[5:])",
+   "mutated": "self.type_user(f[(5-1):])",
+   "run": true
+  },
+  {
+   "id": "L1260_e01",
+   "line": 1260,
+   "op": "e",
+   "change": "delete statement (-> pass)",
+   "original": "self.type_user(f[5:])",
+   "mutated": "pass",
+   "run": true
+  },
+  {
+   "id": "L1261_a01",
+   "line": 1261,
+   "op": "a",
+   "change": "== -> !=",
+   "original": "if f == \"key\":",
+   "mutated": "if f != \"key\":",
+   "run": true
+  },
+  {
+   "id": "L1262_c01",
+   "line": 1262,
+   "op": "c",
+   "change": "1 -> 1+1",
+   "original": "self.silent += 1",
+   "mutated": "self.silent += (1+1)",
+   "run": true
+  },
+  {
+   "id": "L1262_c02",
+   "line": 1262,
+   "op": "c",
+   "change": "1 -> 1-1",
+   "original": "self.silent += 1",
+   "mutated": "self.silent += (1-1)",
+   "run": true
+  },
+  {
+   "id": "L1263_a01",
+   "line": 1263,
+   "op": "a",
+   "change": "== -> !=",
+   "original": "if f == \"raise\":",
+   "mutated": "if f != \"raise\":",
+   "run": true
+  },
+  {
+   "id": "L1265_a01",
+   "line": 1265,
    "op": "a",
    "change": "== -> !=",
    "original": "if f == \"drop\":",
@@ -5897,8 +5987,8 @@
    "run": true
   },
   {
-   "id": "L1254_a01",
-   "line": 1254,
+   "id": "L1267_a01",
+   "line": 1267,
    "op": "a",
    "change": "== -> !=",
    "original": "if kind == \"bs\":",
@@ -5906,8 +5996,8 @@
    "run": true
   },
   {
-   "id": "L1255_a01",
-   "line": 1255,
+   "id": "L1268_a01",
+   "line": 1268,
    "op": "a",
    "change": "> -> >=",
    "original": "if self.pos > 0:",
@@ -5915,8 +6005,8 @@
    "run": true
   },
   {
-   "id": "L1256_c01",
-   "line": 1256,
+   "id": "L1269_c01",
+   "line": 1269,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "self.text, self.pos = self.text[:self.pos - 1] + self.text[self.pos:], self.pos - 1",
@@ -5924,8 +6014,8 @@
    "run": true
   },
   {
-   "id": "L1256_c02",
-   "line": 1256,
+   "id": "L1269_c02",
+   "line": 1269,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "self.text, self.pos = self.text[:self.pos - 1] + self.text[self.pos:], self.pos - 1",
@@ -5933,8 +6023,8 @@
    "run": true
   },
   {
-   "id": "L1258_c01",
-   "line": 1258,
+   "id": "L1271_c01",
+   "line": 1271,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "self.text, self.pos = self.text[:self.pos] + ch + self.text[self.pos:], self.pos + 1",
@@ -5942,8 +6032,8 @@
    "run": true
   },
   {
-   "id": "L1258_c02",
-   "line": 1258,
+   "id": "L1271_c02",
+   "line": 1271,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "self.text, self.pos = self.text[:self.pos] + ch + self.text[self.pos:], self.pos + 1",
@@ -5951,8 +6041,8 @@
    "run": true
   },
   {
-   "id": "L1259_c01",
-   "line": 1259,
+   "id": "L1272_c01",
+   "line": 1272,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "self.sent += 1",
@@ -5960,8 +6050,8 @@
    "run": true
   },
   {
-   "id": "L1259_c02",
-   "line": 1259,
+   "id": "L1272_c02",
+   "line": 1272,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "self.sent += 1",
@@ -5969,8 +6059,8 @@
    "run": true
   },
   {
-   "id": "L1264_c01",
-   "line": 1264,
+   "id": "L1277_c01",
+   "line": 1277,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "return [TABLE[layout][s][k] for k in range(47) for s in (0, 1)]",
@@ -5978,8 +6068,8 @@
    "run": true
   },
   {
-   "id": "L1264_c02",
-   "line": 1264,
+   "id": "L1277_c02",
+   "line": 1277,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "return [TABLE[layout][s][k] for k in range(47) for s in (0, 1)]",
@@ -5987,8 +6077,8 @@
    "run": true
   },
   {
-   "id": "L1271_a01",
-   "line": 1271,
+   "id": "L1284_a01",
+   "line": 1284,
    "op": "a",
    "change": "!= -> ==",
    "original": "if len(entries) != 94 or any((not isinstance(e, str)) or \"\\n\" in e for e in entries):",
@@ -5996,8 +6086,8 @@
    "run": true
   },
   {
-   "id": "L1271_b01",
-   "line": 1271,
+   "id": "L1284_b01",
+   "line": 1284,
    "op": "b",
    "change": "or -> and",
    "original": "if len(entries) != 94 or any((not isinstance(e, str)) or \"\\n\" in e for e in entries):",
@@ -6005,8 +6095,8 @@
    "run": true
   },
   {
-   "id": "L1271_b02",
-   "line": 1271,
+   "id": "L1284_b02",
+   "line": 1284,
    "op": "b",
    "change": "or -> and",
    "original": "if len(entries) != 94 or any((not isinstance(e, str)) or \"\\n\" in e for e in entries):",
@@ -6014,8 +6104,8 @@
    "run": true
   },
   {
-   "id": "L1302_c01",
-   "line": 1302,
+   "id": "L1315_c01",
+   "line": 1315,
    "op": "c",
    "change": "300 -> 300+1",
    "original": "CANARY_MS = 300",
@@ -6023,8 +6113,8 @@
    "run": true
   },
   {
-   "id": "L1302_c02",
-   "line": 1302,
+   "id": "L1315_c02",
+   "line": 1315,
    "op": "c",
    "change": "300 -> 300-1",
    "original": "CANARY_MS = 300",
@@ -6032,8 +6122,8 @@
    "run": true
   },
   {
-   "id": "L1303_c01",
-   "line": 1303,
+   "id": "L1316_c01",
+   "line": 1316,
    "op": "c",
    "change": "3 -> 3+1",
    "original": "REARM_PAIRS = 3",
@@ -6041,8 +6131,8 @@
    "run": true
   },
   {
-   "id": "L1303_c02",
-   "line": 1303,
+   "id": "L1316_c02",
+   "line": 1316,
    "op": "c",
    "change": "3 -> 3-1",
    "original": "REARM_PAIRS = 3",
@@ -6050,8 +6140,8 @@
    "run": true
   },
   {
-   "id": "L1305_f01",
-   "line": 1305,
+   "id": "L1318_f01",
+   "line": 1318,
    "op": "f",
    "change": "True -> False",
    "original": "def __init__(self, canary: bool = True):",
@@ -6059,8 +6149,8 @@
    "run": true
   },
   {
-   "id": "L1306_e01",
-   "line": 1306,
+   "id": "L1319_e01",
+   "line": 1319,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.canary = canary",
@@ -6068,8 +6158,8 @@
    "run": true
   },
   {
-   "id": "L1307_e01",
-   "line": 1307,
+   "id": "L1320_e01",
+   "line": 1320,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.ok = True",
@@ -6077,8 +6167,8 @@
    "run": true
   },
   {
-   "id": "L1307_f01",
-   "line": 1307,
+   "id": "L1320_f01",
+   "line": 1320,
    "op": "f",
    "change": "True -> False",
    "original": "self.ok = True",
@@ -6086,8 +6176,8 @@
    "run": true
   },
   {
-   "id": "L1311_e01",
-   "line": 1311,
+   "id": "L1324_e01",
+   "line": 1324,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.pairs = 0                                   # matched pairs since the hook was installed again",
@@ -6095,8 +6185,8 @@
    "run": true
   },
   {
-   "id": "L1312_e01",
-   "line": 1312,
+   "id": "L1325_e01",
+   "line": 1325,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.reinstalled_flag = False",
@@ -6104,8 +6194,8 @@
    "run": true
   },
   {
-   "id": "L1312_f01",
-   "line": 1312,
+   "id": "L1325_f01",
+   "line": 1325,
    "op": "f",
    "change": "False -> True",
    "original": "self.reinstalled_flag = False",
@@ -6113,8 +6203,8 @@
    "run": true
   },
   {
-   "id": "L1313_e01",
-   "line": 1313,
+   "id": "L1326_e01",
+   "line": 1326,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.gap_pending = False",
@@ -6122,8 +6212,8 @@
    "run": true
   },
   {
-   "id": "L1313_f01",
-   "line": 1313,
+   "id": "L1326_f01",
+   "line": 1326,
    "op": "f",
    "change": "False -> True",
    "original": "self.gap_pending = False",
@@ -6131,8 +6221,8 @@
    "run": true
   },
   {
-   "id": "L1317_e01",
-   "line": 1317,
+   "id": "L1330_e01",
+   "line": 1330,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.gap_pending = True",
@@ -6140,8 +6230,8 @@
    "run": true
   },
   {
-   "id": "L1317_f01",
-   "line": 1317,
+   "id": "L1330_f01",
+   "line": 1330,
    "op": "f",
    "change": "True -> False",
    "original": "self.gap_pending = True",
@@ -6149,8 +6239,8 @@
    "run": true
   },
   {
-   "id": "L1318_f01",
-   "line": 1318,
+   "id": "L1331_f01",
+   "line": 1331,
    "op": "f",
    "change": "False -> True",
    "original": "self.ok, self.reason = False, reason",
@@ -6158,8 +6248,8 @@
    "run": true
   },
   {
-   "id": "L1319_f01",
-   "line": 1319,
+   "id": "L1332_f01",
+   "line": 1332,
    "op": "f",
    "change": "False -> True",
    "original": "self.pairs, self.reinstalled_flag = 0, False",
@@ -6167,8 +6257,8 @@
    "run": true
   },
   {
-   "id": "L1324_e01",
-   "line": 1324,
+   "id": "L1337_e01",
+   "line": 1337,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.check(ts)                                   # the watchdog may be late: a waiting event that is already",
@@ -6176,8 +6266,8 @@
    "run": true
   },
   {
-   "id": "L1328_a01",
-   "line": 1328,
+   "id": "L1341_a01",
+   "line": 1341,
    "op": "a",
    "change": "== -> !=",
    "original": "if s == sig and abs(ts - t) <= self.CANARY_MS:   # the oldest event of the other side with this signature",
@@ -6185,8 +6275,8 @@
    "run": true
   },
   {
-   "id": "L1328_a02",
-   "line": 1328,
+   "id": "L1341_a02",
+   "line": 1341,
    "op": "a",
    "change": "<= -> <",
    "original": "if s == sig and abs(ts - t) <= self.CANARY_MS:   # the oldest event of the other side with this signature",
@@ -6194,8 +6284,8 @@
    "run": true
   },
   {
-   "id": "L1328_b01",
-   "line": 1328,
+   "id": "L1341_b01",
+   "line": 1341,
    "op": "b",
    "change": "and -> or",
    "original": "if s == sig and abs(ts - t) <= self.CANARY_MS:   # the oldest event of the other side with this signature",
@@ -6203,8 +6293,8 @@
    "run": true
   },
   {
-   "id": "L1330_b01",
-   "line": 1330,
+   "id": "L1343_b01",
+   "line": 1343,
    "op": "b",
    "change": "remove 'not' (if not)",
    "original": "if not self.ok and self.reinstalled_flag:",
@@ -6212,8 +6302,8 @@
    "run": true
   },
   {
-   "id": "L1330_b02",
-   "line": 1330,
+   "id": "L1343_b02",
+   "line": 1343,
    "op": "b",
    "change": "and -> or",
    "original": "if not self.ok and self.reinstalled_flag:",
@@ -6221,8 +6311,8 @@
    "run": true
   },
   {
-   "id": "L1331_c01",
-   "line": 1331,
+   "id": "L1344_c01",
+   "line": 1344,
    "op": "c",
    "change": "1 -> 1+1",
    "original": "self.pairs += 1",
@@ -6230,8 +6320,8 @@
    "run": true
   },
   {
-   "id": "L1331_c02",
-   "line": 1331,
+   "id": "L1344_c02",
+   "line": 1344,
    "op": "c",
    "change": "1 -> 1-1",
    "original": "self.pairs += 1",
@@ -6239,8 +6329,8 @@
    "run": true
   },
   {
-   "id": "L1332_a01",
-   "line": 1332,
+   "id": "L1345_a01",
+   "line": 1345,
    "op": "a",
    "change": ">= -> >",
    "original": "if self.pairs >= self.REARM_PAIRS:",
@@ -6248,8 +6338,8 @@
    "run": true
   },
   {
-   "id": "L1333_f01",
-   "line": 1333,
+   "id": "L1346_f01",
+   "line": 1346,
    "op": "f",
    "change": "True -> False",
    "original": "self.ok, self.reason = True, None",
@@ -6257,8 +6347,8 @@
    "run": true
   },
   {
-   "id": "L1340_e01",
-   "line": 1340,
+   "id": "L1353_e01",
+   "line": 1353,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self._meet(self.raw_only, self.hook_only, ts, sig)",
@@ -6266,8 +6356,8 @@
    "run": true
   },
   {
-   "id": "L1342_f01",
-   "line": 1342,
+   "id": "L1355_f01",
+   "line": 1355,
    "op": "f",
    "change": "False -> True",
    "original": "def hook_key(self, ts: int, sig, injected: bool = False):",
@@ -6275,8 +6365,8 @@
    "run": true
   },
   {
-   "id": "L1344_b01",
-   "line": 1344,
+   "id": "L1357_b01",
+   "line": 1357,
    "op": "b",
    "change": "and -> or",
    "original": "if self.canary and not injected:",
@@ -6284,8 +6374,8 @@
    "run": true
   },
   {
-   "id": "L1345_e01",
-   "line": 1345,
+   "id": "L1358_e01",
+   "line": 1358,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self._meet(self.hook_only, self.raw_only, ts, sig)",
@@ -6293,8 +6383,8 @@
    "run": true
   },
   {
-   "id": "L1353_a01",
-   "line": 1353,
+   "id": "L1366_a01",
+   "line": 1366,
    "op": "a",
    "change": "> -> >=",
    "original": "if now_ms - ts > self.CANARY_MS:",
@@ -6302,8 +6392,8 @@
    "run": true
   },
   {
-   "id": "L1354_e01",
-   "line": 1354,
+   "id": "L1367_e01",
+   "line": 1367,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self._lose(reason)",
@@ -6311,8 +6401,8 @@
    "run": true
   },
   {
-   "id": "L1358_b01",
-   "line": 1358,
+   "id": "L1371_b01",
+   "line": 1371,
    "op": "b",
    "change": "remove 'not' (not in)",
    "original": "if reason not in (\"timeout\", \"user_input\"):",
@@ -6320,8 +6410,8 @@
    "run": true
   },
   {
-   "id": "L1360_e01",
-   "line": 1360,
+   "id": "L1373_e01",
+   "line": 1373,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self._lose(\"tap_\" + reason)",
@@ -6329,8 +6419,8 @@
    "run": true
   },
   {
-   "id": "L1363_b01",
-   "line": 1363,
+   "id": "L1376_b01",
+   "line": 1376,
    "op": "b",
    "change": "remove 'not' (if not)",
    "original": "if not enabled:",
@@ -6338,8 +6428,8 @@
    "run": true
   },
   {
-   "id": "L1364_e01",
-   "line": 1364,
+   "id": "L1377_e01",
+   "line": 1377,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self._lose(\"poll\")",
@@ -6347,8 +6437,8 @@
    "run": true
   },
   {
-   "id": "L1370_e01",
-   "line": 1370,
+   "id": "L1383_e01",
+   "line": 1383,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.pairs = 0",
@@ -6356,8 +6446,8 @@
    "run": true
   },
   {
-   "id": "L1372_e01",
-   "line": 1372,
+   "id": "L1385_e01",
+   "line": 1385,
    "op": "e",
    "change": "delete statement (-> pass)",
    "original": "self.reinstalled_flag = True",
@@ -6365,8 +6455,8 @@
    "run": true
   },
   {
-   "id": "L1372_f01",
-   "line": 1372,
+   "id": "L1385_f01",
+   "line": 1385,
    "op": "f",
    "change": "True -> False",
    "original": "self.reinstalled_flag = True",
@@ -6374,8 +6464,8 @@
    "run": true
   },
   {
-   "id": "L1374_f01",
-   "line": 1374,
+   "id": "L1387_f01",
+   "line": 1387,
    "op": "f",
    "change": "True -> False",
    "original": "self.ok, self.reason = True, None",
@@ -6383,8 +6473,8 @@
    "run": true
   },
   {
-   "id": "L1378_f01",
-   "line": 1378,
+   "id": "L1391_f01",
+   "line": 1391,
    "op": "f",
    "change": "False -> True",
    "original": "g, self.gap_pending = self.gap_pending, False",

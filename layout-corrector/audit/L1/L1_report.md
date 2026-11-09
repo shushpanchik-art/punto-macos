@@ -59,7 +59,7 @@ the keys that carry their inputs in the row (`render`, `caps`, `caps_all`, `manu
 
 ## Round 2 (open)
 
-Input: the same file **plus `vectors.py`** (the definition of every input) **and section 7.7**; the agent re-implements `lfengine.py`
+Input: **not** the same file (that is the old rev 287 and would not test the fixes of rev 295): rebuilt from the final edition of the specification with `audit/L1/build_l1_input.py`, every code block removed, **plus `vectors.py`** (the definition of every input) **and section 7.7**; the agent re-implements `lfengine.py`
 from the prose and runs the vectors from `vectors.py` translated into the same calls. Expected: the four keys above reachable; every
 remaining guess becomes a finding or disappears. Stop rule: two rounds. It needs a fresh agent run; round 1 was interrupted by the
 usage limit, and the line is not to be called closed until round 2 is done or the product owner accepts round 1.
