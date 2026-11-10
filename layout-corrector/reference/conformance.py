@@ -216,25 +216,25 @@ if os.path.exists("vectors_out.json"):
     with open("vectors_out.json", encoding="utf-8") as fh:
         T(json.load(fh) == json.loads(vectors.render(V)), "vectors_out.json is not what vectors.py generates")
 BASE, OLD, NEW = "Hello ghbdtn ", "ghbdtn", "привет"
-T(len(V["tx"]) == 57, "fault matrix size")
+T(len(V["tx"]) == 66, "fault matrix size")
 for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["tx"]:
     f = L.SimField(text, caps, {(k.split(":")[0], int(k.split(":")[1])): v for k, v in faults.items()})
     res = L.run_transaction(f, OLD, NEW, ahead, **kw)
     T((res.outcome, res.reason, f.text, res.incident, res.quarantine) == (outcome, reason, final, incident, incident), name)
     T(res.outcome in L.OUTCOMES, "outcome vocabulary")
     # invariants of every row (the safety matrix of 13.2):
-    T(res.outcome != "VERIFIED" or f.text[6:12] == NEW, f"{name}: VERIFIED text")
-    T(res.outcome != "RESTORED" or f.text[6:12] == OLD, f"{name}: RESTORED text")
+    T(res.outcome != "VERIFIED" or (NEW in f.text and OLD not in f.text), f"{name}: VERIFIED text")
+    T(res.outcome != "RESTORED" or (OLD in f.text and NEW not in f.text), f"{name}: RESTORED text")
     T(res.outcome != "ABORTED" or f.text.replace("x", "") == text.replace("x", ""), f"{name}: ABORTED must not change the field")
     T(res.incident == (res.outcome in ("RESTORED", "UNRECOVERED")), f"{name}: an incident only after the write began")
     T(f.user == [c for c in f.user if c == "x"], f"{name}: only the scripted user keys")
     if res.method == "M2" and res.outcome == "UNRECOVERED":          # the event-level guarantee holds, the field one does not
-        T(f.sent == (14 if reason == "verify_failed" else 4) and f.user == ["x"] * len(f.user),
+        T(f.sent == (14 if reason == "verify_failed" else int(next(k for k in faults if k.startswith("event:")).split(":")[1]) - 1) and f.user == ["x"] * len(f.user),
           f"{name}: G-EVENT: synthetic events are exactly those of the plan, user keys exactly once")
 
 # Every fault of one phase, applied to every step, never ends in a silent VERIFIED with wrong text, and never
 # crashes (an exhaustive sweep over single faults and pairs of faults, M1 with rollback).
-FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
+FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]), ("caret", 3, ["raise", "back", "forward", "forward2"]),
                ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
                ("read", 3, ["none", "stale", "raise"]),
                ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x", "key"]),
@@ -259,7 +259,7 @@ M1_SWEEP = sweep
 # The same sweep for M2 (the hotkey path): events 1 to 14 are the plan (7 Backspace, 6 characters, the Space).
 # Invariants: a user key seen before the first event means nothing is sent; whatever is written, the user's own
 # keys are never lost or duplicated by the plan (G-EVENT) and a wrong text is never VERIFIED.
-M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
+M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]), ("caret", 3, ["raise", "back", "forward", "forward2"]),
             ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
             ("read", 3, ["none", "stale", "raise"])] + [("event", k, ["raise", "user:x", "drop", "key"]) for k in range(1, 15)]
 for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_SLOTS[:6] + M2_SLOTS[6:9] + M2_SLOTS[-3:], 2)):
@@ -277,19 +277,21 @@ for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_
         T(f.user == ["x"] * len(f.user), "M2 user keys are exactly the scripted ones")
         if faults.get(("read", 1)) in ("user:x", "key"):         # the key came before the first event: nothing may be sent
             T(f.sent == 0 and res.outcome == "ABORTED", f"M2 sweep: key before the write {faults}")
-T((M1_SWEEP, sweep) == (621, 1665), f"sweep size {M1_SWEEP} / {sweep}")
+T((M1_SWEEP, sweep) == (773, 1821), f"sweep size {M1_SWEEP} / {sweep}")
 
 # ---- P10 engine: undo snapshot lifecycle, modes, outcomes, stream gap ---------------------------------------
 scorer = lambda ids: [-3, 9, -2]
 LEX = {"en": {"hello"}, "ru": {"привет"}}
 
 
-def feed(e, text, lay, t0, then_space=True):
+def feed(e, text, lay, t0, then_space=True, verified=True):
     d = None
     for i, k in enumerate(L.keys_from_text(text, lay)):
         e.on_event(L.Event("key", k, lay, t0 + i))
     if then_space:
         d = e.on_event(L.Event("space", None, lay, t0 + len(text)))
+        if verified and d is not None and d.action == "CONVERT":
+            e.on_outcome("VERIFIED")                                 # the replacement transaction ended VERIFIED
     return d
 
 
@@ -298,6 +300,9 @@ d = feed(e, "ghbdtn", "en", 1000)
 T(d.action == "CONVERT" and e.snapshot is not None, "convert makes one snapshot")
 T(e.snapshot.layout == "en" and e.snapshot.direction == "en2ru" and e.snapshot.typed == "ghbdtn", "snapshot content")
 T(e.undo(2000) == "ghbdtn", "undo returns the typed text")
+T(("en2ru", "ghbdtn") not in e.exceptions and e.credit == 3 and e.cool_words == 0 and e.snapshot is not None,
+  "undo: nothing is committed before the outcome of the restoring transaction (L9 F9)")
+e.undo_outcome("VERIFIED")
 T(("en2ru", "ghbdtn") in e.exceptions and e.credit == 0 and e.cool_words == 3 and e.snapshot is None,
   "undo: exception, credit, cool-down, snapshot destroyed")
 T(e.undo(2100) is None, "a second undo does nothing")
@@ -307,7 +312,7 @@ T(d.action == "KEEP" and d.reason == "cooldown", "cool-down suppresses the corre
 e = L.Engine(L.example_cal(), scorer, LEX)
 for i, k in enumerate(L.keys_from_text("ghbdtn", "en")):
     e.on_event(L.Event("key", L.Key(k.id, False, True), "en", i))
-d = e.on_event(L.Event("space", None, "en", 10))
+d = e.on_event(L.Event("space", None, "en", 10)); e.on_outcome("VERIFIED")
 T(d.action == "CONVERT" and e.undo(20) == "GHBDTN", "undo with Caps Lock restores the typed capitals")
 # russian to english
 e = L.Engine(L.example_cal(), lambda ids: [9, -3, -2], LEX)
@@ -471,6 +476,8 @@ for rnd in range(max(1, N // 20_000)):
                 T(e.gate == "ALLOW" and e.mode == "AUTO", "CONVERT outside AUTO or gate ALLOW")
                 T(e.snapshot is not None and len(d.replacement) == len(e.snapshot.keys), "a key was lost or duplicated")
                 T(len(e.snapshot.keys) <= L.MAX_BUF, "snapshot size")
+                T(not e.snapshot.confirmed and e.undo(now) is None, "no undo before the outcome of the replacement")
+                e.on_outcome(fz.choice(("VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "RESTORED", "ABORTED")))
             if ev.kind in ("break", "layout", "gap"):
                 T(e.snapshot is None and e.run == [], f"{ev.kind} must leave no buffer and no snapshot")
         T(len(e.run) <= L.MAX_BUF, "buffer bound")
@@ -485,6 +492,10 @@ for rnd in range(max(1, N // 20_000)):
                     T(now - e.snapshot.created_ms <= L.UNDO_WINDOW_MS, "snapshot age bound after tick")
                     keys, lay = e.snapshot.keys, e.snapshot.layout
                     txt = e.undo(now)
+                    if not e.snapshot.confirmed:
+                        T(txt is None, "no undo before the outcome is VERIFIED")
+                        continue
+                    e.undo_outcome("VERIFIED")
                     T(txt == L.render(keys, lay) and e.snapshot is None,
                       "undo returns the recorded keys rendered with the recorded layout")
                     checked_undo += 1
@@ -557,10 +568,13 @@ cal_edge["lambda_nats"]["network"]["en2ru"]["5-7"] = s_exact + 1e-9
 T(L.decide(G, "en", cal_edge, scorer).action == "KEEP", "margin -1e-9 abstains")
 
 
-def word(e, text, lay, ts):
+def word(e, text, lay, ts, verified=True):
     for k in L.keys_from_text(text, lay):
         e.on_event(L.Event("key", k, lay, ts))
-    return e.on_event(L.Event("space", None, lay, ts))
+    d = e.on_event(L.Event("space", None, lay, ts))
+    if verified and d is not None and d.action == "CONVERT":
+        e.on_outcome("VERIFIED")                                     # the replacement transaction ended VERIFIED
+    return d
 
 
 # buffer bound: 64 keys are decided, the 65th makes the word an overflow
@@ -586,11 +600,12 @@ T(word(e, "yf", "en", 20).reason == "two_key_allow_list", "credit: two keys are 
 # cool-down: three words and 10 s, each edge
 e = L.Engine(L.example_cal(), scorer, LEX)
 T(word(e, "ghbdtn", "en", 1000).action == "CONVERT" and e.undo(2000) == "ghbdtn", "setup cool-down")
+e.undo_outcome("VERIFIED")
 T([word(e, "ytdtyj", "en", 20_000 + 100 * i).reason for i in range(3)] == ["cooldown"] * 3, "three words are suppressed")
 T(word(e, "ytdtyj", "en", 20_300).action == "CONVERT", "the fourth word is decided")
 for ts, reason in ((11_999, "cooldown"), (12_000, "score_above_threshold")):
     e = L.Engine(L.example_cal(), scorer, LEX)
-    word(e, "ghbdtn", "en", 1000); e.undo(2000); e.cool_words = 0
+    word(e, "ghbdtn", "en", 1000); e.undo(2000); e.undo_outcome("VERIFIED"); e.cool_words = 0
     T(word(e, "ytdtyj", "en", ts).reason == reason, f"cool-down time edge at {ts} ms")
 # the clock of every event expires the snapshot
 for dt, alive in ((10_000, True), (10_001, False)):
@@ -697,7 +712,7 @@ f = L.SimField("Hello ghbdtn  tail", M2)
 f.pos = len("Hello ghbdtn ")
 r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
 T((r.outcome, f.text) == ("VERIFIED", "Hello привет  tail"), "M2 inside a text: the verification range ends at the Space, not beyond it")
-f = L.SimField("Hello ghbdtn ", M1_NOROLL, {("caret", 2): "back"})
+f = L.SimField("Hello ghbdtn ", M1_NOROLL, {("caret", 3): "back"})
 r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
 T((r.outcome, r.incident, r.quarantine, f.text) == ("UNRECOVERED", True, True, "Hello привет "),
   "right text with a wrong caret and no rollback is not VERIFIED")
@@ -728,14 +743,14 @@ f = L.SimField("Hello ghbdtn ", M2, {("event", 1): "user:x"})
 r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
 T((r.outcome, r.reason, f.sent, f.user, r.incident, r.quarantine) == ("UNRECOVERED", "verify_failed", 14, ["x"], True, True),
   "M2: a key after the last look is the residual race: UNRECOVERED, quarantine, the plan is still sent exactly once")
-f = L.SimField("Hello ghbdtn ", M1, {("caret", 2): "forward"})
+f = L.SimField("Hello ghbdtn ", M1, {("caret", 3): "forward"})
 r = L.run_transaction(f, OLD, NEW)
 T((r.outcome, r.reason, f.text, r.incident) == ("RESTORED", "verify_failed", "Hello ghbdtn ", True),
   "M1: a caret that moved forward although no user key came is a failure; the rollback restores the field")
 f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x"})
 r = L.run_transaction(f, OLD, NEW)
 T((r.outcome, f.text, f.pos) == ("VERIFIED", "Hello привет x", 14), "M1: one user key may move the caret by one")
-f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x", ("caret", 2): "forward"})
+f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x", ("caret", 3): "forward"})
 r = L.run_transaction(f, OLD, NEW)
 T((r.outcome, r.reason) == ("RESTORED", "verify_failed"), "M1: one user key explains a caret one place forward, not two")
 f = L.SimField("Hello ghbdtn ", M1, {("replace", 1): "spill"})
@@ -874,7 +889,7 @@ T(L.WittenBell().min_count == 1, "Witten-Bell: the default min_count is 1")
 fz = L.SimField(BASE, M1, {("read", 1): "none", ("read", 2): "raise"})     # a failed match reads the field once and aborts
 rz = L.run_transaction(fz, OLD, NEW)
 T((rz.outcome, rz.reason, fz.text, fz.count["read"]) == ("ABORTED", "echo_mismatch", BASE, 1), "a failed match makes one read and nothing else")
-fz = L.SimField(BASE, M1, {("read", 1): "key", ("read", 2): "key", ("caret", 2): "forward2"})
+fz = L.SimField(BASE, M1, {("replace", 1): "key", ("read", 2): "key", ("caret", 3): "forward2"})
 rz = L.run_transaction(fz, OLD, NEW)
 T((rz.outcome, rz.reason, fz.text) == ("VERIFIED", "ok", "Hello привет "), "two keys that type nothing explain a caret two places forward")
 hz = L.HookHealth()
@@ -914,10 +929,245 @@ rb = L.run_transaction(fb, OLD, NEW)
 T((rb.outcome, rb.reason, rb.incident, rb.quarantine) == ("UNRECOVERED", "verify_failed", True, True),
   "B1: text inserted before the range between read and write is UNRECOVERED with an incident, never VERIFIED")
 T(fb.text.startswith("!Hello") and fb.user == [], "B1: the application's own insertion is kept and no user key is invented")
-fb = L.SimField(BASE, M1, {("caret", 2): "back"})
+fb = L.SimField(BASE, M1, {("caret", 3): "back"})
 rb = L.run_transaction(fb, OLD, NEW)
 T((rb.outcome, rb.incident, rb.quarantine, fb.text) == ("RESTORED", True, True, BASE),
   "B2: a caret one place back after the write restores the text and costs a quarantine (conservative)")
+
+
+# ---- P17 findings of the independent review (audit line L9, F1 to F9) -------------------------------------------------------
+# F1: the caret is the anchor of the fragment. A user input event since the freeze (an arrow key, a pointer press) writes nothing.
+TWICE = "ghbdtn ghbdtn "
+
+
+class MoveBeforeCaretRead(L.SimField):
+    """The user moves the caret to the end of the first word before the caret is read; the adapter counts the input event."""
+    def caret(self):
+        if self.count.get("caret", 0) == 0:
+            self.click(7)
+        return super().caret()
+
+
+for caps, mode in ((M1, "AUTO"), (M2, "MANUAL_ONLY")):
+    f1 = MoveBeforeCaretRead(TWICE, caps)
+    r1 = L.run_transaction(f1, OLD, NEW, "", mode=mode)
+    T((r1.outcome, r1.reason, f1.text, r1.incident) == ("ABORTED", "typed_ahead", TWICE, False),
+      f"F1: a counted caret move onto an identical earlier word writes nothing ({mode})")
+f1 = L.SimField(TWICE, M1); f1.click(7)
+T(f1.keys_since(0) == 1 and f1.pos == 7, "F1: a pointer press is an input event of the counter")
+# the caret read twice: a move between the read of the fragment and the write is seen even when nothing counted it
+for k, name in ((2, "forward"), (2, "back")):
+    f1 = L.SimField(BASE, M1, {("caret", k): name})
+    r1 = L.run_transaction(f1, OLD, NEW)
+    T((r1.outcome, r1.reason, f1.text) == ("ABORTED", "echo_mismatch", BASE), f"F1: the caret moves {name} between the read and the write")
+
+
+# F2: M2 is a sequence of events that user input can enter. Whatever arrow keys come between them, it is never VERIFIED
+# with a wrong field, and a verified field is exactly the expected one.
+class ArrowsInM2(L.SimField):
+    def __init__(self, text, caps, moves):
+        super().__init__(text, caps)
+        self.moves = moves                           # event number -> -1 (Left) or +1 (Right)
+
+    def send(self, events):
+        for k, ev in enumerate(events, 1):
+            d = self.moves.get(k)
+            if d:
+                self.pos = max(0, min(len(self.text), self.pos + d))
+                self.silent += 1
+            super().send([ev])
+
+
+m2_runs = 0
+for text, expected in ((BASE, "Hello привет "), ("ghbdtn ", "привет ")):
+    for k in range(1, 15):
+        for j in range(k, 15):
+            for dk, dj in ((-1, 1), (-1, -1), (1, -1), (-1, 0)):
+                f2 = ArrowsInM2(text, M2, {k: dk} | ({j: dj} if dj and j != k else {}))
+                r2 = L.run_transaction(f2, OLD, NEW, "", mode="MANUAL_ONLY")
+                m2_runs += 1
+                T(r2.outcome != "VERIFIED", f"F2: an arrow key between synthetic events is never VERIFIED ({k}, {j}, {dk}, {dj})")
+                T(r2.outcome != "UNRECOVERED" or (r2.incident and r2.quarantine), "F2: UNRECOVERED has incident and quarantine")
+T(m2_runs > 500, "F2: the sweep ran")
+
+# F3: the head of the word. The character before the fragment must be white space, or the field starts there.
+for text, ok_ in (("Hello xghbdtn ", False), ("Hello,ghbdtn ", False), ("Hello1ghbdtn ", False), ("Hello-ghbdtn ", False),
+                  ("Hello ghbdtn ", True), ("ghbdtn ", True), ("Hello\nghbdtn ", True), ("Hello\tghbdtn ", True), ("Hello\u00a0ghbdtn ", True)):
+    f3 = L.SimField(text, M1)
+    r3 = L.run_transaction(f3, OLD, NEW)
+    T((r3.outcome == "VERIFIED") == ok_ and (ok_ or (r3.outcome == "ABORTED" and f3.text == text)), f"F3: head of the word in {text!r}")
+# the word the engine saw has lost its first key (the hook lost it, or the gate opened in the middle of the word)
+f3 = L.SimField(BASE, M1)
+r3 = L.run_transaction(f3, "hbdtn", "ривет", "")
+T((r3.outcome, r3.reason, f3.text) == ("ABORTED", "echo_mismatch", BASE), "F3: a word with a missing first key is never converted")
+f3 = L.SimField(BASE, M2)
+r3 = L.run_transaction(f3, "hbdtn", "ривет", "", mode="MANUAL_ONLY")
+T((r3.outcome, r3.reason, f3.text) == ("ABORTED", "echo_mismatch", BASE), "F3: the same for synthetic input")
+# the engine side: the gate opens in the middle of a word, so the engine sees only the tail
+e3 = L.Engine(L.example_cal(), lambda ids: [-3, 9, -2], LEX)
+e3.set_gate("DENY"); e3.on_event(L.Event("key", L.keys_from_text("g", "en")[0], "en", 1)); e3.set_gate("ALLOW")
+for i, kk in enumerate(L.keys_from_text("hbdtn", "en")):
+    e3.on_event(L.Event("key", kk, "en", 10 + i))
+d3 = e3.on_event(L.Event("space", None, "en", 20))
+T(d3 is not None and d3.action == "CONVERT", "F3: the engine decides on the tail (setup)")
+f3 = L.SimField(BASE, M1)
+T(L.run_transaction(f3, "hbdtn", d3.replacement).outcome == "ABORTED" and f3.text == BASE, "F3: the transaction refuses the tail")
+
+
+# F4: the element. gate() binds the adapter; a focus move at any call never reaches the other element and is never VERIFIED.
+for op, ks in (("gate", (1,)), ("caret", (1, 2, 3)), ("read", (1, 2)), ("replace", (1,))):
+    for k in ks:
+        for caps in (M1,):
+            f4 = L.SimField(BASE, caps, {(op, k): "focus"})
+            r4 = L.run_transaction(f4, OLD, NEW, element="main")
+            T(r4.outcome != "VERIFIED", f"F4: a focus move at {op} {k} is never VERIFIED")
+            T(f4.text in (BASE, "Hello привет ") and f4.user == [], f"F4: the bound field is only what the plan makes it ({op} {k})")
+            T(r4.outcome != "UNRECOVERED" or (r4.incident and r4.quarantine), "F4: UNRECOVERED has incident and quarantine")
+for k in (1, 3, 8, 14):
+    f4 = L.SimField(BASE, M2, {("event", k): "focus"})
+    r4 = L.run_transaction(f4, OLD, NEW, "", mode="MANUAL_ONLY", element="main")
+    T(r4.outcome == "UNRECOVERED" and f4.sent == k - 1 and r4.incident, f"F4: M2, the focus moves before event {k}")
+
+
+class LeakyField(L.SimField):
+    """An adapter that breaks the binding rule of 20.14 but still names the element: the transaction compares the names."""
+    def _chk(self, f=None):
+        if f == "focus":
+            self.focus = "other"
+
+
+f4 = L.SimField(BASE, M1, {("gate", 1): "focus"})
+r4 = L.run_transaction(f4, OLD, NEW, element="main")
+T((r4.outcome, r4.reason, f4.text) == ("ABORTED", "gate_changed", BASE), "F4: the focus moved before the gate: the element of the Space is not the one classified")
+for op, k, want in (("caret", 2, ("ABORTED", "gate_changed")), ("read", 1, None)):
+    f4 = LeakyField(BASE, M1, {(op, k): "focus"})
+    r4 = L.run_transaction(f4, OLD, NEW)
+    T(r4.outcome != "VERIFIED", f"F4: a leaky adapter whose element changes at {op} {k} is never VERIFIED")
+    if want:
+        T((r4.outcome, r4.reason, f4.text) == (want[0], want[1], BASE), "F4: the element is compared before the first write")
+f4 = LeakyField(BASE, M1, {("read", 2): "focus"})
+r4 = L.run_transaction(f4, OLD, NEW)
+T(r4.outcome in ("RESTORED", "UNRECOVERED") and r4.incident, "F4: the element is compared after the write too")
+
+
+# F5: an error of any kind is an error of the adapter.
+class Boom(L.SimField):
+    def __init__(self, text, caps, op, exc, partial=False):
+        super().__init__(text, caps)
+        self.op, self.exc, self.partial = op, exc, partial
+
+    def _boom(self, op):
+        if op == self.op:
+            raise self.exc("boom")
+
+    def caret(self): self._boom("caret"); return super().caret()
+    def mark(self): self._boom("mark"); return super().mark()
+
+    def read(self, a, b):
+        self._boom("read")
+        return super().read(a, b)
+
+    def replace(self, a, b, t):
+        if self.op == "replace" and self.partial:
+            super().replace(a, b, t[:3] + self.text[a + 3:b])
+        self._boom("replace")
+        super().replace(a, b, t)
+
+    def send(self, events):
+        if self.op == "send":
+            super().send(events[:4])
+        self._boom("send")
+
+
+for exc in (OSError, RuntimeError, KeyError, TimeoutError):
+    for op in ("mark", "caret", "read"):
+        f5 = Boom(BASE, M1, op, exc)
+        r5 = L.run_transaction(f5, OLD, NEW)
+        T((r5.outcome, f5.text) == ("ABORTED", BASE), f"F5: {exc.__name__} in {op} before the write: nothing is written")
+    f5 = Boom(BASE, M1, "replace", exc, partial=True)
+    r5 = L.run_transaction(f5, OLD, NEW)
+    T((r5.outcome, r5.incident, r5.quarantine, f5.text) == ("RESTORED", True, True, BASE), f"F5: {exc.__name__} after a partial write is rolled back")
+    f5 = Boom(BASE, M2, "send", exc)
+    r5 = L.run_transaction(f5, OLD, NEW, "", mode="MANUAL_ONLY")
+    T((r5.outcome, r5.incident, r5.quarantine) == ("UNRECOVERED", True, True), f"F5: {exc.__name__} in the middle of M2 is reported")
+
+
+# F6: one character on each side of the fragment is compared before and after.
+class Neighbour(L.SimField):
+    def __init__(self, text, caps, side):
+        super().__init__(text, caps)
+        self.side = side
+
+    def replace(self, start, end, text):
+        super().replace(start, end, text)
+        i = start - 1 if self.side == "before" else end + 1
+        self.text = self.text[:i] + "#" + self.text[i + 1:]
+
+
+for side, text, pos in (("before", "Hello, ghbdtn ", 14), ("after", "Hello ghbdtn  and more", 13)):
+    f6 = Neighbour(text, M1, side); f6.pos = pos
+    r6 = L.run_transaction(f6, OLD, NEW)
+    T(r6.outcome == "RESTORED" and r6.incident and "привет" not in f6.text, f"F6: damage {side} the fragment is seen")
+f6 = L.SimField("Hello ghbdtn  and more", M1); f6.pos = 13
+r6 = L.run_transaction(f6, OLD, NEW)
+T((r6.outcome, f6.text) == ("VERIFIED", "Hello привет  and more"), "F6: text after the caret is kept and the replacement is verified")
+f6 = L.SimField("Hello ghbdtn  and more", M1, {("replace", 1): "user:x"}); f6.pos = 13
+r6 = L.run_transaction(f6, OLD, NEW)
+T((r6.outcome, f6.text) == ("VERIFIED", "Hello привет x and more"), "F6: a user key typed at the caret during the write is not damage")
+
+# F7: the snapshot and the run credit belong to a VERIFIED replacement.
+e7 = L.Engine(L.example_cal(), scorer, LEX)
+d7 = feed(e7, "ghbdtn", "en", 1000, verified=False)
+T(d7.action == "CONVERT" and e7.undo(1500) is None and e7.credit == 0, "F7: before its outcome a conversion has no undo and no credit")
+e7.on_outcome("VERIFIED")
+T(e7.credit == 3 and e7.undo(1600) == "ghbdtn", "F7: VERIFIED confirms the snapshot and earns the credit")
+e7 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e7, "ghbdtn", "en", 1000, verified=False); e7.on_outcome("ABORTED")
+T(e7.credit == 0 and e7.snapshot is None, "F7: an ABORTED conversion leaves no credit that the next word could use")
+e7.on_event(L.Event("key", L.keys_from_text("y", "en")[0], "en", 2000))
+T(e7.credit == 0 and e7.after_switch is False, "F7: no state is carried to the next word")
+e7 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e7, "ghbdtn", "en", 1000, verified=False)
+for i in range(5):
+    e7.on_event(L.Event("key", L.Key(i), "en", 1010 + i))                    # typed ahead while the transaction runs
+e7.on_outcome("VERIFIED")
+T(e7.snapshot.after == 5, "F7: the keys typed during the transaction age the snapshot")
+
+# F8: an incident stops the engine for the application until it is released.
+e8 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e8, "ghbdtn", "en", 1000, verified=False); e8.on_outcome("UNRECOVERED", quarantine=True)
+T(e8.quarantined and e8.snapshot is None and e8.credit == 0 and e8.run == [], "F8: an incident empties the state")
+T(feed(e8, "ghbdtn", "en", 2000) is None and e8.run == [], "F8: nothing is recorded or decided under quarantine")
+e8.set_gate("DENY"); e8.set_gate("ALLOW"); e8.set_mode("OFF"); e8.set_mode("AUTO")
+T(e8.quarantined and feed(e8, "ghbdtn", "en", 3000) is None, "F8: a gate or mode change does not lift the quarantine")
+e8.release_quarantine()
+T(not e8.quarantined and feed(e8, "ghbdtn", "en", 4000).action == "CONVERT", "F8: the explicit release lifts it")
+e8 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e8, "ghbdtn", "en", 1000, verified=False); e8.on_outcome("RESTORED", quarantine=True)
+T(e8.quarantined, "F8: RESTORED with an incident is quarantined too")
+res8 = L.run_transaction(L.SimField(BASE, M1, {("replace", 1): "raise"}), OLD, NEW)
+e8 = L.Engine(L.example_cal(), scorer, LEX); feed(e8, "ghbdtn", "en", 1000, verified=False); e8.on_outcome(res8.outcome, res8.quarantine)
+T(e8.quarantined, "F8: the flag of the TxResult reaches the engine")
+
+# F9: the undo commits only when the restoring transaction is VERIFIED.
+for oc, kept, learned in (("VERIFIED", False, True), ("ABORTED", True, False), ("RESTORED", True, False), ("UNRECOVERED", False, False)):
+    e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
+    T(e9.undo(2000) == "ghbdtn", "F9 setup")
+    e9.undo_outcome(oc, quarantine=(oc == "UNRECOVERED"))
+    T((e9.snapshot is not None) == kept and (("en2ru", "ghbdtn") in e9.exceptions) == learned, f"F9: undo ended {oc}")
+    T((e9.cool_words == 3) == learned and (e9.credit == 3) == kept, f"F9: cool-down and credit after {oc}")
+    T(e9.undo(2100) == ("ghbdtn" if kept else None), f"F9: a second chord after {oc}")
+    T(e9.quarantined == (oc == "UNRECOVERED"), f"F9: quarantine after {oc}")
+raises(ValueError, lambda: L.Engine(L.example_cal(), scorer, LEX).undo_outcome("MAYBE"), "F9: outcome vocabulary of the undo")
+e9 = L.Engine(L.example_cal(), scorer, LEX); e9.undo_outcome("VERIFIED")
+T(e9.exceptions == set(), "F9: an outcome without an undo changes nothing")
+e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000); e9.undo(2000); e9.on_event(L.Event("break"))
+e9.undo_outcome("VERIFIED")
+T(("en2ru", "ghbdtn") in e9.exceptions and e9.snapshot is None, "F9: a verified undo is learned even if a break came meanwhile")
+
+# P3 privacy of the representation (RT-17): the default repr of a snapshot never shows the typed word.
+e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
+T("ghbdtn" not in repr(e9.snapshot) and "привет" not in repr(e9.snapshot) and "Key(" not in repr(e9.snapshot), "P-1: repr of the snapshot holds no text")
 
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

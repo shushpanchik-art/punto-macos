@@ -10,7 +10,7 @@
  F11 exception list has no 10,000-entry limit and no LRU (13.3)
 """
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 import random
 
@@ -60,9 +60,9 @@ e = new_engine()
 d = word(e, "ghbdtn", t0=1000)
 f = L.SimField("ghbdtn ", M1, {("replace", 1): "partial"})
 r = L.run_transaction(f, "ghbdtn", d.replacement)
-e.on_outcome(r.outcome)
+e.on_outcome(r.outcome, r.quarantine)
 d2 = word(e, "ytdtyj", t0=2000)
-print("   outcome", r.outcome, "quarantine flag", r.quarantine, "| engine.mode =", e.mode, "| next word decision:", d2.action, "(a second transaction would start on a quarantined application)")
+print("   outcome", r.outcome, "quarantine flag", r.quarantine, "| engine.mode =", e.mode, "| next word decision:", d2, "| engine.quarantined =", e.quarantined, "(a second transaction would start on a quarantined application)")
 
 print("== F8: layout change seen only in key.layout")
 e = new_engine()

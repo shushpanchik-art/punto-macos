@@ -81,7 +81,10 @@ def build():
     E = L.Engine(cal, sc1, lex)
     def word(txt, lay, t0):
         for i,k in enumerate(K(txt, lay)): E.on_event(L.Event("key", k, lay, t0+i*100))
-        return E.on_event(L.Event("space", None, lay, t0+len(txt)*100+50))
+        d = E.on_event(L.Event("space", None, lay, t0+len(txt)*100+50))
+        if d is not None and d.action == "CONVERT":
+            E.on_outcome("VERIFIED")                      # every replacement of the trace ends VERIFIED (20.14)
+        return d
     tr = []
     for txt, t0 in [("ghbdtn",0),("z",1000),("ntcn",2000),("vbh",3000),("ntcn",4000),("ntcn",5000)]:
         st = "run" if E.credit>0 else ("after_switch" if E.after_switch else "default")
@@ -92,7 +95,7 @@ def build():
     E = L.Engine(cal, sc1, lex)
     tr2 = []
     d = word("ghbdtn","en",0); tr2.append(["ghbdtn", d.action, d.reason, E.credit])
-    E.undo(1000); tr2.append(["(undo at 1000 ms)", "", "", E.credit])
+    E.undo(1000); E.undo_outcome("VERIFIED"); tr2.append(["(undo at 1000 ms)", "", "", E.credit])
     for txt,t0 in [("ghbdtn",2000),("ghbdtn",3000),("ghbdtn",4000),("ghbdtn",5000),("ghbdtn",11500)]:
         d = word(txt,"en",t0); tr2.append([f"{txt} @{t0}", d.action, d.reason, E.credit])
     out["trace_undo"] = tr2
@@ -173,16 +176,28 @@ def build():
                        for kid in (0, 5, 13, 23, 24, 25, 30, 35, 36, 44, 45, 46)
                        for sh, cp in ((False, False), (True, False), (False, True), (True, True))]
     # ---- V16 undo snapshot lifecycle (13.3, 13.4)
-    def fresh(layout="en", t0=1000, word_="ghbdtn", caps=False):
+    def fresh(layout="en", t0=1000, word_="ghbdtn", caps=False, verified=True):
         e = L.Engine(cal, (lambda ids: [-3, 9, -2]) if layout == "en" else (lambda ids: [9, -3, -2]), lex)
         for i, k in enumerate(K(word_, layout)):
             e.on_event(L.Event("key", L.Key(k.id, k.shift, caps), layout, t0 + i))
         d = e.on_event(L.Event("space", None, layout, t0 + len(word_)))
+        if verified and d.action == "CONVERT":
+            e.on_outcome("VERIFIED")                      # the replacement transaction ended VERIFIED (20.14)
         return e, d, t0 + len(word_)
     ul = []
     e, d, ts = fresh(); ul.append(["convert", d.action, d.replacement, e.snapshot is not None])
-    r = e.undo(ts + 500); ul.append(["undo after 500 ms", r, sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None])
+    r = e.undo(ts + 500); ul.append(["undo chord, before its outcome", r, sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None])
+    e.undo_outcome("VERIFIED"); ul.append(["undo after 500 ms, VERIFIED", sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None])
     ul.append(["second undo", e.undo(ts + 600)])
+    for oc in ("ABORTED", "RESTORED", "UNRECOVERED"):
+        e, d, ts = fresh(); e.undo(ts + 500); e.undo_outcome(oc, oc == "UNRECOVERED")
+        ul.append([f"undo ended {oc}", sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None, e.undo(ts + 600), e.quarantined])
+    e, d, ts = fresh(verified=False); ul.append(["undo before the conversion is VERIFIED", e.undo(ts + 5), e.credit, e.snapshot is not None])
+    e.on_outcome("ABORTED"); ul.append(["conversion ended ABORTED", e.undo(ts + 6), e.credit, e.snapshot is not None])
+    e, d, ts = fresh(verified=False); ul.append(["credit before the outcome", e.credit]); e.on_outcome("VERIFIED"); ul.append(["credit after VERIFIED", e.credit])
+    e, d, ts = fresh(); e.on_outcome("UNRECOVERED", True)
+    ul.append(["incident: engine records nothing", e.quarantined, e.on_event(L.Event("key", L.Key(5), "en", ts + 9)), len(e.run)])
+    e.release_quarantine(); e.on_event(L.Event("key", L.Key(5), "en", ts + 10)); ul.append(["after release", e.quarantined, len(e.run)])
     e, d, ts = fresh(); ul.append(["undo at exactly 10000 ms", e.undo(ts + 10000)])
     e, d, ts = fresh(); ul.append(["undo at 10001 ms", e.undo(ts + 10001)])
     for n_after in (100, 101):
@@ -221,7 +236,7 @@ def build():
         ("m1 ok", M1, B, {}, "", {}, "VERIFIED", "ok", C, False),
         ("m1 ok with typed-ahead keys", M1, B + "ab", {}, "ab", {}, "VERIFIED", "ok", "Hello привет ab", False),
         ("m1 ok, the application has not shown the last typed-ahead key", M1, B + "a", {}, "ab", {}, "VERIFIED", "ok", "Hello привет a", False),
-        ("m1 user key lands before the range is read", M1, B, {"read:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m1 user key lands before the range is read: nothing is written", M1, B, {"read:1": "user:x"}, "", {}, "ABORTED", "typed_ahead", "Hello ghbdtn x", False),
         ("m1 user key lands just before the write", M1, B, {"replace:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
         ("too many typed-ahead keys", M1, B + "abcd", {}, "abcd", {}, "ABORTED", "typed_ahead", B + "abcd", False),
         ("context break", M1, B, {}, "", {"context_break": True}, "ABORTED", "context_break", B, False),
@@ -242,7 +257,7 @@ def build():
         ("write silently ignored", M1, B, {"replace:1": "ignored"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("read-back differs", M1, B, {"read:2": "stale"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("read-back times out", M1, B, {"read:2": "raise"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("caret ends up before its expected place", M1, B, {"caret:2": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("caret ends up before its expected place", M1, B, {"caret:3": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("partial write and the rollback fails", M1, B, {"replace:1": "partial", "replace:2": "raise"}, "", {}, "UNRECOVERED", "write_error", "Hello приdtn ", True),
         ("autocorrect and the rollback is ignored", M1, B, {"replace:1": "autocorrect", "replace:2": "ignored"}, "", {}, "UNRECOVERED", "verify_failed", "Hello приве? ", True),
         ("no rollback capability, partial write", M1N, B, {"replace:1": "partial"}, "", MAN, "UNRECOVERED", "write_error", "Hello приdtn ", True),
@@ -257,24 +272,33 @@ def build():
         ("m2 synthetic event times out", M2, B, {"event:5": "raise"}, "", MAN, "UNRECOVERED", "write_error", "Hello ghb", True),
         ("m2 user key while the range is read: nothing is sent", M2, B, {"read:1": "user:x"}, "", MAN, "ABORTED", "typed_ahead", B + "x", False),
         ("m2 user key before the first synthetic event: the race that stays", M2, B, {"event:1": "user:x"}, "", MAN, "UNRECOVERED", "verify_failed", "Hello gпривет ", True),
-        ("m1 caret forward although no user key came", M1, B, {"caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 caret forward although no user key came", M1, B, {"caret:3": "forward"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("m1 one user key during the read-back moves the caret by one", M1, B, {"read:2": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
-        ("m1 one user key does not explain a caret two forward", M1, B, {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B + "x", True),
+        ("m1 one user key does not explain a caret two forward", M1, B, {"read:2": "user:x", "caret:3": "forward"}, "", {}, "RESTORED", "verify_failed", B + "x", True),
         ("m1 write damages the Space after the range", M1, B, {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", True),
         ("m1 write damages the Space, a typed-ahead key follows", M1, B + "a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", True),
         ("m1 autocorrect with a typed-ahead key, the rollback restores the fragment", M1, B + "a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", B + "a", True),
         ("m1 a key that types nothing during the read-back is allowed", M1, B, {"read:2": "key"}, "", {}, "VERIFIED", "ok", C, False),
-        ("m1 one key may explain a caret one place forward", M1, B, {"read:2": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
-        ("m1 one key does not explain a caret behind its place", M1, B, {"read:2": "key", "caret:2": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("m1 one typed key and a caret one place back is still inside the window", M1, B, {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m1 one key may explain a caret one place forward", M1, B, {"read:2": "key", "caret:3": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 one key does not explain a caret behind its place", M1, B, {"read:2": "key", "caret:3": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 one typed key and a caret one place back is still inside the window", M1, B, {"read:2": "user:x", "caret:3": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
         ("m2 a key that types nothing while the range is read: nothing is sent", M2, B, {"read:1": "key"}, "", MAN, "ABORTED", "typed_ahead", B, False),
-        ("m2 a key that types nothing between synthetic events", M2, B, {"event:3": "key"}, "", MAN, "VERIFIED", "ok", C, False),
-        ("m1 a key during the write explains a caret one place forward", M1, B, {"replace:1": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
-        ("m1 a key during the write does not explain a caret two places forward", M1, B, {"replace:1": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("m1 a key during the read-back does not explain a caret two places forward", M1, B, {"read:2": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("m2 a key between synthetic events explains a caret one place forward", M2, B, {"event:3": "key", "caret:2": "forward"}, "", MAN, "VERIFIED", "ok", C, False),
-        ("m2 a key between synthetic events does not explain a caret two places forward", M2, B, {"event:3": "key", "caret:2": "forward2"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
-        ("m2 the synthetic events are not user keys: a caret ahead without any user key fails", M2, B, {"caret:2": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 a key that types nothing between synthetic events is not verified", M2, B, {"event:3": "key"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m1 a key during the write explains a caret one place forward", M1, B, {"replace:1": "key", "caret:3": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 a key during the write does not explain a caret two places forward", M1, B, {"replace:1": "key", "caret:3": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 a key during the read-back does not explain a caret two places forward", M1, B, {"read:2": "key", "caret:3": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m2 a key between synthetic events is never verified, whatever the caret", M2, B, {"event:3": "key", "caret:3": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 a key between synthetic events does not explain a caret two places forward", M2, B, {"event:3": "key", "caret:3": "forward2"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 the synthetic events are not user keys: a caret ahead without any user key fails", M2, B, {"caret:3": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m1 the caret moves between the read and the write: nothing is written", M1, B, {"caret:2": "forward"}, "", {}, "ABORTED", "echo_mismatch", B, False),
+        ("m1 a key that types nothing (an arrow) before the first write: nothing is written", M1, B, {"read:1": "key"}, "", {}, "ABORTED", "typed_ahead", B, False),
+        ("m1 the word has a head: a letter before it", M1, "Hello xghbdtn ", {}, "", {}, "ABORTED", "echo_mismatch", "Hello xghbdtn ", False),
+        ("m1 the word starts the field", M1, "ghbdtn ", {}, "", {}, "VERIFIED", "ok", "привет ", False),
+        ("m1 the word follows a line feed", M1, "Hello\nghbdtn ", {}, "", {}, "VERIFIED", "ok", "Hello\nпривет ", False),
+        ("m1 the focus moves before the read: nothing is read or written", M1, B, {"read:1": "focus"}, "", {}, "ABORTED", "adapter_error", B, False),
+        ("m1 the focus moves just before the write: not written, no rollback", M1, B, {"replace:1": "focus"}, "", {}, "UNRECOVERED", "write_error", B, True),
+        ("m1 the focus moves before the read-back", M1, B, {"read:2": "focus"}, "", {}, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 the focus moves between synthetic events", M2, B, {"event:3": "focus"}, "", MAN, "UNRECOVERED", "write_error", "Hello ghbdt", True),
     ]
     tx = []
     for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in FM:

@@ -4,7 +4,7 @@ An application that touches it as a side effect of the write (smart-quote / auto
 a collaborative merge) produces a VERIFIED outcome with a damaged document.  RT-4 counts that as a 'silent corruption'.
 Run: python3 attack_neighbour_damage.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}

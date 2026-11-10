@@ -12,7 +12,7 @@
          zeros (13.4).  A native implementation must do it; nothing in the reference tests it.
 Run: python3 attack_privacy.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 scorer = lambda ids: [-3, 9, -2]

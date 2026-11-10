@@ -11,7 +11,7 @@ in the FIELD started earlier.
  (c) HookHealth: the hook lost the first key; the canary has not fired at the Space (word typed in < 300 ms)
 Run: python3 attack_gate_midword.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}

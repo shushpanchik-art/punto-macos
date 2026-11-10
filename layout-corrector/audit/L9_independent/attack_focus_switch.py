@@ -10,7 +10,7 @@ step 5 reads that other element back.  13.2 promises 'nothing outside the fragme
      the tool must not read text it is not allowed to read; RT-2).
 Run: python3 attack_focus_switch.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}
@@ -25,6 +25,9 @@ class TwoFields(L.SimField):
         self.B = [b_text, len(b_text)]
         self.b_secure, self.switch_after_read, self.reads_of_secret = b_secure, switch_after_read, 0
         self.on_b = False
+
+    def element(self):
+        return "B" if self.on_b else "A"       # the contract of 20.14: a comparable identity of the focused element
 
     def _swap(self):
         a_state = (self.text, self.pos)

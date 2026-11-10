@@ -5,7 +5,7 @@ word in the field, the tail is converted and the result is VERIFIED, leaving a h
      first printable key after a Space or a break'.
 Run: python3 attack_word_head.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}

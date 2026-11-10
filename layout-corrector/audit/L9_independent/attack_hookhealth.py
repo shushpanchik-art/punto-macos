@@ -11,7 +11,7 @@ happened; no false alarm when every event meets its twin within 300 ms.  (2) tar
          MANUAL_ONLY lasts until the user re-enables AUTO' is not in the class and not in engine_mode (no fact for it).
 Run: python3 attack_hookhealth.py [runs=20000]"""
 import sys, os, random
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 runs = int(sys.argv[1]) if len(sys.argv) > 1 else 20000

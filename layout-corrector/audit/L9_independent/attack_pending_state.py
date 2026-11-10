@@ -12,7 +12,7 @@ earned by a conversion.  In the reference code the credit and the snapshot exist
  (4) an exception that is not an AdapterError between decision and outcome leaves the snapshot and the credit alive.
 Run: python3 attack_pending_state.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}
@@ -35,13 +35,16 @@ print("(1)+(2) A pending, B decided meanwhile, then A is ABORTED")
 e = L.Engine(L.example_cal(), scorer, {})
 dA = word(e, "ghbdtn", 1000)                                   # CONVERT, credit := 3, snapshot A
 dB = word(e, "ytghbdtn", 1100)                                 # decided while A's transaction has not ended
-print("   A:", dA.action, "| B:", dB.action, dB.reason, "(B used the run prior: engine.credit was", 3, "from A)")
+print("   A:", dA.action, "| B:", dB.action, dB.reason, "| engine.credit while A has no outcome:", e.credit)
 fieldB = L.SimField("ghbdtn ytghbdtn ", M1)                    # the user typed A, then B; A was never converted (aborted)
 e.on_outcome("ABORTED")                                         # outcome of A arrives (typed_ahead abort) after B's decision
 print("   after on_outcome(ABORTED of A): snapshot of B =", e.snapshot, "credit =", e.credit)
-rB = L.run_transaction(fieldB, "ytghbdtn", dB.replacement)
-e.on_outcome(rB.outcome)
-print("   B's transaction:", rB.outcome, "field=%r" % fieldB.text, "| undo chord ->", e.undo(1500))
+if dB.replacement is None:
+    print("   B is KEEP (%s): it did not use a run prior that A never earned (closed by 20.7 since rev 306)" % dB.reason)
+else:
+    rB = L.run_transaction(fieldB, "ytghbdtn", dB.replacement)
+    e.on_outcome(rB.outcome)
+    print("   B's transaction:", rB.outcome, "field=%r" % fieldB.text, "| undo chord ->", e.undo(1500))
 
 print("(3) undo before the outcome")
 e = L.Engine(L.example_cal(), scorer, {})

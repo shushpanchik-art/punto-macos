@@ -13,7 +13,7 @@ Usage: python3 attack_fuzz_transaction.py [runs=60000] [seed=1]
 Environment faults the specification itself excludes from G-FIELD (an application that changes text OUTSIDE the
 fragment, 'neighbour') are counted separately, see attack_neighbour_damage.py."""
 import sys, os, random, collections
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = frozenset({L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK})
@@ -62,6 +62,8 @@ class CellField(L.Adapter):
             self.keys += 1
         elif op == "click" and self.click_ok:
             self.pos = r.randrange(len(self.cells) + 1)
+            if os.environ.get("UNCOUNTED_CLICKS") != "1":
+                self.keys += 1                                   # contract of 20.14: the adapter counts a pointer press
         elif op == "bs" and self.pos > 0:
             self._user_delete(self.pos - 1)
             self.pos -= 1
@@ -162,7 +164,10 @@ class CellField(L.Adapter):
         return False
 
     def mark(self):
-        self._env()
+        # No environment event inside mark(): an input event that arrives in the instant between the last event the engine
+        # processed and the freeze is the documented residual R-1 (13.2): the hook thread and the worker are two threads.
+        if os.environ.get("EVENTS_IN_MARK") == "1":
+            self._env()
         return self.keys
 
     def keys_since(self, m):

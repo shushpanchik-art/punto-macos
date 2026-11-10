@@ -9,7 +9,7 @@ Oracle (independent of the engine): the number of characters in the field equals
 (every word was typed on one layout, so a mixed token is a half-converted word made by the tool).
 Usage: python3 attack_pipeline_fuzz.py [words=20000] [seed=1] [perturb=1]"""
 import sys, os, random, collections
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}

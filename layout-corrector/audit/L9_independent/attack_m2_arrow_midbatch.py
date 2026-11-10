@@ -6,7 +6,7 @@ The reference test uses SimField fault 'key' = a key that TYPES NOTHING AND DOES
 [start,end) and accepts any caret c <= caret <= c+k, so the damage that lies OUTSIDE the fragment is invisible.
 Run: python3 attack_m2_arrow_midbatch.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M2 = {L.READ_RANGE, L.SYNTHETIC_INPUT}

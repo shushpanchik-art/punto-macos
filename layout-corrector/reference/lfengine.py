@@ -468,6 +468,11 @@ class UndoSnapshot:
     typed: str                  # the case-folded core as typed: the key of the exception list
     created_ms: int
     after: int = 0              # printable keys and Spaces typed since the replacement
+    confirmed: bool = False     # set by on_outcome(VERIFIED): until then there is nothing to undo (L9 F7)
+    credit_after: int = 0       # the run credit that a VERIFIED replacement earns
+
+    def __repr__(self):         # never prints the typed word or the keys (13.4; L9 P-1)
+        return f"UndoSnapshot(<{len(self.keys)} keys, {self.direction}, confirmed={self.confirmed}>)"
 
 
 class Engine:
@@ -492,6 +497,8 @@ class Engine:
         self.credit = 0              # run credit 0..RUN_CREDIT_MAX; > 0 selects the 'run' prior
         self.cool_words = 0
         self.cool_until_ms = 0
+        self.quarantined = False     # an incident (13.2, step 6): nothing is recorded until release_quarantine() (L9 F8)
+        self.undoing: Optional[Tuple[UndoSnapshot, int]] = None   # the snapshot of an undo whose outcome is not known yet
 
     def _flush(self):
         self.run, self.run_layout, self.overflow = [], None, False
@@ -533,21 +540,51 @@ class Engine:
 
     def undo(self, now_ms: int) -> Optional[str]:
         """The undo chord (13.3). Returns the text to restore: the recorded keys rendered with the layout recorded
-        with them, never re-derived from the converted text. None when no snapshot is alive (nothing happens).
-        The word joins the exception list, the run credit is lost, the cool-down starts, the snapshot is destroyed."""
+        with them, never re-derived from the converted text. None when no confirmed snapshot is alive (nothing happens,
+        and a conversion whose outcome is not VERIFIED yet has nothing to undo). Nothing is committed here: the exception,
+        the cool-down and the end of the snapshot follow the outcome of the restoring transaction (`undo_outcome`)."""
         self.tick(now_ms)
         s = self.snapshot
-        if s is None:
+        if s is None or not s.confirmed:
             return None
-        self.exceptions.add((s.direction, s.typed))
-        self.credit = 0
-        self.cool_words = COOLDOWN_WORDS
-        self.cool_until_ms = now_ms + COOLDOWN_MS
-        self._drop_snapshot()
+        self.undoing = (s, now_ms)
         return render(s.keys, s.layout)
 
+    def undo_outcome(self, outcome: str, quarantine: bool = False):
+        """Result of the transaction that restored the typed text. VERIFIED: the word joins the exception list, the run
+        credit is lost, the cool-down starts, the snapshot is destroyed. ABORTED or RESTORED: the field still holds the
+        converted text and nothing is committed; the snapshot stays until its own expiry. UNRECOVERED: the text is
+        unknown, the snapshot is destroyed and the incident quarantines the application (L9 F9)."""
+        if outcome not in OUTCOMES:
+            raise ValueError(outcome)
+        u, self.undoing = self.undoing, None
+        if u is None:
+            return
+        s, now_ms = u
+        if outcome == "VERIFIED":
+            self.exceptions.add((s.direction, s.typed))
+            self.credit = 0
+            self.cool_words = COOLDOWN_WORDS
+            self.cool_until_ms = now_ms + COOLDOWN_MS
+            self._drop_snapshot()
+        elif outcome == "UNRECOVERED":
+            self.credit = 0
+            self._drop_snapshot()
+        if quarantine:
+            self._quarantine()
+
+    def _quarantine(self):
+        self.quarantined = True
+        self._flush()
+        self.skip, self.credit, self.after_switch = False, 0, False
+        self._drop_snapshot()
+
+    def release_quarantine(self):
+        """Restart of the application or an explicit re-enable by the user (13.2, step 6)."""
+        self.quarantined = False
+
     def on_event(self, ev: Event) -> Optional[Decision]:
-        if self.gate != GATE_ALLOW or self.mode != "AUTO":
+        if self.gate != GATE_ALLOW or self.mode != "AUTO" or self.quarantined:
             return None                                   # not stored, not counted, not classified
         if ev.ts_ms:
             self.tick(ev.ts_ms)
@@ -556,9 +593,13 @@ class Engine:
         if ev.kind == "key":
             if self.skip:
                 return None
+            if self.snapshot is not None and ev.layout != self.snapshot.layout:
+                self.credit = 0                           # a key of another layout means the layout changed (13.3): no undo
+                self._drop_snapshot()
             if self.run and ev.layout != self.run_layout:
                 self._flush()
                 self.skip, self.credit = True, 0          # a layout change inside a word drops the word
+                self._drop_snapshot()
                 return None
             if not self.run:
                 self.run_layout = ev.layout
@@ -596,14 +637,21 @@ class Engine:
             return self._boundary(ev)
         raise ValueError(ev.kind)
 
-    def on_outcome(self, outcome: str):
-        """Result of the replacement transaction for the last CONVERT (20.14). Only a VERIFIED replacement keeps its
-        undo snapshot and the run credit it earned; any other outcome means the text is the original text."""
+    def on_outcome(self, outcome: str, quarantine: bool = False):
+        """Result of the replacement transaction for the last CONVERT (20.14). Only a VERIFIED replacement creates its
+        undo snapshot (it exists from the decision on, unconfirmed, so that the keys typed meanwhile are counted) and earns
+        its run credit; any other outcome means the text is the original text. `quarantine` is TxResult.quarantine."""
         if outcome not in OUTCOMES:
             raise ValueError(outcome)
-        if outcome != "VERIFIED":
+        s = self.snapshot
+        if outcome == "VERIFIED" and s is not None and not s.confirmed:
+            s.confirmed = True
+            self.credit = s.credit_after
+        elif outcome != "VERIFIED":
             self.credit = 0
             self._drop_snapshot()
+        if quarantine:
+            self._quarantine()
 
     def _boundary(self, ev: Event) -> Optional[Decision]:
         run, layout, overflow, skip = self.run, self.run_layout, self.overflow, self.skip
@@ -622,13 +670,13 @@ class Engine:
         d = decide(run, layout, self.cal, self.scorer, state, self.credit > 0, self.exceptions, self.lexicon, self.kind)
         self.after_switch = False
         if d.action == "CONVERT":
-            # Only a conversion decided WITHOUT the run prior refills the credit: a chain of run-assisted
-            # conversions can never sustain itself (feedback cap).
-            self.credit = RUN_CREDIT_MAX if state != "run" else max(self.credit - 1, 0)
+            # Only a conversion decided WITHOUT the run prior refills the credit, and only when it is VERIFIED (on_outcome):
+            # a chain of run-assisted conversions can never sustain itself (feedback cap).
+            credit_after = RUN_CREDIT_MAX if state != "run" else max(self.credit - 1, 0)
             target = OTHER_LAYOUT[layout]
             core = candidate(run, target).core
             self.snapshot = UndoSnapshot(tuple(run), layout, f"{layout}2{target}", render(core, layout).casefold(),
-                                         ev.ts_ms)    # one snapshot: an older one is replaced
+                                         ev.ts_ms, credit_after=credit_after)    # one snapshot: an older one is replaced
         elif d.reason in EVIDENCE_KEEP:
             self.credit = 0
         return d
@@ -1055,8 +1103,11 @@ class Adapter:
     def replace(self, start: int, end: int, text: str) -> None: raise NotImplementedError   # M1, one operation
     def send(self, events: Sequence[Tuple[str, str]]) -> None: raise NotImplementedError    # M2: ("bs","") / ("ch",c)
     def modifier_down(self) -> bool: raise NotImplementedError   # M2 only: Shift, Ctrl, Alt or a Windows key is physically down
-    def mark(self) -> int: raise NotImplementedError  # an opaque token: "from now on, count the user's key events"
-    def keys_since(self, mark: int) -> int: raise NotImplementedError   # user key events seen since that token
+    def mark(self) -> int: raise NotImplementedError  # an opaque token: "from now on, count the user's input events"
+    def keys_since(self, mark: int) -> int: raise NotImplementedError   # user input events since that token: every key
+    #   (also one that types nothing: Shift, an arrow, Home) and every pointer button press
+    def element(self) -> object: return None          # identity of the focused element (a comparable token); gate() binds the
+    #   adapter to the element it classified: caret, read, replace and send on any other focused element raise AdapterError
 
 
 @dataclass
@@ -1072,10 +1123,12 @@ TYPED_AHEAD_MAX = 3
 
 
 def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: str = "AUTO",
-                    context_break: bool = False, layout_changed: bool = False) -> TxResult:
+                    context_break: bool = False, layout_changed: bool = False, element: object = None) -> TxResult:
     """The replacement transaction of 13.2 for the word `old` (as typed; the user's Space is already in the field),
     replaced by `new` of the same length. `ahead`: the characters typed after the Space that the engine recorded.
-    The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys."""
+    The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys.
+    `element`: the identity that the runtime took from the adapter when it saw the Space; when it is given, a different
+    focused element at the gate ends the transaction before anything is read (L9 F4)."""
     n = len(old)
     if len(new) != n:
         raise ValueError("a replacement keeps the length")
@@ -1095,16 +1148,19 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
         return TxResult("ABORTED", "modifier_down", method)
     try:
         m = ad.mark()                                    # every user key from here on is counted (13.2, steps 3 to 5)
-    except AdapterError:
+    except Exception:
         return TxResult("ABORTED", "adapter_error", method)
-    # 2 gate
+    # 2 gate; it also binds the adapter to the element that was classified (the contract of 20.14)
     try:
         g = ad.gate()
-    except AdapterError:
+        tok = ad.element()
+    except Exception:
         g = GATE_UNKNOWN
-    if g != GATE_ALLOW:
+    if g != GATE_ALLOW or (element is not None and tok != element):
         return TxResult("ABORTED", "gate_changed", method)
-    # 3 read and match: the range comes from the content, never from remembered offsets
+    # 3 read and match: the range comes from the content, never from remembered offsets. The read window holds the
+    # fragment and one character on each side: the character before it must be white space (or the field starts there),
+    # so a word whose head is missing is never converted (L9 F3), and both neighbours are compared again in step 5 (F6).
     try:
         c = ad.caret()
         found = None
@@ -1112,57 +1168,70 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
             start = c - (n + 1 + a)
             if start < 0:
                 continue
-            t = ad.read(start, start + n + 1 + a)
-            if t is not None and t == old + " " + ahead[:a]:
-                found = (start, a)
+            lo = max(start - 1, 0)
+            t = ad.read(lo, start + n + 1 + a + 1)
+            if t is None:
+                continue
+            h = start - lo
+            if t[h:h + n + 1 + a] == old + " " + ahead[:a] and (h == 0 or t[0].isspace()):
+                found = (start, a, t[:h], t[h + n + 1 + a:][:1])
                 break
-    except AdapterError:
+    except Exception:
         return TxResult("ABORTED", "adapter_error", method)
     if found is None:
         return TxResult("ABORTED", "echo_mismatch", method)
-    start, a = found
+    start, a, head, tail = found
+    lo = max(start - 1, 0)
     end = start + n + 1 + a
     before, after = old + " " + ahead[:a], new + " " + ahead[:a]
-    # 3b the last look before the first write. M2 is a sequence of events that user keys can enter, and it
-    # deletes by count, so a key that arrived since the freeze makes the plan wrong: nothing is written.
-    if method == "M2":
-        try:
-            if ad.keys_since(m) > 0:
-                return TxResult("ABORTED", "typed_ahead", method)
-        except AdapterError:
-            return TxResult("ABORTED", "adapter_error", method)
-    # 4 replace
+    # 3b the last look before the first write. A user input event since the freeze (a key, an arrow, a pointer button)
+    # may have moved the caret before it was read, and in M2 it enters the sequence of events: nothing is written
+    # (L9 F1, F2). The caret and the element are read again for the same reason (F1, F4).
+    try:
+        if ad.keys_since(m) > 0:
+            return TxResult("ABORTED", "typed_ahead", method)
+        if ad.caret() != c:
+            return TxResult("ABORTED", "echo_mismatch", method)
+        if ad.element() != tok:
+            return TxResult("ABORTED", "gate_changed", method)
+    except Exception:
+        return TxResult("ABORTED", "adapter_error", method)
+    # 4 replace; any error, of any kind, after this point is handled as a failed write (L9 F5)
     failed = False
     try:
         if method == "M1":
             ad.replace(start, start + n, new)
         else:
             ad.send([("bs", "")] * (n + 1) + [("ch", ch) for ch in new] + [("ch", " ")])
-    except AdapterError:
+    except Exception:
         failed = True
-    # 5 verify the whole range and the caret. Without user keys the caret is exactly where it was; with k user
-    # keys it may have moved forward by at most k. Backwards, or any other change of the range, is a failure.
+    # 5 verify the whole fragment, the character on each side and the caret. Without user input the caret is exactly where it
+    # was. M1 is one operation and the fragment is checked as a whole, so with k user events it may have moved forward by at
+    # most k; M2 is a sequence of events that user input can enter between, so it is verified only when there was none (F2).
     ok = False
     if not failed:
         try:
-            got = ad.read(start, end)
+            got = ad.read(lo, end + 1)
             cur = ad.caret()
             k = ad.keys_since(m)
-            ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)
-        except AdapterError:
+            same = ad.element() == tok
+            ok = (got is not None and got[:len(head) + len(after)] == head + after
+                  and (k > 0 or got[len(head) + len(after):] == tail)
+                  and same and (cur == c if k == 0 else (method == "M1" and c <= cur <= c + k)))
+        except Exception:
             ok = False
     if ok:
         return TxResult("VERIFIED", "ok", method)
     # 6 mismatch, timeout or error after step 4 began: one rollback attempt (M1 only), then classify what is there
     final: Optional[str] = None
     try:
-        if method == "M1" and ROLLBACK in ad.caps:
+        if method == "M1" and ROLLBACK in ad.caps and ad.element() == tok:
             ad.replace(start, start + n, old)
         final = ad.read(start, end)
-    except AdapterError:
+    except Exception:
         try:
             final = ad.read(start, end)
-        except AdapterError:
+        except Exception:
             final = None
     outcome = classify_outcome(True, before, after, final, False)
     return TxResult(outcome, "write_error" if failed else "verify_failed", method, True, True)
@@ -1179,6 +1248,9 @@ class SimField(Adapter):
       event k (M2 only): 'raise' | 'key' | 'user:<c>' (the user types <c> just before synthetic event k; a documented
                impossibility inside one SendInput call on Windows, possible between CGEventPost calls on macOS)
                | 'drop' (event k is silently not delivered: UIPI, or a partial insertion).
+      'focus' (gate, caret, read, replace, event k): the focus moves to another element just before the call; every call
+               on a bound adapter then raises AdapterError and the other element is never read or written (20.14).
+      click (a method, not a fault): the user moves the caret with the pointer; a pointer press is counted like a key.
       modifiers: True when a modifier key is physically down."""
 
     def __init__(self, text: str, caps, faults=None, gate: str = GATE_ALLOW):
@@ -1189,10 +1261,26 @@ class SimField(Adapter):
         self.sent = 0                     # synthetic events delivered
         self.silent = 0                   # user key events that typed no character (Shift, arrows)
         self.modifiers = False            # a modifier key is physically down
+        self.focus, self.bound = "main", None   # the focused element; gate() binds the adapter to the one it classified
+        self.other_reads = 0              # calls that reached a focused element other than the bound one (must stay 0)
 
     def _hit(self, op: str) -> Optional[str]:
         k = self.count[op] = self.count.get(op, 0) + 1
         return self.faults.get((op, k))
+
+    def click(self, pos: int):
+        """The user moves the caret with the pointer; the adapter counts the press (contract of 20.14)."""
+        self.pos = max(0, min(len(self.text), pos))
+        self.silent += 1
+
+    def _chk(self, f=None):
+        if f == "focus":
+            self.focus = "other"
+        if self.bound is not None and self.focus != self.bound:
+            raise AdapterError("the focus moved to another element")
+
+    def element(self) -> object:
+        return self.focus
 
     def type_user(self, ch: str):
         self.text = self.text[:self.pos] + ch + self.text[self.pos:]
@@ -1203,16 +1291,21 @@ class SimField(Adapter):
         f = self._hit("gate")
         if f == "raise":
             raise AdapterError("gate")
-        return f or self._gate
+        if f == "focus":
+            self.focus = "other"
+        self.bound = self.focus
+        return self._gate if f == "focus" else (f or self._gate)
 
     def caret(self) -> int:
         f = self._hit("caret")
+        self._chk(f)
         if f == "raise":
             raise AdapterError("caret")
         return {"back": -1, "forward": 1, "forward2": 2}.get(f, 0) + self.pos
 
     def read(self, start: int, end: int) -> Optional[str]:
         f = self._hit("read")
+        self._chk(f)
         if f and f.startswith("user:"):
             self.type_user(f[5:])
         if f == "key":
@@ -1226,6 +1319,7 @@ class SimField(Adapter):
 
     def replace(self, start: int, end: int, text: str) -> None:
         f = self._hit("replace")
+        self._chk(f)
         if f and f.startswith("user:"):
             self.type_user(f[5:])
         if f == "key":
@@ -1256,6 +1350,7 @@ class SimField(Adapter):
     def send(self, events: Sequence[Tuple[str, str]]) -> None:
         for k, (kind, ch) in enumerate(events, 1):
             f = self.faults.get(("event", k))
+            self._chk(f)
             if f and f.startswith("user:"):
                 self.type_user(f[5:])
             if f == "key":

@@ -7,7 +7,7 @@
      the run was already flushed; spec 13.5 row 7 wants OFF for that layout.
 Run: python3 attack_engine_fuzz.py [events=400000]"""
 import sys, os, random, collections
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 400000
@@ -53,8 +53,9 @@ for step in range(N):
         e.on_event(L.Event("space", None, "ru", now))          # Space read on the other layout, words typed on en
         e.on_event(L.Event("space", None, "en", now))
     elif x < 0.75:
-        e.undo(now)
-        if e.snapshot is not None:
+        if e.undo(now) is not None:
+            e.undo_outcome("VERIFIED")                    # since F9 the commit follows the outcome of the restoring transaction
+        if e.snapshot is not None and e.snapshot.confirmed:        # an unconfirmed one is a decision without an outcome yet
             viol["snapshot alive after undo"] += 1
     elif x < 0.80:
         e.set_gate(rnd.choice(("DENY", "UNKNOWN"))); 

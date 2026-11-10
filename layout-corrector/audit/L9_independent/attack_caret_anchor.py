@@ -3,7 +3,7 @@ and the read, onto an identical earlier word, makes the transaction convert the 
 Variants: (a) an arrow key (counted by mark, but the counter is only compared with the caret AFTER the move),
 (b) a mouse click (not a key: never counted), (c) M2 with a click.  Run: python3 attack_caret_anchor.py"""
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "work"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "reference"))
 import lfengine as L
 
 M1 = {L.READ_RANGE, L.REPLACE_RANGE, L.READBACK, L.ROLLBACK}
@@ -34,9 +34,10 @@ def run(caps, counted, mode="AUTO"):
 
 
 for label, caps, counted, mode in (("M1 + arrow key (counted)", M1, True, "AUTO"),
-                                   ("M1 + mouse click (not a key)", M1, False, "AUTO"),
-                                   ("M2 + mouse click (not a key)", M2, False, "MANUAL_ONLY"),
+                                   ("M1 + pointer press (counted, contract 20.14)", M1, True, "AUTO"),
+                                   ("M1 + caret move no hook sees (RESIDUAL, 13.2)", M1, False, "AUTO"),
+                                   ("M2 + caret move no hook sees (RESIDUAL, 13.2)", M2, False, "MANUAL_ONLY"),
                                    ("M2 + arrow key (counted)", M2, True, "MANUAL_ONLY")):
     r, f = run(caps, counted, mode)
     wrong = r.outcome == "VERIFIED" and f.text != "ghbdtn привет "
-    print(f"{label:32s} -> {r.outcome:10s} {r.reason:12s} field={f.text!r}  {'<== SILENT WRONG WORD' if wrong else ''}")
+    print(f"{label:32s} -> {r.outcome:10s} {r.reason:12s} field={f.text!r}  {'<== SILENT WRONG WORD (only the documented residual may print this)' if wrong else ''}")
