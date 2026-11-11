@@ -1056,30 +1056,30 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 
 **Replacement transaction.** A CONVERT verdict starts a transaction on the worker thread, with a hard deadline of 250 ms from the Space. Automatic transactions exist only in mode AUTO, which an application reaches only when its adapter has the four capabilities `READ_RANGE`, `REPLACE_RANGE`, `READBACK` and `ROLLBACK` and its support status is AUTO (13.5, 13.7, 13.8). The hotkey (13.3) runs the same transaction in mode MANUAL\_ONLY, where M2 is also allowed. The transaction works on one fragment: the word as typed, the Space that the user typed and the typed-ahead characters. That fragment is matched in step 3, verified in step 5 and rolled back in step 6, and nothing outside it is ever written. The reference model of the transaction, with its fault injection, is section 20.14.
 
-1. **Freeze.** Count `a`, the printable keys typed after the Space so far, and note any other event since the Space. More than 3 such keys, any context break or any layout change aborts with reason `typed_ahead` or `context_break`; the verdict becomes KEEP. With M2 (which runs only with `a = 0`) any typed-ahead key aborts with `typed_ahead`, and a Shift, Ctrl, Alt or Windows key that is physically down aborts with `modifier_down` (13.7). Then take the key counter `m` (`Adapter.mark`): from this moment every user key event is counted, including a key that types nothing (Shift, an arrow, Caps Lock). An adapter that cannot count aborts with `adapter_error`.
-2. **Gate.** Query the gate afresh. Anything but ALLOW, including an error of the query, aborts with `gate_changed`.
-3. **Read and match.** Read the caret `c` and the text before it through the OS text interface; the selection must be empty (an adapter reports a caret only for an empty selection and raises an error otherwise, 13.7). For `a'` from `a` down to 0, read the range of `n + 1 + a'` characters that ends at `c`; the first `a'` for which it equals `old + " " + ahead[:a']` fixes the **fragment**: the word as typed, the Space the user typed and the `a'` typed-ahead characters (`n` is the number of keys in the run). The range to replace is thus fixed from the content, not from remembered offsets. If the text cannot be read, or differs because the application autocorrected, autocompleted or reformatted it, abort with `echo_mismatch`; any other error of the adapter aborts with `adapter_error`.
-   - **3b. Last look (M2 only).** Immediately before the first synthetic event, read the key counter again. M2 deletes by count, so a user key that arrived since the freeze makes the plan wrong: if `keys_since(m) > 0`, abort with `typed_ahead` and send nothing. A key that arrives after this look cannot be detected in advance; it is the residual M2 race described below.
+1. **Freeze.** Count `a`, the printable keys typed after the Space so far, and note any other event since the Space. More than 3 such keys, any context break or any layout change aborts with reason `typed_ahead` or `context_break`; the verdict becomes KEEP. With M2 (which runs only with `a = 0`) any typed-ahead key aborts with `typed_ahead`, and a Shift, Ctrl, Alt or Windows key that is physically down aborts with `modifier_down` (13.7). Then take the key counter `m` (`Adapter.mark`): from this moment every user key event is counted, including a key that types nothing (Shift, an arrow, Caps Lock) and every press of a pointer button. An adapter that cannot count aborts with `adapter_error`.
+2. **Gate.** Query the gate afresh. The query also binds the adapter to the element that it classified and the transaction takes the identity of that element; from then on a call on any other focused element raises an error and touches nothing, and an element that differs from the one the runtime saw at the Space aborts too (20.14, L9 F4). Anything but ALLOW, including an error of the query, aborts with `gate_changed`.
+3. **Read and match.** Read the caret `c` and the text before it through the OS text interface; the selection must be empty (an adapter reports a caret only for an empty selection and raises an error otherwise, 13.7). For `a'` from `a` down to 0, read the range of `n + 1 + a'` characters that ends at `c`; the first `a'` for which it equals `old + " " + ahead[:a']` fixes the **fragment**: the word as typed, the Space the user typed and the `a'` typed-ahead characters (`n` is the number of keys in the run). The range to replace is thus fixed from the content, not from remembered offsets. The read window also holds one character on each side of the fragment (a read past the end of the text returns what exists). The character before the fragment must be white space, or the fragment must start the field; otherwise the word has lost its head (the hook lost its first key, the gate opened in the middle of the word, or the user moved the caret into a word) and the abort is echo\_mismatch, so that a tail such as the end of a word is never converted (L9 F3). If the text cannot be read, or differs because the application autocorrected, autocompleted or reformatted it, abort with `echo_mismatch`; any other error of the adapter aborts with `adapter_error`.
+   - **3b. Last look (M1 and M2).** Immediately before the first write, read the key counter, the caret and the element again. A user input event since the freeze (a key, an arrow, a pointer press) may have moved the caret before step 3 read it, so that the fragment found is an identical earlier word, and M2, which deletes by count, makes a wrong plan of it (L9 F1, F2): if `keys_since(m) > 0`, abort with `typed_ahead` and send nothing. A caret that is not where step 3 read it aborts with echo\_mismatch, and another element with gate\_changed. An event that arrives after this look cannot be detected in advance; it is the residual race described below.
 4. **Replace** exactly the `n` characters of the run by the same keys read on the target layout (`Ghbdtn?` becomes `Привет,`; the Space the user typed is not touched). The new text has the same length as the old, so the caret and any typed-ahead characters stay where they are.
    - **M1, range replace** (the only method of mode AUTO): one operation through the text interface that the application cannot interleave with user keys, then the caret and selection are restored. The range is addressed by the offsets read in step 3. If the application changes the text before the range between that read and the write (an autocomplete or a collaborative edit), the write lands at stale offsets: step 5 detects it, the rollback writes at the same stale offsets, and the outcome is UNRECOVERED with a quarantine, never a silent VERIFIED. This window is short but not zero, and RT-4 measures it per application, as it does for M2. A caret move or a key that types nothing (an arrow key) between the write and the read-back also fails step 5 and costs a quarantine; that is the conservative choice (attacks B1 and B2 of the audit report L9). M1 itself needs the capability `REPLACE_RANGE` (13.7).
    - **M2, tagged synthetic keystrokes** (the hotkey only, never automatic): only when `a' = 0`. Send `n + 1` Backspaces, then the new text and a Space, as tagged Unicode events in one batch (one `SendInput` call on Windows; a sequence of posted events on macOS).
    - The clipboard is not used in the first release.
-5. **Verify the whole fragment and the caret.** Read the fragment back: it must equal `new + " " + ahead[:a']`, so the Space and the typed-ahead characters are checked together with the word. Read the caret and the number `k` of user keys counted since the freeze. If `k = 0` the caret must be exactly where it was (`c`); if `k > 0` it may have moved forward by at most `k` (`c ≤ caret ≤ c + k`). A caret that moved backwards, or forward without a user key to explain it, is a failure, and so is a selection that is no longer empty. A word that is right with a wrong neighbour or a wrong caret is therefore never `VERIFIED`.
+5. **Verify the whole fragment and the caret.** Read the fragment back: it must equal `new + " " + ahead[:a']`, so the Space and the typed-ahead characters are checked together with the word. Read the caret and the number `k` of user keys counted since the freeze. If `k = 0` the caret must be exactly where it was (`c`); if `k > 0` it may have moved forward by at most `k` (`c ≤ caret ≤ c + k`). A caret that moved backwards, or forward without a user key to explain it, is a failure, and so is a selection that is no longer empty. The read-back window also holds the character before and the character after the fragment, and they must be the ones read in step 3 (the one after is not compared when a user key was counted, because that key may have been typed there). M1 is one operation, so the fragment is checked as a whole whatever the user typed; M2 is a sequence of events that user input can enter between, so M2 is VERIFIED only when k = 0 (L9 F2). The element must still be the one classified in step 2. A word that is right with a wrong neighbour or a wrong caret is therefore never `VERIFIED`.
 6. **Outcome.** The transaction ends in exactly one outcome, decided by what is read from the field and never by what the tool meant to write (reference function `classify_outcome`, section 20.14). It compares three texts of the whole fragment: the original, the new one and the one that is read last.
    - `VERIFIED`: step 5 passed.
    - `RESTORED`: an operation failed or step 5 failed after step 4 began, and the whole fragment holds the text the user typed. M1 makes one rollback attempt (it writes the original word back over the same `n` characters and reads the fragment again); a write that changed nothing also ends here.
    - `UNRECOVERED`: anything else, including a fragment that cannot be read and damage outside the `n` written characters (the Space, a typed-ahead key) that the rollback cannot repair. A failed M2 transaction that changed the field ends here, because M2 has no rollback.
    - `ABORTED`: steps 1 to 3 refused, nothing was written.
 
-   Any outcome after step 4 began other than `VERIFIED` is a *replacement incident*: the tool shows one notice, increments `replacement_incident` (a counter, never text) and quarantines the application (gate DENY for it until restart or until the user re-enables it in the settings). After `UNRECOVERED` the notice says that the text in the field may differ from what was typed and that the application's own undo is the way back.
-7. **Record the undo snapshot** (13.3) only for a `VERIFIED` outcome: the original keys with their layout id, in a store that is separate from the word buffer (13.4). For any other outcome the engine drops the snapshot and the run credit (`Engine.on_outcome`, 20.7).
+   Any outcome after step 4 began other than `VERIFIED` is a *replacement incident*: the tool shows one notice, increments `replacement_incident` (a counter, never text) and quarantines the application (gate DENY for it until restart or until the user re-enables it in the settings; the runtime also passes the incident flag to the engine, which stops recording and deciding for that application at once and until release\_quarantine, L9 F8). An error of any kind after step 4 began, not only an error of the adapter, is handled the same way (L9 F5). After `UNRECOVERED` the notice says that the text in the field may differ from what was typed and that the application's own undo is the way back.
+7. **Record the undo snapshot** (13.3) only for a `VERIFIED` outcome: the original keys with their layout id, in a store that is separate from the word buffer (13.4). From the decision on, the snapshot exists only as an unconfirmed record that counts the keys typed meanwhile: it cannot be undone and earns no run credit until on\_outcome(VERIFIED) confirms it, so a word that was never converted can neither be undone nor lend credit to the next word (L9 F7). For any other outcome the engine drops the snapshot and the run credit (`Engine.on_outcome`, 20.7).
 
 **What happens to the user's keys.** Before step 4 they pass through and are never held. With M1 a key typed during steps 3 to 5 lands after the fragment and is unaffected, because the replacement has the same length; the key counter of step 1 explains a caret that moved forward by that key, and a key that lands inside the fragment makes the read-back of step 5 differ, so the rollback applies. M2 is a sequence of separate key events, and its races are different. On Windows one `SendInput` call inserts its events "not interspersed with other keyboard or mouse input events inserted either by the user … or by calls to keybd\_event, mouse\_event, or other calls to SendInput" (Microsoft Learn), so a user key cannot fall inside the batch. A user key can still fall between the read of step 3 and the write of step 4 (the last look of step 3b catches a key that arrived before it, but not one that arrives between that look and the first event of the batch, a window that is short but not zero), a key that is already physically down "might interfere with the events that this function generates", UIPI can block the input without the return value or `GetLastError` saying so, a partial insertion is visible only in the returned count, and the application can change focus or text meanwhile. On macOS a user key can follow any posted event. The tool cannot close these races without holding keys, which it must not do, and a failed M2 transaction can leave the field in a state with no rollback. The race that remains is not hidden: it ends in UNRECOVERED and a quarantine, never in a silent VERIFIED (the reference model puts a user key before each of the 14 events of a six-letter word and checks this, 20.13), and its real frequency, including a held key that repeats, is measured on devices (RT-4, RT-16) and not assumed to be zero. This is the reason for the rule of 13.7: **M2 never runs automatically.** It exists only for the hotkey, where the user chose the moment and has the application's own undo as the way back.
 
 **Two guarantees, stated precisely.**
 
 - **G-EVENT (by design).** The tool never loses, duplicates, holds, delays or replays a physical user key, because the hook only observes (RT-8). The reference model checks this property for the algorithm (invariant I1, 20.13); the delivery of real key events by the operating system is measured on devices (RT-16).
-- **G-FIELD (measured, not absolute).** The only text the tool writes is the replacement of the recorded word. After an automatic replacement the whole fragment (word, Space and typed-ahead keys) holds the new text (`VERIFIED`) or the text the user typed (`RESTORED`). `UNRECOVERED` is possible only when the write and the single rollback both fail, or when the field cannot be read afterwards, or when the write damaged text outside the characters it wrote (the Space, a typed-ahead key) and the rollback cannot repair it; it is always detected or reported, it quarantines the application, and its rate in RT-4 must be 0 in 100,000 replacements per application. The specification gives no unconditional promise about application text, because an application can change its own text at any moment; it promises detection by read-back, one repair attempt, quarantine and a count.
+- **G-FIELD (measured, not absolute).** The only text the tool writes is the replacement of the recorded word. After an automatic replacement the whole fragment (word, Space and typed-ahead keys) holds the new text (`VERIFIED`) or the text the user typed (`RESTORED`). `UNRECOVERED` is possible only when the write and the single rollback both fail, or when the field cannot be read afterwards, or when the write damaged text outside the characters it wrote (the Space, a typed-ahead key) and the rollback cannot repair it; it is always detected or reported, it quarantines the application, and its rate in RT-4 must be 0 in 100,000 replacements per application. The specification gives no unconditional promise about application text, because an application can change its own text at any moment; it promises detection by read-back, one repair attempt, quarantine and a count. Three cases stay outside even that promise, because no counted event and no read can show them (the independent review L9 calls them residual): (R-1) an input event that arrives in the instant between the last event the engine processed and the freeze of step 1, since the hook thread and the worker are two threads; (R-2) a caret move that no hook sees (made by a program, an assistive tool or remote input, without a key or a pointer press that the adapter counts) before step 3, which can make an identical earlier word the fragment that is converted, with the outcome VERIFIED; (R-3) a focus move between the last look of step 3b and the write, which the binding of the adapter to its element (RT-22) closes only as far as the adapter implements it. RT-4 and RT-22 measure the real frequency of each; the reference model can show only a conforming adapter.
 
 ### 13.3 Undo, exceptions and manual control
 
@@ -1095,7 +1095,7 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 
 - **Defaults and conflicts.** Proposed defaults, to be confirmed by the requester (16.3): Windows `Pause`, macOS `⌃⌥⌘Space`. The chord is registered through the OS hotkey interface (`RegisterHotKey` on Windows, `RegisterEventHotKey` on macOS), which keeps it from the application. If registration fails the tool tries the next chord of its fallback list (Windows `Ctrl+Alt+Pause`, `Ctrl+Alt+Space`; macOS `⌃⌥⌘L`, `⌃⌥⌘K`), tells the user which chord is active, and never binds silently to a chord the OS reports as taken. Esc is not bound by default, because it has its own meaning in many applications; "Esc also undoes" is an opt-in setting per application.
 - **Manual conversion of a selection** converts key for key, with no model and no threshold. Direction: a selection with more Cyrillic than Latin letters is read as Russian-layout text and converted to the English layout, otherwise the reverse; a selection with no letters is left unchanged and the user is told. Punctuation goes through the layout table as in 5.3 (`Ghbdtn? Rfr ltkf?` becomes `Привет, Как дела,`). A character that is not on the source layout (emoji, accented letters, other scripts) is copied unchanged, and the length never changes. At most 10,000 characters. The replacement follows the transaction of 13.2 (M1 where the application has REPLACE\_RANGE; otherwise M2, typed over the selection in batches of at most 20 UTF-16 code units, an engineering limit that spike S-7 checks), with its outcomes, the quarantine rule and the verification of 13.2, and afterwards the same range is selected again; if the selection cannot be restored, the caret is placed after the text. The reference function is in section 20.8.
-- **Undo window.** The undo snapshot (13.4) lives for at most 10 seconds and 100 further printable keys and Spaces, whichever comes first. It is destroyed by every context break of 13.2, a manual layout change, a gap in the event stream, a change of the gate or of the mode, the undo itself and the timeout; after that the chord no longer undoes anything.
+- **Undo window.** The undo snapshot (13.4) lives for at most 10 seconds and 100 further printable keys and Spaces, whichever comes first. It is destroyed by every context break of 13.2, a manual layout change, a gap in the event stream, a change of the gate or of the mode, the undo itself and the timeout; after that the chord no longer undoes anything. Undo is a transaction like a conversion (13.2): the exception, the cool-down, the loss of the run credit and the end of the snapshot are committed only when the restoring transaction ends VERIFIED (Engine.undo\_outcome). After ABORTED or RESTORED the field still holds the converted text, nothing is committed and the snapshot lives to the end of its window, so the chord can be pressed again; after UNRECOVERED the snapshot is destroyed and the application is quarantined (L9 F9). A chord pressed before the conversion itself ended VERIFIED does nothing. The restoring transaction accepts at most 3 typed-ahead keys: after more keys the undo ends ABORTED with typed\_ahead, so within the window of 100 further keys the undo is guaranteed only for the first 3, and the notice says that the undo is no longer possible.
 - **Learned exceptions.** One undo of a word adds it (case-folded, with its direction) to a local exception list, as Rekey and KeyboardSwitcher do. Limit: 10,000 entries, least-recently-used eviction, encrypted at rest with the OS key store, with a "clear all" command and export.
 - **Adaptive thresholds.** Not part of the first release (10.6).
 
@@ -1103,7 +1103,7 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 
 - All inference is local. No network call is allowed on the typing path.
 - The **word buffer** lives in memory only, holds at most 64 keys, and is zeroed at every word boundary and context break.
-- The **undo snapshot** (13.3) is the only text-derived state that outlives a word boundary. It is kept in a store that is separate from the word buffer, in memory only, for one converted word of at most 20 keys at a time. It is overwritten with zeros when it ends: at the end of the undo window (10 seconds or 100 further printable keys and Spaces), at every context break, gate change, mode change, manual layout change and gap in the event stream, at the undo itself, and at sleep, lock, logout and exit. It is never logged and never written to a file, and the product's own crash handler does not include it (RT-17).
+- The **undo snapshot** (13.3) is the only text-derived state that outlives a word boundary. It is kept in a store that is separate from the word buffer, in memory only, for one converted word of at most 20 keys at a time. It is overwritten with zeros when it ends: at the end of the undo window (10 seconds or 100 further printable keys and Spaces), at every context break, gate change, mode change, manual layout change and gap in the event stream, at the undo itself, and at sleep, lock, logout and exit. It is never logged (its text representation shows only the number of keys, the direction and whether it is confirmed) and never written to a file, and the product's own crash handler does not include it (RT-17).
 - **Crash dumps.** The product's own crash reports contain stack traces and counters only (AP-7). Memory dumps made by the operating system or enabled by an administrator are outside the product's control; the privacy notice says so, and RT-17 tests the product's own handler.
 - No raw keystrokes, words or screenshots are written to logs. Optional diagnostics contain only counters and reason codes (converted, abstained, guard name, undone), are off by default and are shown to the user before they are enabled.
 - The exception list never leaves the device.
@@ -1157,6 +1157,10 @@ A notice is shown at most once per cause and per 24 hours, and never takes focus
 | RT-19 | The tool MUST run as at most one instance per user session. A second start MUST exit at once (a per-session lock held by the first instance), and when the lock cannot be established the engine MUST stay OFF. Two instances would classify the same word twice and write twice. Test: start two copies, type 1,000 words that are converted; there is exactly one replacement per word and no UNRECOVERED outcome. |
 | RT-20 | Sleep, wake, lock, fast user switching and a secure desktop MUST each empty the word buffer and the undo snapshot and set the gate verdict to UNKNOWN until a fresh verdict arrives. While the session of the user is not the active one the engine MUST NOT record and MUST NOT write. Test: switch the session in the middle of a word and right after a conversion; the returning session has no buffer and no snapshot, and the undo chord does nothing. |
 | RT-21 | A window that shows a remote desktop, a virtual machine or a terminal-server session (the keys are taken in one place and the text lives in another) MUST get the gate verdict DENY or UNKNOWN, never ALLOW, unless the application is in the support matrix (13.8) with its own passing test. Test: type into the client window of a remote-desktop application and of a virtual machine; nothing is recorded and nothing is replaced. |
+| RT-22 | The adapter MUST be bound to the element that gate() classified: caret, read, replace and send on any other focused element MUST raise an error and touch nothing (for send the check is made immediately before each event is posted), and the identity of the element MUST be comparable (the adapter method element). Its key counter (mark and keys\_since) MUST count every user key, also one that types nothing, and every press of a pointer button. Test: the focus moves to another field (a password field of the same text and caret included) before each call of the transaction and before each event of M2: 0 reads and 0 writes reach the other element, and the outcome is never VERIFIED; a pointer press that moves the caret before the transaction reads it ends ABORTED with typed\_ahead. |
+| RT-23 | A fragment MUST be converted only if the character before it is white space or the field starts there, and the character on each side of the fragment MUST be compared before the write and after it; the caret MUST be read twice before the first write and a difference ends the transaction without a write. Test: a word whose first key was lost, a gate that opens in the middle of a word, a caret moved into an earlier identical word, and an application that overwrites a neighbour of the fragment: in no case a write that ends VERIFIED with a wrong field. |
+| RT-24 | M2 MUST be VERIFIED only when no user input event was counted during the transaction. Test: an arrow key (and any pair of arrow keys that cancel each other) at every position between the synthetic events of a six-letter word: never VERIFIED, and every UNRECOVERED has its incident and its quarantine. |
+| RT-25 | The engine state MUST follow the outcome: the undo snapshot, the run credit, the exception, the cool-down and the end of the snapshot of an undo are committed only when the transaction ends VERIFIED; an incident stops the engine for the application until release\_quarantine; and an error of any kind after the first write, not only an adapter error, ends in the rollback or the incident of 13.2. Test: every outcome of a conversion and of an undo, the keys typed during a transaction, a gate or mode change under quarantine, and exceptions of four classes raised in every call of the transaction. |
 
 ### 13.7 Platforms, mechanisms and the first release
 
@@ -1309,7 +1313,7 @@ A model without its data manifest, calibration tables and test evidence cannot b
 | D5 | Calibration package | One JSON of the strict schema LFC1 (20.5): a scalar temperature per scorer kind, the integer class counts pi\_train\_counts with the pi\_train derived from them, o\_lat, w per word state (the value w\_ship of 10.2), the threshold table in nats for both scorer kinds, both directions and all length buckets, the two-key allow-lists, the model hash; no other field | Fitted on validation only (CA-1 to CA-6); refused whole by the load check of CA-9 on any defect; hash stored with D4 |
 | D6 | Evaluation report | Generated document with every slice of section 11.4, confidence intervals and the seed spread | Produced by one command; contains the manifest hashes of the data it ran on, the latency of phases P1 to P7 (7.5) per device, application and method, the support matrix with the status of every application (13.8), the interval of w with the stored w\_ship and the sensitivity report (10.2), and the evidence level of each requirement (16.1) |
 | D7 | Benchmark harness | C or C++ micro-benchmarks and an ONNX Runtime script | Reports p50, p95, p99 per stage on each reference device (section 7.5) |
-| D8 | Runtime library | Hook, buffer, guards, replacer, undo (section 13) | RT-1 to RT-21 pass, including the end-to-end suite |
+| D8 | Runtime library | Hook, buffer, guards, replacer, undo (section 13) | RT-1 to RT-25 pass, including the end-to-end suite |
 | D9 | Model card | Two pages | Intended use, data sources and licences, known failures (acronyms, names, short words), π assumptions, limits of the proxy numbers |
 | D10 | Release package | Signed, versioned bundle of D3, D4, D5 and the lexicon, with a rollback path | Staged rollout and one-step rollback demonstrated (section 14.5) |
 
@@ -2550,6 +2554,11 @@ class UndoSnapshot:
     typed: str                  # the case-folded core as typed: the key of the exception list
     created_ms: int
     after: int = 0              # printable keys and Spaces typed since the replacement
+    confirmed: bool = False     # set by on_outcome(VERIFIED): until then there is nothing to undo (L9 F7)
+    credit_after: int = 0       # the run credit that a VERIFIED replacement earns
+
+    def __repr__(self):         # never prints the typed word or the keys (13.4; L9 P-1)
+        return f"UndoSnapshot(<{len(self.keys)} keys, {self.direction}, confirmed={self.confirmed}>)"
 
 
 class Engine:
@@ -2574,6 +2583,8 @@ class Engine:
         self.credit = 0              # run credit 0..RUN_CREDIT_MAX; > 0 selects the 'run' prior
         self.cool_words = 0
         self.cool_until_ms = 0
+        self.quarantined = False     # an incident (13.2, step 6): nothing is recorded until release_quarantine() (L9 F8)
+        self.undoing: Optional[Tuple[UndoSnapshot, int]] = None   # the snapshot of an undo whose outcome is not known yet
 
     def _flush(self):
         self.run, self.run_layout, self.overflow = [], None, False
@@ -2615,21 +2626,51 @@ class Engine:
 
     def undo(self, now_ms: int) -> Optional[str]:
         """The undo chord (13.3). Returns the text to restore: the recorded keys rendered with the layout recorded
-        with them, never re-derived from the converted text. None when no snapshot is alive (nothing happens).
-        The word joins the exception list, the run credit is lost, the cool-down starts, the snapshot is destroyed."""
+        with them, never re-derived from the converted text. None when no confirmed snapshot is alive (nothing happens,
+        and a conversion whose outcome is not VERIFIED yet has nothing to undo). Nothing is committed here: the exception,
+        the cool-down and the end of the snapshot follow the outcome of the restoring transaction (`undo_outcome`)."""
         self.tick(now_ms)
         s = self.snapshot
-        if s is None:
+        if s is None or not s.confirmed:
             return None
-        self.exceptions.add((s.direction, s.typed))
-        self.credit = 0
-        self.cool_words = COOLDOWN_WORDS
-        self.cool_until_ms = now_ms + COOLDOWN_MS
-        self._drop_snapshot()
+        self.undoing = (s, now_ms)
         return render(s.keys, s.layout)
 
+    def undo_outcome(self, outcome: str, quarantine: bool = False):
+        """Result of the transaction that restored the typed text. VERIFIED: the word joins the exception list, the run
+        credit is lost, the cool-down starts, the snapshot is destroyed. ABORTED or RESTORED: the field still holds the
+        converted text and nothing is committed; the snapshot stays until its own expiry. UNRECOVERED: the text is
+        unknown, the snapshot is destroyed and the incident quarantines the application (L9 F9)."""
+        if outcome not in OUTCOMES:
+            raise ValueError(outcome)
+        u, self.undoing = self.undoing, None
+        if u is None:
+            return
+        s, now_ms = u
+        if outcome == "VERIFIED":
+            self.exceptions.add((s.direction, s.typed))
+            self.credit = 0
+            self.cool_words = COOLDOWN_WORDS
+            self.cool_until_ms = now_ms + COOLDOWN_MS
+            self._drop_snapshot()
+        elif outcome == "UNRECOVERED":
+            self.credit = 0
+            self._drop_snapshot()
+        if quarantine:
+            self._quarantine()
+
+    def _quarantine(self):
+        self.quarantined = True
+        self._flush()
+        self.skip, self.credit, self.after_switch = False, 0, False
+        self._drop_snapshot()
+
+    def release_quarantine(self):
+        """Restart of the application or an explicit re-enable by the user (13.2, step 6)."""
+        self.quarantined = False
+
     def on_event(self, ev: Event) -> Optional[Decision]:
-        if self.gate != GATE_ALLOW or self.mode != "AUTO":
+        if self.gate != GATE_ALLOW or self.mode != "AUTO" or self.quarantined:
             return None                                   # not stored, not counted, not classified
         if ev.ts_ms:
             self.tick(ev.ts_ms)
@@ -2638,9 +2679,13 @@ class Engine:
         if ev.kind == "key":
             if self.skip:
                 return None
+            if self.snapshot is not None and ev.layout != self.snapshot.layout:
+                self.credit = 0                           # a key of another layout means the layout changed (13.3): no undo
+                self._drop_snapshot()
             if self.run and ev.layout != self.run_layout:
                 self._flush()
                 self.skip, self.credit = True, 0          # a layout change inside a word drops the word
+                self._drop_snapshot()
                 return None
             if not self.run:
                 self.run_layout = ev.layout
@@ -2678,14 +2723,21 @@ class Engine:
             return self._boundary(ev)
         raise ValueError(ev.kind)
 
-    def on_outcome(self, outcome: str):
-        """Result of the replacement transaction for the last CONVERT (20.14). Only a VERIFIED replacement keeps its
-        undo snapshot and the run credit it earned; any other outcome means the text is the original text."""
+    def on_outcome(self, outcome: str, quarantine: bool = False):
+        """Result of the replacement transaction for the last CONVERT (20.14). Only a VERIFIED replacement creates its
+        undo snapshot (it exists from the decision on, unconfirmed, so that the keys typed meanwhile are counted) and earns
+        its run credit; any other outcome means the text is the original text. `quarantine` is TxResult.quarantine."""
         if outcome not in OUTCOMES:
             raise ValueError(outcome)
-        if outcome != "VERIFIED":
+        s = self.snapshot
+        if outcome == "VERIFIED" and s is not None and not s.confirmed:
+            s.confirmed = True
+            self.credit = s.credit_after
+        elif outcome != "VERIFIED":
             self.credit = 0
             self._drop_snapshot()
+        if quarantine:
+            self._quarantine()
 
     def _boundary(self, ev: Event) -> Optional[Decision]:
         run, layout, overflow, skip = self.run, self.run_layout, self.overflow, self.skip
@@ -2704,13 +2756,13 @@ class Engine:
         d = decide(run, layout, self.cal, self.scorer, state, self.credit > 0, self.exceptions, self.lexicon, self.kind)
         self.after_switch = False
         if d.action == "CONVERT":
-            # Only a conversion decided WITHOUT the run prior refills the credit: a chain of run-assisted
-            # conversions can never sustain itself (feedback cap).
-            self.credit = RUN_CREDIT_MAX if state != "run" else max(self.credit - 1, 0)
+            # Only a conversion decided WITHOUT the run prior refills the credit, and only when it is VERIFIED (on_outcome):
+            # a chain of run-assisted conversions can never sustain itself (feedback cap).
+            credit_after = RUN_CREDIT_MAX if state != "run" else max(self.credit - 1, 0)
             target = OTHER_LAYOUT[layout]
             core = candidate(run, target).core
             self.snapshot = UndoSnapshot(tuple(run), layout, f"{layout}2{target}", render(core, layout).casefold(),
-                                         ev.ts_ms)    # one snapshot: an older one is replaced
+                                         ev.ts_ms, credit_after=credit_after)    # one snapshot: an older one is replaced
         elif d.reason in EVIDENCE_KEEP:
             self.credit = 0
         return d
@@ -3230,7 +3282,10 @@ def build():
     E = L.Engine(cal, sc1, lex)
     def word(txt, lay, t0):
         for i,k in enumerate(K(txt, lay)): E.on_event(L.Event("key", k, lay, t0+i*100))
-        return E.on_event(L.Event("space", None, lay, t0+len(txt)*100+50))
+        d = E.on_event(L.Event("space", None, lay, t0+len(txt)*100+50))
+        if d is not None and d.action == "CONVERT":
+            E.on_outcome("VERIFIED")                      # every replacement of the trace ends VERIFIED (20.14)
+        return d
     tr = []
     for txt, t0 in [("ghbdtn",0),("z",1000),("ntcn",2000),("vbh",3000),("ntcn",4000),("ntcn",5000)]:
         st = "run" if E.credit>0 else ("after_switch" if E.after_switch else "default")
@@ -3241,7 +3296,7 @@ def build():
     E = L.Engine(cal, sc1, lex)
     tr2 = []
     d = word("ghbdtn","en",0); tr2.append(["ghbdtn", d.action, d.reason, E.credit])
-    E.undo(1000); tr2.append(["(undo at 1000 ms)", "", "", E.credit])
+    E.undo(1000); E.undo_outcome("VERIFIED"); tr2.append(["(undo at 1000 ms)", "", "", E.credit])
     for txt,t0 in [("ghbdtn",2000),("ghbdtn",3000),("ghbdtn",4000),("ghbdtn",5000),("ghbdtn",11500)]:
         d = word(txt,"en",t0); tr2.append([f"{txt} @{t0}", d.action, d.reason, E.credit])
     out["trace_undo"] = tr2
@@ -3322,16 +3377,28 @@ def build():
                        for kid in (0, 5, 13, 23, 24, 25, 30, 35, 36, 44, 45, 46)
                        for sh, cp in ((False, False), (True, False), (False, True), (True, True))]
     # ---- V16 undo snapshot lifecycle (13.3, 13.4)
-    def fresh(layout="en", t0=1000, word_="ghbdtn", caps=False):
+    def fresh(layout="en", t0=1000, word_="ghbdtn", caps=False, verified=True):
         e = L.Engine(cal, (lambda ids: [-3, 9, -2]) if layout == "en" else (lambda ids: [9, -3, -2]), lex)
         for i, k in enumerate(K(word_, layout)):
             e.on_event(L.Event("key", L.Key(k.id, k.shift, caps), layout, t0 + i))
         d = e.on_event(L.Event("space", None, layout, t0 + len(word_)))
+        if verified and d.action == "CONVERT":
+            e.on_outcome("VERIFIED")                      # the replacement transaction ended VERIFIED (20.14)
         return e, d, t0 + len(word_)
     ul = []
     e, d, ts = fresh(); ul.append(["convert", d.action, d.replacement, e.snapshot is not None])
-    r = e.undo(ts + 500); ul.append(["undo after 500 ms", r, sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None])
+    r = e.undo(ts + 500); ul.append(["undo chord, before its outcome", r, sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None])
+    e.undo_outcome("VERIFIED"); ul.append(["undo after 500 ms, VERIFIED", sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None])
     ul.append(["second undo", e.undo(ts + 600)])
+    for oc in ("ABORTED", "RESTORED", "UNRECOVERED"):
+        e, d, ts = fresh(); e.undo(ts + 500); e.undo_outcome(oc, oc == "UNRECOVERED")
+        ul.append([f"undo ended {oc}", sorted(e.exceptions), e.credit, e.cool_words, e.snapshot is not None, e.undo(ts + 600), e.quarantined])
+    e, d, ts = fresh(verified=False); ul.append(["undo before the conversion is VERIFIED", e.undo(ts + 5), e.credit, e.snapshot is not None])
+    e.on_outcome("ABORTED"); ul.append(["conversion ended ABORTED", e.undo(ts + 6), e.credit, e.snapshot is not None])
+    e, d, ts = fresh(verified=False); ul.append(["credit before the outcome", e.credit]); e.on_outcome("VERIFIED"); ul.append(["credit after VERIFIED", e.credit])
+    e, d, ts = fresh(); e.on_outcome("UNRECOVERED", True)
+    ul.append(["incident: engine records nothing", e.quarantined, e.on_event(L.Event("key", L.Key(5), "en", ts + 9)), len(e.run)])
+    e.release_quarantine(); e.on_event(L.Event("key", L.Key(5), "en", ts + 10)); ul.append(["after release", e.quarantined, len(e.run)])
     e, d, ts = fresh(); ul.append(["undo at exactly 10000 ms", e.undo(ts + 10000)])
     e, d, ts = fresh(); ul.append(["undo at 10001 ms", e.undo(ts + 10001)])
     for n_after in (100, 101):
@@ -3370,7 +3437,7 @@ def build():
         ("m1 ok", M1, B, {}, "", {}, "VERIFIED", "ok", C, False),
         ("m1 ok with typed-ahead keys", M1, B + "ab", {}, "ab", {}, "VERIFIED", "ok", "Hello привет ab", False),
         ("m1 ok, the application has not shown the last typed-ahead key", M1, B + "a", {}, "ab", {}, "VERIFIED", "ok", "Hello привет a", False),
-        ("m1 user key lands before the range is read", M1, B, {"read:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m1 user key lands before the range is read: nothing is written", M1, B, {"read:1": "user:x"}, "", {}, "ABORTED", "typed_ahead", "Hello ghbdtn x", False),
         ("m1 user key lands just before the write", M1, B, {"replace:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
         ("too many typed-ahead keys", M1, B + "abcd", {}, "abcd", {}, "ABORTED", "typed_ahead", B + "abcd", False),
         ("context break", M1, B, {}, "", {"context_break": True}, "ABORTED", "context_break", B, False),
@@ -3391,7 +3458,7 @@ def build():
         ("write silently ignored", M1, B, {"replace:1": "ignored"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("read-back differs", M1, B, {"read:2": "stale"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("read-back times out", M1, B, {"read:2": "raise"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("caret ends up before its expected place", M1, B, {"caret:2": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("caret ends up before its expected place", M1, B, {"caret:3": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("partial write and the rollback fails", M1, B, {"replace:1": "partial", "replace:2": "raise"}, "", {}, "UNRECOVERED", "write_error", "Hello приdtn ", True),
         ("autocorrect and the rollback is ignored", M1, B, {"replace:1": "autocorrect", "replace:2": "ignored"}, "", {}, "UNRECOVERED", "verify_failed", "Hello приве? ", True),
         ("no rollback capability, partial write", M1N, B, {"replace:1": "partial"}, "", MAN, "UNRECOVERED", "write_error", "Hello приdtn ", True),
@@ -3406,24 +3473,33 @@ def build():
         ("m2 synthetic event times out", M2, B, {"event:5": "raise"}, "", MAN, "UNRECOVERED", "write_error", "Hello ghb", True),
         ("m2 user key while the range is read: nothing is sent", M2, B, {"read:1": "user:x"}, "", MAN, "ABORTED", "typed_ahead", B + "x", False),
         ("m2 user key before the first synthetic event: the race that stays", M2, B, {"event:1": "user:x"}, "", MAN, "UNRECOVERED", "verify_failed", "Hello gпривет ", True),
-        ("m1 caret forward although no user key came", M1, B, {"caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 caret forward although no user key came", M1, B, {"caret:3": "forward"}, "", {}, "RESTORED", "verify_failed", B, True),
         ("m1 one user key during the read-back moves the caret by one", M1, B, {"read:2": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
-        ("m1 one user key does not explain a caret two forward", M1, B, {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", B + "x", True),
+        ("m1 one user key does not explain a caret two forward", M1, B, {"read:2": "user:x", "caret:3": "forward"}, "", {}, "RESTORED", "verify_failed", B + "x", True),
         ("m1 write damages the Space after the range", M1, B, {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", True),
         ("m1 write damages the Space, a typed-ahead key follows", M1, B + "a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", True),
         ("m1 autocorrect with a typed-ahead key, the rollback restores the fragment", M1, B + "a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", B + "a", True),
         ("m1 a key that types nothing during the read-back is allowed", M1, B, {"read:2": "key"}, "", {}, "VERIFIED", "ok", C, False),
-        ("m1 one key may explain a caret one place forward", M1, B, {"read:2": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
-        ("m1 one key does not explain a caret behind its place", M1, B, {"read:2": "key", "caret:2": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("m1 one typed key and a caret one place back is still inside the window", M1, B, {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
+        ("m1 one key may explain a caret one place forward", M1, B, {"read:2": "key", "caret:3": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 one key does not explain a caret behind its place", M1, B, {"read:2": "key", "caret:3": "back"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 one typed key and a caret one place back is still inside the window", M1, B, {"read:2": "user:x", "caret:3": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", False),
         ("m2 a key that types nothing while the range is read: nothing is sent", M2, B, {"read:1": "key"}, "", MAN, "ABORTED", "typed_ahead", B, False),
-        ("m2 a key that types nothing between synthetic events", M2, B, {"event:3": "key"}, "", MAN, "VERIFIED", "ok", C, False),
-        ("m1 a key during the write explains a caret one place forward", M1, B, {"replace:1": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", C, False),
-        ("m1 a key during the write does not explain a caret two places forward", M1, B, {"replace:1": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("m1 a key during the read-back does not explain a caret two places forward", M1, B, {"read:2": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
-        ("m2 a key between synthetic events explains a caret one place forward", M2, B, {"event:3": "key", "caret:2": "forward"}, "", MAN, "VERIFIED", "ok", C, False),
-        ("m2 a key between synthetic events does not explain a caret two places forward", M2, B, {"event:3": "key", "caret:2": "forward2"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
-        ("m2 the synthetic events are not user keys: a caret ahead without any user key fails", M2, B, {"caret:2": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 a key that types nothing between synthetic events is not verified", M2, B, {"event:3": "key"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m1 a key during the write explains a caret one place forward", M1, B, {"replace:1": "key", "caret:3": "forward"}, "", {}, "VERIFIED", "ok", C, False),
+        ("m1 a key during the write does not explain a caret two places forward", M1, B, {"replace:1": "key", "caret:3": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m1 a key during the read-back does not explain a caret two places forward", M1, B, {"read:2": "key", "caret:3": "forward2"}, "", {}, "RESTORED", "verify_failed", B, True),
+        ("m2 a key between synthetic events is never verified, whatever the caret", M2, B, {"event:3": "key", "caret:3": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 a key between synthetic events does not explain a caret two places forward", M2, B, {"event:3": "key", "caret:3": "forward2"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 the synthetic events are not user keys: a caret ahead without any user key fails", M2, B, {"caret:3": "forward"}, "", MAN, "UNRECOVERED", "verify_failed", C, True),
+        ("m1 the caret moves between the read and the write: nothing is written", M1, B, {"caret:2": "forward"}, "", {}, "ABORTED", "echo_mismatch", B, False),
+        ("m1 a key that types nothing (an arrow) before the first write: nothing is written", M1, B, {"read:1": "key"}, "", {}, "ABORTED", "typed_ahead", B, False),
+        ("m1 the word has a head: a letter before it", M1, "Hello xghbdtn ", {}, "", {}, "ABORTED", "echo_mismatch", "Hello xghbdtn ", False),
+        ("m1 the word starts the field", M1, "ghbdtn ", {}, "", {}, "VERIFIED", "ok", "привет ", False),
+        ("m1 the word follows a line feed", M1, "Hello\nghbdtn ", {}, "", {}, "VERIFIED", "ok", "Hello\nпривет ", False),
+        ("m1 the focus moves before the read: nothing is read or written", M1, B, {"read:1": "focus"}, "", {}, "ABORTED", "adapter_error", B, False),
+        ("m1 the focus moves just before the write: not written, no rollback", M1, B, {"replace:1": "focus"}, "", {}, "UNRECOVERED", "write_error", B, True),
+        ("m1 the focus moves before the read-back", M1, B, {"read:2": "focus"}, "", {}, "UNRECOVERED", "verify_failed", C, True),
+        ("m2 the focus moves between synthetic events", M2, B, {"event:3": "focus"}, "", MAN, "UNRECOVERED", "write_error", "Hello ghbdt", True),
     ]
     tx = []
     for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in FM:
@@ -3718,8 +3794,18 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
 ],
 "undo": [
  ["convert", "CONVERT", "привет", true],
- ["undo after 500 ms", "ghbdtn", [["en2ru", "ghbdtn"]], 0, 3, false],
+ ["undo chord, before its outcome", "ghbdtn", [], 3, 0, true],
+ ["undo after 500 ms, VERIFIED", [["en2ru", "ghbdtn"]], 0, 3, false],
  ["second undo", null],
+ ["undo ended ABORTED", [], 3, 0, true, "ghbdtn", false],
+ ["undo ended RESTORED", [], 3, 0, true, "ghbdtn", false],
+ ["undo ended UNRECOVERED", [], 0, 0, false, null, true],
+ ["undo before the conversion is VERIFIED", null, 0, true],
+ ["conversion ended ABORTED", null, 0, false],
+ ["credit before the outcome", 0],
+ ["credit after VERIFIED", 3],
+ ["incident: engine records nothing", true, null, 0],
+ ["after release", false, 1],
  ["undo at exactly 10000 ms", "ghbdtn"],
  ["undo at 10001 ms", null],
  ["undo after 100 further characters", "ghbdtn"],
@@ -3732,7 +3818,7 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
  ["after gate DENY", null, 0],
  ["after mode MANUAL_ONLY", null, 0],
  ["after outcome RESTORED", null, 0],
- ["after outcome VERIFIED", "ghbdtn", 0],
+ ["after outcome VERIFIED", "ghbdtn", 3],
  ["after backspace", null, 0]
 ],
 "modes": [
@@ -3763,7 +3849,7 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
  ["m1 ok", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
  ["m1 ok with typed-ahead keys", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ab", {}, "ab", {}, "VERIFIED", "ok", "Hello привет ab", false],
  ["m1 ok, the application has not shown the last typed-ahead key", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {}, "ab", {}, "VERIFIED", "ok", "Hello привет a", false],
- ["m1 user key lands before the range is read", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["m1 user key lands before the range is read: nothing is written", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "user:x"}, "", {}, "ABORTED", "typed_ahead", "Hello ghbdtn x", false],
  ["m1 user key lands just before the write", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
  ["too many typed-ahead keys", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn abcd", {}, "abcd", {}, "ABORTED", "typed_ahead", "Hello ghbdtn abcd", false],
  ["context break", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {}, "", {"context_break": true}, "ABORTED", "context_break", "Hello ghbdtn ", false],
@@ -3784,7 +3870,7 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
  ["write silently ignored", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "ignored"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
  ["read-back differs", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "stale"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
  ["read-back times out", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "raise"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
- ["caret ends up before its expected place", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:2": "back"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["caret ends up before its expected place", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:3": "back"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
  ["partial write and the rollback fails", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "partial", "replace:2": "raise"}, "", {}, "UNRECOVERED", "write_error", "Hello приdtn ", true],
  ["autocorrect and the rollback is ignored", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "autocorrect", "replace:2": "ignored"}, "", {}, "UNRECOVERED", "verify_failed", "Hello приве? ", true],
  ["no rollback capability, partial write", ["READBACK", "READ_RANGE", "REPLACE_RANGE"], "Hello ghbdtn ", {"replace:1": "partial"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "write_error", "Hello приdtn ", true],
@@ -3799,24 +3885,33 @@ Expected output of `python vectors.py` (`vectors_out.json`, 7,030 bytes with a f
  ["m2 synthetic event times out", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:5": "raise"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "write_error", "Hello ghb", true],
  ["m2 user key while the range is read: nothing is sent", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"read:1": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn x", false],
  ["m2 user key before the first synthetic event: the race that stays", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:1": "user:x"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello gпривет ", true],
- ["m1 caret forward although no user key came", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 caret forward although no user key came", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:3": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
  ["m1 one user key during the read-back moves the caret by one", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
- ["m1 one user key does not explain a caret two forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:2": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn x", true],
+ ["m1 one user key does not explain a caret two forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:3": "forward"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn x", true],
  ["m1 write damages the Space after the range", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "spill"}, "", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?", true],
  ["m1 write damages the Space, a typed-ahead key follows", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "spill"}, "a", {}, "UNRECOVERED", "verify_failed", "Hello ghbdtn?a", true],
  ["m1 autocorrect with a typed-ahead key, the rollback restores the fragment", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn a", {"replace:1": "autocorrect"}, "a", {}, "RESTORED", "verify_failed", "Hello ghbdtn a", true],
  ["m1 a key that types nothing during the read-back is allowed", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
- ["m1 one key may explain a caret one place forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
- ["m1 one key does not explain a caret behind its place", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "back"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
- ["m1 one typed key and a caret one place back is still inside the window", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:2": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
+ ["m1 one key may explain a caret one place forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:3": "forward"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 one key does not explain a caret behind its place", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:3": "back"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 one typed key and a caret one place back is still inside the window", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "user:x", "caret:3": "back"}, "", {}, "VERIFIED", "ok", "Hello привет x", false],
  ["m2 a key that types nothing while the range is read: nothing is sent", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"read:1": "key"}, "", {"mode": "MANUAL_ONLY"}, "ABORTED", "typed_ahead", "Hello ghbdtn ", false],
- ["m2 a key that types nothing between synthetic events", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key"}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false],
- ["m1 a key during the write explains a caret one place forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "key", "caret:2": "forward"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
- ["m1 a key during the write does not explain a caret two places forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
- ["m1 a key during the read-back does not explain a caret two places forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:2": "forward2"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
- ["m2 a key between synthetic events explains a caret one place forward", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key", "caret:2": "forward"}, "", {"mode": "MANUAL_ONLY"}, "VERIFIED", "ok", "Hello привет ", false],
- ["m2 a key between synthetic events does not explain a caret two places forward", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key", "caret:2": "forward2"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true],
- ["m2 the synthetic events are not user keys: a caret ahead without any user key fails", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"caret:2": "forward"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true]
+ ["m2 a key that types nothing between synthetic events is not verified", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true],
+ ["m1 a key during the write explains a caret one place forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "key", "caret:3": "forward"}, "", {}, "VERIFIED", "ok", "Hello привет ", false],
+ ["m1 a key during the write does not explain a caret two places forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "key", "caret:3": "forward2"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m1 a key during the read-back does not explain a caret two places forward", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "key", "caret:3": "forward2"}, "", {}, "RESTORED", "verify_failed", "Hello ghbdtn ", true],
+ ["m2 a key between synthetic events is never verified, whatever the caret", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key", "caret:3": "forward"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true],
+ ["m2 a key between synthetic events does not explain a caret two places forward", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "key", "caret:3": "forward2"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true],
+ ["m2 the synthetic events are not user keys: a caret ahead without any user key fails", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"caret:3": "forward"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "verify_failed", "Hello привет ", true],
+ ["m1 the caret moves between the read and the write: nothing is written", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"caret:2": "forward"}, "", {}, "ABORTED", "echo_mismatch", "Hello ghbdtn ", false],
+ ["m1 a key that types nothing (an arrow) before the first write: nothing is written", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "key"}, "", {}, "ABORTED", "typed_ahead", "Hello ghbdtn ", false],
+ ["m1 the word has a head: a letter before it", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello xghbdtn ", {}, "", {}, "ABORTED", "echo_mismatch", "Hello xghbdtn ", false],
+ ["m1 the word starts the field", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "ghbdtn ", {}, "", {}, "VERIFIED", "ok", "привет ", false],
+ ["m1 the word follows a line feed", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello\nghbdtn ", {}, "", {}, "VERIFIED", "ok", "Hello\nпривет ", false],
+ ["m1 the focus moves before the read: nothing is read or written", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:1": "focus"}, "", {}, "ABORTED", "adapter_error", "Hello ghbdtn ", false],
+ ["m1 the focus moves just before the write: not written, no rollback", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"replace:1": "focus"}, "", {}, "UNRECOVERED", "write_error", "Hello ghbdtn ", true],
+ ["m1 the focus moves before the read-back", ["READBACK", "READ_RANGE", "REPLACE_RANGE", "ROLLBACK"], "Hello ghbdtn ", {"read:2": "focus"}, "", {}, "UNRECOVERED", "verify_failed", "Hello привет ", true],
+ ["m2 the focus moves between synthetic events", ["READBACK", "READ_RANGE", "SYNTHETIC_INPUT"], "Hello ghbdtn ", {"event:3": "focus"}, "", {"mode": "MANUAL_ONLY"}, "UNRECOVERED", "write_error", "Hello ghbdt", true]
 ],
 "fingerprint": [
  ["en", "7b35aa964f372005ccef6558a1049dce2a550d772939090e3dba51302c0f3078", "en"],
@@ -4090,25 +4185,25 @@ if os.path.exists("vectors_out.json"):
     with open("vectors_out.json", encoding="utf-8") as fh:
         T(json.load(fh) == json.loads(vectors.render(V)), "vectors_out.json is not what vectors.py generates")
 BASE, OLD, NEW = "Hello ghbdtn ", "ghbdtn", "привет"
-T(len(V["tx"]) == 57, "fault matrix size")
+T(len(V["tx"]) == 66, "fault matrix size")
 for name, caps, text, faults, ahead, kw, outcome, reason, final, incident in V["tx"]:
     f = L.SimField(text, caps, {(k.split(":")[0], int(k.split(":")[1])): v for k, v in faults.items()})
     res = L.run_transaction(f, OLD, NEW, ahead, **kw)
     T((res.outcome, res.reason, f.text, res.incident, res.quarantine) == (outcome, reason, final, incident, incident), name)
     T(res.outcome in L.OUTCOMES, "outcome vocabulary")
     # invariants of every row (the safety matrix of 13.2):
-    T(res.outcome != "VERIFIED" or f.text[6:12] == NEW, f"{name}: VERIFIED text")
-    T(res.outcome != "RESTORED" or f.text[6:12] == OLD, f"{name}: RESTORED text")
+    T(res.outcome != "VERIFIED" or (NEW in f.text and OLD not in f.text), f"{name}: VERIFIED text")
+    T(res.outcome != "RESTORED" or (OLD in f.text and NEW not in f.text), f"{name}: RESTORED text")
     T(res.outcome != "ABORTED" or f.text.replace("x", "") == text.replace("x", ""), f"{name}: ABORTED must not change the field")
     T(res.incident == (res.outcome in ("RESTORED", "UNRECOVERED")), f"{name}: an incident only after the write began")
     T(f.user == [c for c in f.user if c == "x"], f"{name}: only the scripted user keys")
     if res.method == "M2" and res.outcome == "UNRECOVERED":          # the event-level guarantee holds, the field one does not
-        T(f.sent == (14 if reason == "verify_failed" else 4) and f.user == ["x"] * len(f.user),
+        T(f.sent == (14 if reason == "verify_failed" else int(next(k for k in faults if k.startswith("event:")).split(":")[1]) - 1) and f.user == ["x"] * len(f.user),
           f"{name}: G-EVENT: synthetic events are exactly those of the plan, user keys exactly once")
 
 # Every fault of one phase, applied to every step, never ends in a silent VERIFIED with wrong text, and never
 # crashes (an exhaustive sweep over single faults and pairs of faults, M1 with rollback).
-FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
+FAULT_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]), ("caret", 3, ["raise", "back", "forward", "forward2"]),
                ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
                ("read", 3, ["none", "stale", "raise"]),
                ("replace", 1, ["raise", "partial", "applied_error", "autocorrect", "ignored", "spill", "user:x", "key"]),
@@ -4133,7 +4228,7 @@ M1_SWEEP = sweep
 # The same sweep for M2 (the hotkey path): events 1 to 14 are the plan (7 Backspace, 6 characters, the Space).
 # Invariants: a user key seen before the first event means nothing is sent; whatever is written, the user's own
 # keys are never lost or duplicated by the plan (G-EVENT) and a wrong text is never VERIFIED.
-M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]),
+M2_SLOTS = [("gate", 1, ["DENY", "raise"]), ("caret", 1, ["raise", "back", "forward"]), ("caret", 2, ["raise", "back", "forward", "forward2"]), ("caret", 3, ["raise", "back", "forward", "forward2"]),
             ("read", 1, ["none", "stale", "raise", "user:x", "key"]), ("read", 2, ["none", "stale", "raise", "user:x", "key"]),
             ("read", 3, ["none", "stale", "raise"])] + [("event", k, ["raise", "user:x", "drop", "key"]) for k in range(1, 15)]
 for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_SLOTS[:6] + M2_SLOTS[6:9] + M2_SLOTS[-3:], 2)):
@@ -4151,19 +4246,21 @@ for combo in itertools.chain(([s] for s in M2_SLOTS), itertools.combinations(M2_
         T(f.user == ["x"] * len(f.user), "M2 user keys are exactly the scripted ones")
         if faults.get(("read", 1)) in ("user:x", "key"):         # the key came before the first event: nothing may be sent
             T(f.sent == 0 and res.outcome == "ABORTED", f"M2 sweep: key before the write {faults}")
-T((M1_SWEEP, sweep) == (621, 1665), f"sweep size {M1_SWEEP} / {sweep}")
+T((M1_SWEEP, sweep) == (773, 1821), f"sweep size {M1_SWEEP} / {sweep}")
 
 # ---- P10 engine: undo snapshot lifecycle, modes, outcomes, stream gap ---------------------------------------
 scorer = lambda ids: [-3, 9, -2]
 LEX = {"en": {"hello"}, "ru": {"привет"}}
 
 
-def feed(e, text, lay, t0, then_space=True):
+def feed(e, text, lay, t0, then_space=True, verified=True):
     d = None
     for i, k in enumerate(L.keys_from_text(text, lay)):
         e.on_event(L.Event("key", k, lay, t0 + i))
     if then_space:
         d = e.on_event(L.Event("space", None, lay, t0 + len(text)))
+        if verified and d is not None and d.action == "CONVERT":
+            e.on_outcome("VERIFIED")                                 # the replacement transaction ended VERIFIED
     return d
 
 
@@ -4172,6 +4269,9 @@ d = feed(e, "ghbdtn", "en", 1000)
 T(d.action == "CONVERT" and e.snapshot is not None, "convert makes one snapshot")
 T(e.snapshot.layout == "en" and e.snapshot.direction == "en2ru" and e.snapshot.typed == "ghbdtn", "snapshot content")
 T(e.undo(2000) == "ghbdtn", "undo returns the typed text")
+T(("en2ru", "ghbdtn") not in e.exceptions and e.credit == 3 and e.cool_words == 0 and e.snapshot is not None,
+  "undo: nothing is committed before the outcome of the restoring transaction (L9 F9)")
+e.undo_outcome("VERIFIED")
 T(("en2ru", "ghbdtn") in e.exceptions and e.credit == 0 and e.cool_words == 3 and e.snapshot is None,
   "undo: exception, credit, cool-down, snapshot destroyed")
 T(e.undo(2100) is None, "a second undo does nothing")
@@ -4181,7 +4281,7 @@ T(d.action == "KEEP" and d.reason == "cooldown", "cool-down suppresses the corre
 e = L.Engine(L.example_cal(), scorer, LEX)
 for i, k in enumerate(L.keys_from_text("ghbdtn", "en")):
     e.on_event(L.Event("key", L.Key(k.id, False, True), "en", i))
-d = e.on_event(L.Event("space", None, "en", 10))
+d = e.on_event(L.Event("space", None, "en", 10)); e.on_outcome("VERIFIED")
 T(d.action == "CONVERT" and e.undo(20) == "GHBDTN", "undo with Caps Lock restores the typed capitals")
 # russian to english
 e = L.Engine(L.example_cal(), lambda ids: [9, -3, -2], LEX)
@@ -4345,6 +4445,8 @@ for rnd in range(max(1, N // 20_000)):
                 T(e.gate == "ALLOW" and e.mode == "AUTO", "CONVERT outside AUTO or gate ALLOW")
                 T(e.snapshot is not None and len(d.replacement) == len(e.snapshot.keys), "a key was lost or duplicated")
                 T(len(e.snapshot.keys) <= L.MAX_BUF, "snapshot size")
+                T(not e.snapshot.confirmed and e.undo(now) is None, "no undo before the outcome of the replacement")
+                e.on_outcome(fz.choice(("VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "RESTORED", "ABORTED")))
             if ev.kind in ("break", "layout", "gap"):
                 T(e.snapshot is None and e.run == [], f"{ev.kind} must leave no buffer and no snapshot")
         T(len(e.run) <= L.MAX_BUF, "buffer bound")
@@ -4359,6 +4461,10 @@ for rnd in range(max(1, N // 20_000)):
                     T(now - e.snapshot.created_ms <= L.UNDO_WINDOW_MS, "snapshot age bound after tick")
                     keys, lay = e.snapshot.keys, e.snapshot.layout
                     txt = e.undo(now)
+                    if not e.snapshot.confirmed:
+                        T(txt is None, "no undo before the outcome is VERIFIED")
+                        continue
+                    e.undo_outcome("VERIFIED")
                     T(txt == L.render(keys, lay) and e.snapshot is None,
                       "undo returns the recorded keys rendered with the recorded layout")
                     checked_undo += 1
@@ -4435,10 +4541,13 @@ cal_edge["lambda_nats"]["network"]["en2ru"]["5-7"] = s_exact + 1e-9
 T(L.decide(G, "en", cal_edge, scorer).action == "KEEP", "margin -1e-9 abstains")
 
 
-def word(e, text, lay, ts):
+def word(e, text, lay, ts, verified=True):
     for k in L.keys_from_text(text, lay):
         e.on_event(L.Event("key", k, lay, ts))
-    return e.on_event(L.Event("space", None, lay, ts))
+    d = e.on_event(L.Event("space", None, lay, ts))
+    if verified and d is not None and d.action == "CONVERT":
+        e.on_outcome("VERIFIED")                                     # the replacement transaction ended VERIFIED
+    return d
 
 
 # buffer bound: 64 keys are decided, the 65th makes the word an overflow
@@ -4464,11 +4573,12 @@ T(word(e, "yf", "en", 20).reason == "two_key_allow_list", "credit: two keys are 
 # cool-down: three words and 10 s, each edge
 e = L.Engine(L.example_cal(), scorer, LEX)
 T(word(e, "ghbdtn", "en", 1000).action == "CONVERT" and e.undo(2000) == "ghbdtn", "setup cool-down")
+e.undo_outcome("VERIFIED")
 T([word(e, "ytdtyj", "en", 20_000 + 100 * i).reason for i in range(3)] == ["cooldown"] * 3, "three words are suppressed")
 T(word(e, "ytdtyj", "en", 20_300).action == "CONVERT", "the fourth word is decided")
 for ts, reason in ((11_999, "cooldown"), (12_000, "score_above_threshold")):
     e = L.Engine(L.example_cal(), scorer, LEX)
-    word(e, "ghbdtn", "en", 1000); e.undo(2000); e.cool_words = 0
+    word(e, "ghbdtn", "en", 1000); e.undo(2000); e.undo_outcome("VERIFIED"); e.cool_words = 0
     T(word(e, "ytdtyj", "en", ts).reason == reason, f"cool-down time edge at {ts} ms")
 # the clock of every event expires the snapshot
 for dt, alive in ((10_000, True), (10_001, False)):
@@ -4575,7 +4685,7 @@ f = L.SimField("Hello ghbdtn  tail", M2)
 f.pos = len("Hello ghbdtn ")
 r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
 T((r.outcome, f.text) == ("VERIFIED", "Hello привет  tail"), "M2 inside a text: the verification range ends at the Space, not beyond it")
-f = L.SimField("Hello ghbdtn ", M1_NOROLL, {("caret", 2): "back"})
+f = L.SimField("Hello ghbdtn ", M1_NOROLL, {("caret", 3): "back"})
 r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
 T((r.outcome, r.incident, r.quarantine, f.text) == ("UNRECOVERED", True, True, "Hello привет "),
   "right text with a wrong caret and no rollback is not VERIFIED")
@@ -4606,14 +4716,14 @@ f = L.SimField("Hello ghbdtn ", M2, {("event", 1): "user:x"})
 r = L.run_transaction(f, OLD, NEW, "", mode="MANUAL_ONLY")
 T((r.outcome, r.reason, f.sent, f.user, r.incident, r.quarantine) == ("UNRECOVERED", "verify_failed", 14, ["x"], True, True),
   "M2: a key after the last look is the residual race: UNRECOVERED, quarantine, the plan is still sent exactly once")
-f = L.SimField("Hello ghbdtn ", M1, {("caret", 2): "forward"})
+f = L.SimField("Hello ghbdtn ", M1, {("caret", 3): "forward"})
 r = L.run_transaction(f, OLD, NEW)
 T((r.outcome, r.reason, f.text, r.incident) == ("RESTORED", "verify_failed", "Hello ghbdtn ", True),
   "M1: a caret that moved forward although no user key came is a failure; the rollback restores the field")
 f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x"})
 r = L.run_transaction(f, OLD, NEW)
 T((r.outcome, f.text, f.pos) == ("VERIFIED", "Hello привет x", 14), "M1: one user key may move the caret by one")
-f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x", ("caret", 2): "forward"})
+f = L.SimField("Hello ghbdtn ", M1, {("read", 2): "user:x", ("caret", 3): "forward"})
 r = L.run_transaction(f, OLD, NEW)
 T((r.outcome, r.reason) == ("RESTORED", "verify_failed"), "M1: one user key explains a caret one place forward, not two")
 f = L.SimField("Hello ghbdtn ", M1, {("replace", 1): "spill"})
@@ -4752,7 +4862,7 @@ T(L.WittenBell().min_count == 1, "Witten-Bell: the default min_count is 1")
 fz = L.SimField(BASE, M1, {("read", 1): "none", ("read", 2): "raise"})     # a failed match reads the field once and aborts
 rz = L.run_transaction(fz, OLD, NEW)
 T((rz.outcome, rz.reason, fz.text, fz.count["read"]) == ("ABORTED", "echo_mismatch", BASE, 1), "a failed match makes one read and nothing else")
-fz = L.SimField(BASE, M1, {("read", 1): "key", ("read", 2): "key", ("caret", 2): "forward2"})
+fz = L.SimField(BASE, M1, {("replace", 1): "key", ("read", 2): "key", ("caret", 3): "forward2"})
 rz = L.run_transaction(fz, OLD, NEW)
 T((rz.outcome, rz.reason, fz.text) == ("VERIFIED", "ok", "Hello привет "), "two keys that type nothing explain a caret two places forward")
 hz = L.HookHealth()
@@ -4792,10 +4902,245 @@ rb = L.run_transaction(fb, OLD, NEW)
 T((rb.outcome, rb.reason, rb.incident, rb.quarantine) == ("UNRECOVERED", "verify_failed", True, True),
   "B1: text inserted before the range between read and write is UNRECOVERED with an incident, never VERIFIED")
 T(fb.text.startswith("!Hello") and fb.user == [], "B1: the application's own insertion is kept and no user key is invented")
-fb = L.SimField(BASE, M1, {("caret", 2): "back"})
+fb = L.SimField(BASE, M1, {("caret", 3): "back"})
 rb = L.run_transaction(fb, OLD, NEW)
 T((rb.outcome, rb.incident, rb.quarantine, fb.text) == ("RESTORED", True, True, BASE),
   "B2: a caret one place back after the write restores the text and costs a quarantine (conservative)")
+
+
+# ---- P17 findings of the independent review (audit line L9, F1 to F9) -------------------------------------------------------
+# F1: the caret is the anchor of the fragment. A user input event since the freeze (an arrow key, a pointer press) writes nothing.
+TWICE = "ghbdtn ghbdtn "
+
+
+class MoveBeforeCaretRead(L.SimField):
+    """The user moves the caret to the end of the first word before the caret is read; the adapter counts the input event."""
+    def caret(self):
+        if self.count.get("caret", 0) == 0:
+            self.click(7)
+        return super().caret()
+
+
+for caps, mode in ((M1, "AUTO"), (M2, "MANUAL_ONLY")):
+    f1 = MoveBeforeCaretRead(TWICE, caps)
+    r1 = L.run_transaction(f1, OLD, NEW, "", mode=mode)
+    T((r1.outcome, r1.reason, f1.text, r1.incident) == ("ABORTED", "typed_ahead", TWICE, False),
+      f"F1: a counted caret move onto an identical earlier word writes nothing ({mode})")
+f1 = L.SimField(TWICE, M1); f1.click(7)
+T(f1.keys_since(0) == 1 and f1.pos == 7, "F1: a pointer press is an input event of the counter")
+# the caret read twice: a move between the read of the fragment and the write is seen even when nothing counted it
+for k, name in ((2, "forward"), (2, "back")):
+    f1 = L.SimField(BASE, M1, {("caret", k): name})
+    r1 = L.run_transaction(f1, OLD, NEW)
+    T((r1.outcome, r1.reason, f1.text) == ("ABORTED", "echo_mismatch", BASE), f"F1: the caret moves {name} between the read and the write")
+
+
+# F2: M2 is a sequence of events that user input can enter. Whatever arrow keys come between them, it is never VERIFIED
+# with a wrong field, and a verified field is exactly the expected one.
+class ArrowsInM2(L.SimField):
+    def __init__(self, text, caps, moves):
+        super().__init__(text, caps)
+        self.moves = moves                           # event number -> -1 (Left) or +1 (Right)
+
+    def send(self, events):
+        for k, ev in enumerate(events, 1):
+            d = self.moves.get(k)
+            if d:
+                self.pos = max(0, min(len(self.text), self.pos + d))
+                self.silent += 1
+            super().send([ev])
+
+
+m2_runs = 0
+for text, expected in ((BASE, "Hello привет "), ("ghbdtn ", "привет ")):
+    for k in range(1, 15):
+        for j in range(k, 15):
+            for dk, dj in ((-1, 1), (-1, -1), (1, -1), (-1, 0)):
+                f2 = ArrowsInM2(text, M2, {k: dk} | ({j: dj} if dj and j != k else {}))
+                r2 = L.run_transaction(f2, OLD, NEW, "", mode="MANUAL_ONLY")
+                m2_runs += 1
+                T(r2.outcome != "VERIFIED", f"F2: an arrow key between synthetic events is never VERIFIED ({k}, {j}, {dk}, {dj})")
+                T(r2.outcome != "UNRECOVERED" or (r2.incident and r2.quarantine), "F2: UNRECOVERED has incident and quarantine")
+T(m2_runs > 500, "F2: the sweep ran")
+
+# F3: the head of the word. The character before the fragment must be white space, or the field starts there.
+for text, ok_ in (("Hello xghbdtn ", False), ("Hello,ghbdtn ", False), ("Hello1ghbdtn ", False), ("Hello-ghbdtn ", False),
+                  ("Hello ghbdtn ", True), ("ghbdtn ", True), ("Hello\nghbdtn ", True), ("Hello\tghbdtn ", True), ("Hello ghbdtn ", True)):
+    f3 = L.SimField(text, M1)
+    r3 = L.run_transaction(f3, OLD, NEW)
+    T((r3.outcome == "VERIFIED") == ok_ and (ok_ or (r3.outcome == "ABORTED" and f3.text == text)), f"F3: head of the word in {text!r}")
+# the word the engine saw has lost its first key (the hook lost it, or the gate opened in the middle of the word)
+f3 = L.SimField(BASE, M1)
+r3 = L.run_transaction(f3, "hbdtn", "ривет", "")
+T((r3.outcome, r3.reason, f3.text) == ("ABORTED", "echo_mismatch", BASE), "F3: a word with a missing first key is never converted")
+f3 = L.SimField(BASE, M2)
+r3 = L.run_transaction(f3, "hbdtn", "ривет", "", mode="MANUAL_ONLY")
+T((r3.outcome, r3.reason, f3.text) == ("ABORTED", "echo_mismatch", BASE), "F3: the same for synthetic input")
+# the engine side: the gate opens in the middle of a word, so the engine sees only the tail
+e3 = L.Engine(L.example_cal(), lambda ids: [-3, 9, -2], LEX)
+e3.set_gate("DENY"); e3.on_event(L.Event("key", L.keys_from_text("g", "en")[0], "en", 1)); e3.set_gate("ALLOW")
+for i, kk in enumerate(L.keys_from_text("hbdtn", "en")):
+    e3.on_event(L.Event("key", kk, "en", 10 + i))
+d3 = e3.on_event(L.Event("space", None, "en", 20))
+T(d3 is not None and d3.action == "CONVERT", "F3: the engine decides on the tail (setup)")
+f3 = L.SimField(BASE, M1)
+T(L.run_transaction(f3, "hbdtn", d3.replacement).outcome == "ABORTED" and f3.text == BASE, "F3: the transaction refuses the tail")
+
+
+# F4: the element. gate() binds the adapter; a focus move at any call never reaches the other element and is never VERIFIED.
+for op, ks in (("gate", (1,)), ("caret", (1, 2, 3)), ("read", (1, 2)), ("replace", (1,))):
+    for k in ks:
+        for caps in (M1,):
+            f4 = L.SimField(BASE, caps, {(op, k): "focus"})
+            r4 = L.run_transaction(f4, OLD, NEW, element="main")
+            T(r4.outcome != "VERIFIED", f"F4: a focus move at {op} {k} is never VERIFIED")
+            T(f4.text in (BASE, "Hello привет ") and f4.user == [], f"F4: the bound field is only what the plan makes it ({op} {k})")
+            T(r4.outcome != "UNRECOVERED" or (r4.incident and r4.quarantine), "F4: UNRECOVERED has incident and quarantine")
+for k in (1, 3, 8, 14):
+    f4 = L.SimField(BASE, M2, {("event", k): "focus"})
+    r4 = L.run_transaction(f4, OLD, NEW, "", mode="MANUAL_ONLY", element="main")
+    T(r4.outcome == "UNRECOVERED" and f4.sent == k - 1 and r4.incident, f"F4: M2, the focus moves before event {k}")
+
+
+class LeakyField(L.SimField):
+    """An adapter that breaks the binding rule of 20.14 but still names the element: the transaction compares the names."""
+    def _chk(self, f=None):
+        if f == "focus":
+            self.focus = "other"
+
+
+f4 = L.SimField(BASE, M1, {("gate", 1): "focus"})
+r4 = L.run_transaction(f4, OLD, NEW, element="main")
+T((r4.outcome, r4.reason, f4.text) == ("ABORTED", "gate_changed", BASE), "F4: the focus moved before the gate: the element of the Space is not the one classified")
+for op, k, want in (("caret", 2, ("ABORTED", "gate_changed")), ("read", 1, None)):
+    f4 = LeakyField(BASE, M1, {(op, k): "focus"})
+    r4 = L.run_transaction(f4, OLD, NEW)
+    T(r4.outcome != "VERIFIED", f"F4: a leaky adapter whose element changes at {op} {k} is never VERIFIED")
+    if want:
+        T((r4.outcome, r4.reason, f4.text) == (want[0], want[1], BASE), "F4: the element is compared before the first write")
+f4 = LeakyField(BASE, M1, {("read", 2): "focus"})
+r4 = L.run_transaction(f4, OLD, NEW)
+T(r4.outcome in ("RESTORED", "UNRECOVERED") and r4.incident, "F4: the element is compared after the write too")
+
+
+# F5: an error of any kind is an error of the adapter.
+class Boom(L.SimField):
+    def __init__(self, text, caps, op, exc, partial=False):
+        super().__init__(text, caps)
+        self.op, self.exc, self.partial = op, exc, partial
+
+    def _boom(self, op):
+        if op == self.op:
+            raise self.exc("boom")
+
+    def caret(self): self._boom("caret"); return super().caret()
+    def mark(self): self._boom("mark"); return super().mark()
+
+    def read(self, a, b):
+        self._boom("read")
+        return super().read(a, b)
+
+    def replace(self, a, b, t):
+        if self.op == "replace" and self.partial:
+            super().replace(a, b, t[:3] + self.text[a + 3:b])
+        self._boom("replace")
+        super().replace(a, b, t)
+
+    def send(self, events):
+        if self.op == "send":
+            super().send(events[:4])
+        self._boom("send")
+
+
+for exc in (OSError, RuntimeError, KeyError, TimeoutError):
+    for op in ("mark", "caret", "read"):
+        f5 = Boom(BASE, M1, op, exc)
+        r5 = L.run_transaction(f5, OLD, NEW)
+        T((r5.outcome, f5.text) == ("ABORTED", BASE), f"F5: {exc.__name__} in {op} before the write: nothing is written")
+    f5 = Boom(BASE, M1, "replace", exc, partial=True)
+    r5 = L.run_transaction(f5, OLD, NEW)
+    T((r5.outcome, r5.incident, r5.quarantine, f5.text) == ("RESTORED", True, True, BASE), f"F5: {exc.__name__} after a partial write is rolled back")
+    f5 = Boom(BASE, M2, "send", exc)
+    r5 = L.run_transaction(f5, OLD, NEW, "", mode="MANUAL_ONLY")
+    T((r5.outcome, r5.incident, r5.quarantine) == ("UNRECOVERED", True, True), f"F5: {exc.__name__} in the middle of M2 is reported")
+
+
+# F6: one character on each side of the fragment is compared before and after.
+class Neighbour(L.SimField):
+    def __init__(self, text, caps, side):
+        super().__init__(text, caps)
+        self.side = side
+
+    def replace(self, start, end, text):
+        super().replace(start, end, text)
+        i = start - 1 if self.side == "before" else end + 1
+        self.text = self.text[:i] + "#" + self.text[i + 1:]
+
+
+for side, text, pos in (("before", "Hello, ghbdtn ", 14), ("after", "Hello ghbdtn  and more", 13)):
+    f6 = Neighbour(text, M1, side); f6.pos = pos
+    r6 = L.run_transaction(f6, OLD, NEW)
+    T(r6.outcome == "RESTORED" and r6.incident and "привет" not in f6.text, f"F6: damage {side} the fragment is seen")
+f6 = L.SimField("Hello ghbdtn  and more", M1); f6.pos = 13
+r6 = L.run_transaction(f6, OLD, NEW)
+T((r6.outcome, f6.text) == ("VERIFIED", "Hello привет  and more"), "F6: text after the caret is kept and the replacement is verified")
+f6 = L.SimField("Hello ghbdtn  and more", M1, {("replace", 1): "user:x"}); f6.pos = 13
+r6 = L.run_transaction(f6, OLD, NEW)
+T((r6.outcome, f6.text) == ("VERIFIED", "Hello привет x and more"), "F6: a user key typed at the caret during the write is not damage")
+
+# F7: the snapshot and the run credit belong to a VERIFIED replacement.
+e7 = L.Engine(L.example_cal(), scorer, LEX)
+d7 = feed(e7, "ghbdtn", "en", 1000, verified=False)
+T(d7.action == "CONVERT" and e7.undo(1500) is None and e7.credit == 0, "F7: before its outcome a conversion has no undo and no credit")
+e7.on_outcome("VERIFIED")
+T(e7.credit == 3 and e7.undo(1600) == "ghbdtn", "F7: VERIFIED confirms the snapshot and earns the credit")
+e7 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e7, "ghbdtn", "en", 1000, verified=False); e7.on_outcome("ABORTED")
+T(e7.credit == 0 and e7.snapshot is None, "F7: an ABORTED conversion leaves no credit that the next word could use")
+e7.on_event(L.Event("key", L.keys_from_text("y", "en")[0], "en", 2000))
+T(e7.credit == 0 and e7.after_switch is False, "F7: no state is carried to the next word")
+e7 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e7, "ghbdtn", "en", 1000, verified=False)
+for i in range(5):
+    e7.on_event(L.Event("key", L.Key(i), "en", 1010 + i))                    # typed ahead while the transaction runs
+e7.on_outcome("VERIFIED")
+T(e7.snapshot.after == 5, "F7: the keys typed during the transaction age the snapshot")
+
+# F8: an incident stops the engine for the application until it is released.
+e8 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e8, "ghbdtn", "en", 1000, verified=False); e8.on_outcome("UNRECOVERED", quarantine=True)
+T(e8.quarantined and e8.snapshot is None and e8.credit == 0 and e8.run == [], "F8: an incident empties the state")
+T(feed(e8, "ghbdtn", "en", 2000) is None and e8.run == [], "F8: nothing is recorded or decided under quarantine")
+e8.set_gate("DENY"); e8.set_gate("ALLOW"); e8.set_mode("OFF"); e8.set_mode("AUTO")
+T(e8.quarantined and feed(e8, "ghbdtn", "en", 3000) is None, "F8: a gate or mode change does not lift the quarantine")
+e8.release_quarantine()
+T(not e8.quarantined and feed(e8, "ghbdtn", "en", 4000).action == "CONVERT", "F8: the explicit release lifts it")
+e8 = L.Engine(L.example_cal(), scorer, LEX)
+feed(e8, "ghbdtn", "en", 1000, verified=False); e8.on_outcome("RESTORED", quarantine=True)
+T(e8.quarantined, "F8: RESTORED with an incident is quarantined too")
+res8 = L.run_transaction(L.SimField(BASE, M1, {("replace", 1): "raise"}), OLD, NEW)
+e8 = L.Engine(L.example_cal(), scorer, LEX); feed(e8, "ghbdtn", "en", 1000, verified=False); e8.on_outcome(res8.outcome, res8.quarantine)
+T(e8.quarantined, "F8: the flag of the TxResult reaches the engine")
+
+# F9: the undo commits only when the restoring transaction is VERIFIED.
+for oc, kept, learned in (("VERIFIED", False, True), ("ABORTED", True, False), ("RESTORED", True, False), ("UNRECOVERED", False, False)):
+    e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
+    T(e9.undo(2000) == "ghbdtn", "F9 setup")
+    e9.undo_outcome(oc, quarantine=(oc == "UNRECOVERED"))
+    T((e9.snapshot is not None) == kept and (("en2ru", "ghbdtn") in e9.exceptions) == learned, f"F9: undo ended {oc}")
+    T((e9.cool_words == 3) == learned and (e9.credit == 3) == kept, f"F9: cool-down and credit after {oc}")
+    T(e9.undo(2100) == ("ghbdtn" if kept else None), f"F9: a second chord after {oc}")
+    T(e9.quarantined == (oc == "UNRECOVERED"), f"F9: quarantine after {oc}")
+raises(ValueError, lambda: L.Engine(L.example_cal(), scorer, LEX).undo_outcome("MAYBE"), "F9: outcome vocabulary of the undo")
+e9 = L.Engine(L.example_cal(), scorer, LEX); e9.undo_outcome("VERIFIED")
+T(e9.exceptions == set(), "F9: an outcome without an undo changes nothing")
+e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000); e9.undo(2000); e9.on_event(L.Event("break"))
+e9.undo_outcome("VERIFIED")
+T(("en2ru", "ghbdtn") in e9.exceptions and e9.snapshot is None, "F9: a verified undo is learned even if a break came meanwhile")
+
+# P3 privacy of the representation (RT-17): the default repr of a snapshot never shows the typed word.
+e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
+T("ghbdtn" not in repr(e9.snapshot) and "привет" not in repr(e9.snapshot) and "Key(" not in repr(e9.snapshot), "P-1: repr of the snapshot holds no text")
 
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
@@ -4876,8 +5221,11 @@ class Adapter:
     def replace(self, start: int, end: int, text: str) -> None: raise NotImplementedError   # M1, one operation
     def send(self, events: Sequence[Tuple[str, str]]) -> None: raise NotImplementedError    # M2: ("bs","") / ("ch",c)
     def modifier_down(self) -> bool: raise NotImplementedError   # M2 only: Shift, Ctrl, Alt or a Windows key is physically down
-    def mark(self) -> int: raise NotImplementedError  # an opaque token: "from now on, count the user's key events"
-    def keys_since(self, mark: int) -> int: raise NotImplementedError   # user key events seen since that token
+    def mark(self) -> int: raise NotImplementedError  # an opaque token: "from now on, count the user's input events"
+    def keys_since(self, mark: int) -> int: raise NotImplementedError   # user input events since that token: every key
+    #   (also one that types nothing: Shift, an arrow, Home) and every pointer button press
+    def element(self) -> object: return None          # identity of the focused element (a comparable token); gate() binds the
+    #   adapter to the element it classified: caret, read, replace and send on any other focused element raise AdapterError
 
 
 @dataclass
@@ -4893,10 +5241,12 @@ TYPED_AHEAD_MAX = 3
 
 
 def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: str = "AUTO",
-                    context_break: bool = False, layout_changed: bool = False) -> TxResult:
+                    context_break: bool = False, layout_changed: bool = False, element: object = None) -> TxResult:
     """The replacement transaction of 13.2 for the word `old` (as typed; the user's Space is already in the field),
     replaced by `new` of the same length. `ahead`: the characters typed after the Space that the engine recorded.
-    The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys."""
+    The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys.
+    `element`: the identity that the runtime took from the adapter when it saw the Space; when it is given, a different
+    focused element at the gate ends the transaction before anything is read (L9 F4)."""
     n = len(old)
     if len(new) != n:
         raise ValueError("a replacement keeps the length")
@@ -4916,16 +5266,19 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
         return TxResult("ABORTED", "modifier_down", method)
     try:
         m = ad.mark()                                    # every user key from here on is counted (13.2, steps 3 to 5)
-    except AdapterError:
+    except Exception:
         return TxResult("ABORTED", "adapter_error", method)
-    # 2 gate
+    # 2 gate; it also binds the adapter to the element that was classified (the contract of 20.14)
     try:
         g = ad.gate()
-    except AdapterError:
+        tok = ad.element()
+    except Exception:
         g = GATE_UNKNOWN
-    if g != GATE_ALLOW:
+    if g != GATE_ALLOW or (element is not None and tok != element):
         return TxResult("ABORTED", "gate_changed", method)
-    # 3 read and match: the range comes from the content, never from remembered offsets
+    # 3 read and match: the range comes from the content, never from remembered offsets. The read window holds the
+    # fragment and one character on each side: the character before it must be white space (or the field starts there),
+    # so a word whose head is missing is never converted (L9 F3), and both neighbours are compared again in step 5 (F6).
     try:
         c = ad.caret()
         found = None
@@ -4933,57 +5286,70 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
             start = c - (n + 1 + a)
             if start < 0:
                 continue
-            t = ad.read(start, start + n + 1 + a)
-            if t is not None and t == old + " " + ahead[:a]:
-                found = (start, a)
+            lo = max(start - 1, 0)
+            t = ad.read(lo, start + n + 1 + a + 1)
+            if t is None:
+                continue
+            h = start - lo
+            if t[h:h + n + 1 + a] == old + " " + ahead[:a] and (h == 0 or t[0].isspace()):
+                found = (start, a, t[:h], t[h + n + 1 + a:][:1])
                 break
-    except AdapterError:
+    except Exception:
         return TxResult("ABORTED", "adapter_error", method)
     if found is None:
         return TxResult("ABORTED", "echo_mismatch", method)
-    start, a = found
+    start, a, head, tail = found
+    lo = max(start - 1, 0)
     end = start + n + 1 + a
     before, after = old + " " + ahead[:a], new + " " + ahead[:a]
-    # 3b the last look before the first write. M2 is a sequence of events that user keys can enter, and it
-    # deletes by count, so a key that arrived since the freeze makes the plan wrong: nothing is written.
-    if method == "M2":
-        try:
-            if ad.keys_since(m) > 0:
-                return TxResult("ABORTED", "typed_ahead", method)
-        except AdapterError:
-            return TxResult("ABORTED", "adapter_error", method)
-    # 4 replace
+    # 3b the last look before the first write. A user input event since the freeze (a key, an arrow, a pointer button)
+    # may have moved the caret before it was read, and in M2 it enters the sequence of events: nothing is written
+    # (L9 F1, F2). The caret and the element are read again for the same reason (F1, F4).
+    try:
+        if ad.keys_since(m) > 0:
+            return TxResult("ABORTED", "typed_ahead", method)
+        if ad.caret() != c:
+            return TxResult("ABORTED", "echo_mismatch", method)
+        if ad.element() != tok:
+            return TxResult("ABORTED", "gate_changed", method)
+    except Exception:
+        return TxResult("ABORTED", "adapter_error", method)
+    # 4 replace; any error, of any kind, after this point is handled as a failed write (L9 F5)
     failed = False
     try:
         if method == "M1":
             ad.replace(start, start + n, new)
         else:
             ad.send([("bs", "")] * (n + 1) + [("ch", ch) for ch in new] + [("ch", " ")])
-    except AdapterError:
+    except Exception:
         failed = True
-    # 5 verify the whole range and the caret. Without user keys the caret is exactly where it was; with k user
-    # keys it may have moved forward by at most k. Backwards, or any other change of the range, is a failure.
+    # 5 verify the whole fragment, the character on each side and the caret. Without user input the caret is exactly where it
+    # was. M1 is one operation and the fragment is checked as a whole, so with k user events it may have moved forward by at
+    # most k; M2 is a sequence of events that user input can enter between, so it is verified only when there was none (F2).
     ok = False
     if not failed:
         try:
-            got = ad.read(start, end)
+            got = ad.read(lo, end + 1)
             cur = ad.caret()
             k = ad.keys_since(m)
-            ok = got == after and (cur == c if k == 0 else c <= cur <= c + k)
-        except AdapterError:
+            same = ad.element() == tok
+            ok = (got is not None and got[:len(head) + len(after)] == head + after
+                  and (k > 0 or got[len(head) + len(after):] == tail)
+                  and same and (cur == c if k == 0 else (method == "M1" and c <= cur <= c + k)))
+        except Exception:
             ok = False
     if ok:
         return TxResult("VERIFIED", "ok", method)
     # 6 mismatch, timeout or error after step 4 began: one rollback attempt (M1 only), then classify what is there
     final: Optional[str] = None
     try:
-        if method == "M1" and ROLLBACK in ad.caps:
+        if method == "M1" and ROLLBACK in ad.caps and ad.element() == tok:
             ad.replace(start, start + n, old)
         final = ad.read(start, end)
-    except AdapterError:
+    except Exception:
         try:
             final = ad.read(start, end)
-        except AdapterError:
+        except Exception:
             final = None
     outcome = classify_outcome(True, before, after, final, False)
     return TxResult(outcome, "write_error" if failed else "verify_failed", method, True, True)
@@ -5000,6 +5366,9 @@ class SimField(Adapter):
       event k (M2 only): 'raise' | 'key' | 'user:<c>' (the user types <c> just before synthetic event k; a documented
                impossibility inside one SendInput call on Windows, possible between CGEventPost calls on macOS)
                | 'drop' (event k is silently not delivered: UIPI, or a partial insertion).
+      'focus' (gate, caret, read, replace, event k): the focus moves to another element just before the call; every call
+               on a bound adapter then raises AdapterError and the other element is never read or written (20.14).
+      click (a method, not a fault): the user moves the caret with the pointer; a pointer press is counted like a key.
       modifiers: True when a modifier key is physically down."""
 
     def __init__(self, text: str, caps, faults=None, gate: str = GATE_ALLOW):
@@ -5010,10 +5379,26 @@ class SimField(Adapter):
         self.sent = 0                     # synthetic events delivered
         self.silent = 0                   # user key events that typed no character (Shift, arrows)
         self.modifiers = False            # a modifier key is physically down
+        self.focus, self.bound = "main", None   # the focused element; gate() binds the adapter to the one it classified
+        self.other_reads = 0              # calls that reached a focused element other than the bound one (must stay 0)
 
     def _hit(self, op: str) -> Optional[str]:
         k = self.count[op] = self.count.get(op, 0) + 1
         return self.faults.get((op, k))
+
+    def click(self, pos: int):
+        """The user moves the caret with the pointer; the adapter counts the press (contract of 20.14)."""
+        self.pos = max(0, min(len(self.text), pos))
+        self.silent += 1
+
+    def _chk(self, f=None):
+        if f == "focus":
+            self.focus = "other"
+        if self.bound is not None and self.focus != self.bound:
+            raise AdapterError("the focus moved to another element")
+
+    def element(self) -> object:
+        return self.focus
 
     def type_user(self, ch: str):
         self.text = self.text[:self.pos] + ch + self.text[self.pos:]
@@ -5024,16 +5409,21 @@ class SimField(Adapter):
         f = self._hit("gate")
         if f == "raise":
             raise AdapterError("gate")
-        return f or self._gate
+        if f == "focus":
+            self.focus = "other"
+        self.bound = self.focus
+        return self._gate if f == "focus" else (f or self._gate)
 
     def caret(self) -> int:
         f = self._hit("caret")
+        self._chk(f)
         if f == "raise":
             raise AdapterError("caret")
         return {"back": -1, "forward": 1, "forward2": 2}.get(f, 0) + self.pos
 
     def read(self, start: int, end: int) -> Optional[str]:
         f = self._hit("read")
+        self._chk(f)
         if f and f.startswith("user:"):
             self.type_user(f[5:])
         if f == "key":
@@ -5047,6 +5437,7 @@ class SimField(Adapter):
 
     def replace(self, start: int, end: int, text: str) -> None:
         f = self._hit("replace")
+        self._chk(f)
         if f and f.startswith("user:"):
             self.type_user(f[5:])
         if f == "key":
@@ -5077,6 +5468,7 @@ class SimField(Adapter):
     def send(self, events: Sequence[Tuple[str, str]]) -> None:
         for k, (kind, ch) in enumerate(events, 1):
             f = self.faults.get(("event", k))
+            self._chk(f)
             if f and f.startswith("user:"):
                 self.type_user(f[5:])
             if f == "key":

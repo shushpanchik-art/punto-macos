@@ -992,7 +992,7 @@ T(m2_runs > 500, "F2: the sweep ran")
 
 # F3: the head of the word. The character before the fragment must be white space, or the field starts there.
 for text, ok_ in (("Hello xghbdtn ", False), ("Hello,ghbdtn ", False), ("Hello1ghbdtn ", False), ("Hello-ghbdtn ", False),
-                  ("Hello ghbdtn ", True), ("ghbdtn ", True), ("Hello\nghbdtn ", True), ("Hello\tghbdtn ", True), ("Hello\u00a0ghbdtn ", True)):
+                  ("Hello ghbdtn ", True), ("ghbdtn ", True), ("Hello\nghbdtn ", True), ("Hello\tghbdtn ", True), ("Hello ghbdtn ", True)):
     f3 = L.SimField(text, M1)
     r3 = L.run_transaction(f3, OLD, NEW)
     T((r3.outcome == "VERIFIED") == ok_ and (ok_ or (r3.outcome == "ABORTED" and f3.text == text)), f"F3: head of the word in {text!r}")
