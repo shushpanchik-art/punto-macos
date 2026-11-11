@@ -106,6 +106,8 @@ while n < 10_050:
         e.on_event(L.Event("key", k, "en", t + i))
     d = e.on_event(L.Event("space", None, "en", t + 20))
     if d is not None and d.action == "CONVERT":
-        e.undo(t + 25); n += 1
+        e.on_outcome("VERIFIED")
+        if e.undo(t + 25) is not None:
+            e.undo_outcome("VERIFIED"); n += 1
     e.cool_words = 0
 print(f"   {n} undone words -> len(exceptions) = {len(e.exceptions)} (spec: at most 10,000, least-recently-used eviction)")

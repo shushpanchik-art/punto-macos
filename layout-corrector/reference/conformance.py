@@ -1165,6 +1165,17 @@ e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000); e9.
 e9.undo_outcome("VERIFIED")
 T(("en2ru", "ghbdtn") in e9.exceptions and e9.snapshot is None, "F9: a verified undo is learned even if a break came meanwhile")
 
+# L9 F11: the exception list holds at most 10,000 entries; the least recently undone word leaves first.
+e11 = L.Engine(L.example_cal(), scorer, LEX)
+for i in range(L.MAX_EXCEPTIONS + 5):
+    e11.undoing = (type("S", (), {"direction": "en2ru", "typed": "w%d" % i})(), 0)
+    e11.undo_outcome("VERIFIED")
+T(len(e11.exceptions) == L.MAX_EXCEPTIONS == len(e11._exc_order), "F11: the exception list is bounded")
+T(("en2ru", "w0") not in e11.exceptions and ("en2ru", "w4") not in e11.exceptions and ("en2ru", "w5") in e11.exceptions, "F11: the oldest entries are evicted first")
+e11.undoing = (type("S", (), {"direction": "en2ru", "typed": "w5"})(), 0); e11.undo_outcome("VERIFIED")
+e11.undoing = (type("S", (), {"direction": "en2ru", "typed": "new"})(), 0); e11.undo_outcome("VERIFIED")
+T(("en2ru", "w5") in e11.exceptions and ("en2ru", "w6") not in e11.exceptions, "F11: undoing a word again renews it")
+
 # P3 privacy of the representation (RT-17): the default repr of a snapshot never shows the typed word.
 e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
 T("ghbdtn" not in repr(e9.snapshot) and "привет" not in repr(e9.snapshot) and "Key(" not in repr(e9.snapshot), "P-1: repr of the snapshot holds no text")

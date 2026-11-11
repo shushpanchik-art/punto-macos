@@ -449,6 +449,7 @@ class Event:
 MAX_BUF = 64
 RUN_CREDIT_MAX = 3
 COOLDOWN_WORDS = 3
+MAX_EXCEPTIONS = 10_000                                   # 13.3: least recently undone word is evicted first
 COOLDOWN_MS = 10_000
 EVIDENCE_KEEP = {"user_exception", "acronym", "lexicon_active", "abstain", "scorer_invalid"}   # KEEP reasons that end a run
 GATE_ALLOW, GATE_DENY, GATE_UNKNOWN = "ALLOW", "DENY", "UNKNOWN"
@@ -485,7 +486,8 @@ class Engine:
         if kind not in KINDS:
             raise CalibrationError(f"unknown scorer kind {kind!r}")
         self.cal, self.scorer, self.lexicon, self.kind = cal, scorer, lexicon or {}, kind
-        self.exceptions = set(exceptions)                 # grows by one entry per undo (13.3)
+        self.exceptions = set(exceptions)                 # one entry per undo, at most MAX_EXCEPTIONS (13.3)
+        self._exc_order = dict.fromkeys(sorted(self.exceptions))   # oldest first
         self.snapshot: Optional[UndoSnapshot] = None      # separate from the word buffer (13.4)
         self.mode = "AUTO"                                # AUTO | MANUAL_ONLY | OFF, derived by engine_mode (20.14)
         self.run: List[Key] = []
@@ -562,7 +564,14 @@ class Engine:
             return
         s, now_ms = u
         if outcome == "VERIFIED":
-            self.exceptions.add((s.direction, s.typed))
+            item = (s.direction, s.typed)
+            self._exc_order.pop(item, None)
+            self._exc_order[item] = None
+            self.exceptions.add(item)
+            while len(self._exc_order) > MAX_EXCEPTIONS:
+                old = next(iter(self._exc_order))
+                del self._exc_order[old]
+                self.exceptions.discard(old)
             self.credit = 0
             self.cool_words = COOLDOWN_WORDS
             self.cool_until_ms = now_ms + COOLDOWN_MS

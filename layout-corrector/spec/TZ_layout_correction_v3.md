@@ -2535,6 +2535,7 @@ class Event:
 MAX_BUF = 64
 RUN_CREDIT_MAX = 3
 COOLDOWN_WORDS = 3
+MAX_EXCEPTIONS = 10_000                                   # 13.3: least recently undone word is evicted first
 COOLDOWN_MS = 10_000
 EVIDENCE_KEEP = {"user_exception", "acronym", "lexicon_active", "abstain", "scorer_invalid"}   # KEEP reasons that end a run
 GATE_ALLOW, GATE_DENY, GATE_UNKNOWN = "ALLOW", "DENY", "UNKNOWN"
@@ -2571,7 +2572,8 @@ class Engine:
         if kind not in KINDS:
             raise CalibrationError(f"unknown scorer kind {kind!r}")
         self.cal, self.scorer, self.lexicon, self.kind = cal, scorer, lexicon or {}, kind
-        self.exceptions = set(exceptions)                 # grows by one entry per undo (13.3)
+        self.exceptions = set(exceptions)                 # one entry per undo, at most MAX_EXCEPTIONS (13.3)
+        self._exc_order = dict.fromkeys(sorted(self.exceptions))   # oldest first
         self.snapshot: Optional[UndoSnapshot] = None      # separate from the word buffer (13.4)
         self.mode = "AUTO"                                # AUTO | MANUAL_ONLY | OFF, derived by engine_mode (20.14)
         self.run: List[Key] = []
@@ -2648,7 +2650,14 @@ class Engine:
             return
         s, now_ms = u
         if outcome == "VERIFIED":
-            self.exceptions.add((s.direction, s.typed))
+            item = (s.direction, s.typed)
+            self._exc_order.pop(item, None)
+            self._exc_order[item] = None
+            self.exceptions.add(item)
+            while len(self._exc_order) > MAX_EXCEPTIONS:
+                old = next(iter(self._exc_order))
+                del self._exc_order[old]
+                self.exceptions.discard(old)
             self.credit = 0
             self.cool_words = COOLDOWN_WORDS
             self.cool_until_ms = now_ms + COOLDOWN_MS
@@ -5137,6 +5146,17 @@ T(e9.exceptions == set(), "F9: an outcome without an undo changes nothing")
 e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000); e9.undo(2000); e9.on_event(L.Event("break"))
 e9.undo_outcome("VERIFIED")
 T(("en2ru", "ghbdtn") in e9.exceptions and e9.snapshot is None, "F9: a verified undo is learned even if a break came meanwhile")
+
+# L9 F11: the exception list holds at most 10,000 entries; the least recently undone word leaves first.
+e11 = L.Engine(L.example_cal(), scorer, LEX)
+for i in range(L.MAX_EXCEPTIONS + 5):
+    e11.undoing = (type("S", (), {"direction": "en2ru", "typed": "w%d" % i})(), 0)
+    e11.undo_outcome("VERIFIED")
+T(len(e11.exceptions) == L.MAX_EXCEPTIONS == len(e11._exc_order), "F11: the exception list is bounded")
+T(("en2ru", "w0") not in e11.exceptions and ("en2ru", "w4") not in e11.exceptions and ("en2ru", "w5") in e11.exceptions, "F11: the oldest entries are evicted first")
+e11.undoing = (type("S", (), {"direction": "en2ru", "typed": "w5"})(), 0); e11.undo_outcome("VERIFIED")
+e11.undoing = (type("S", (), {"direction": "en2ru", "typed": "new"})(), 0); e11.undo_outcome("VERIFIED")
+T(("en2ru", "w5") in e11.exceptions and ("en2ru", "w6") not in e11.exceptions, "F11: undoing a word again renews it")
 
 # P3 privacy of the representation (RT-17): the default repr of a snapshot never shows the typed word.
 e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
