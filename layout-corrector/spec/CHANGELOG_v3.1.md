@@ -58,7 +58,7 @@ No finding below is at `INTEGRATION_VERIFIED` or higher. v3.1 is an internally c
 
 ### State of the general audit (lines L1 to L10)
 
-`audit/README.md` lists every line with its report. Closed: L2, L3, L4 (as a document audit), L5, L6, L7, L8, L10. **Not closed:** L1 (round 1 was partial: see `audit/L1/L1_report.md`; its three text gaps were fixed in rev 295: the row formats of the vectors in 20.12, the EV-1 bound for no false correction in 11.3, the 20-key rule of `tokens`) and L9 (the attacks are the author's own, not an independent review). The audit is therefore **not complete**.
+`audit/README.md` lists every line with its report. Closed: L2, L3, L4 (as a document audit), L5, L6, L7, L8, L10. **Not closed:** L1 (round 2 of 2026-11-12 reached 317 of 328 entries but was not blind; round 1 was partial: see `audit/L1/L1_report.md`; its three text gaps were fixed in rev 295: the row formats of the vectors in 20.12, the EV-1 bound for no false correction in 11.3, the 20-key rule of `tokens`) and L9 (an independent review found F1 to F11, fixed and re-attacked by the same author; P3 items and residuals R-1 to R-3 stay). The audit is therefore **not complete**.
 
 Also fixed while transferring the code into the text: engine modes other than AUTO record nothing (13.5, `Engine.on_event`, with a test and a fuzz invariant); the undo returns the recorded keys rendered with the recorded layout.
 
@@ -70,5 +70,5 @@ Also fixed while transferring the code into the text: engine modes other than AU
 4. The real number of applications in `AUTO` per OS; M2 race window and key auto-repeat behaviour in the canary (RT-4, RT-16).
 5. Corpus versions, hashes and licences (8.9), crash-dump policy on real systems (RT-17).
    Open items of the audit: F-3 is closed (commit `6d7d14d`, test group P16); B1 and B2 have their own tests (P16) and RT-19 to RT-21 (two instances, session switching and sleep, remote desktop) are requirements since rev 305; what remains is an independent review (see item 6) and the real-system items above.
-6. L1 round 2 (an independent re-implementation on an input rebuilt from the final edition, with `vectors.py` and section 7.7) and an independent review for L9. Both need a fresh agent run; the attempt of 2026-11-09 stopped at the usage limit before a report.
+6. A truly blind L1 round on the final edition, and a second independent review of the L9 fixes; neither has been done.
 7. The workflow `.github/workflows/layout-corrector.yml` runs `conformance.py` (normal and with `-O`), `vectors.py` at ten hash seeds against the expected JSON, `test_ref.py` and the byte-for-byte comparison of the code blocks of section 20 with `reference/`; it passed on GitHub on Python 3.9, 3.11 and 3.13 (run 41965561463, commit 5df564b). The older workflow `tests.yml` belongs to the application `punto.py` on branches main and develop and fails on the retired macOS 13 image; it is not part of this work. CI does not run the mutation test, the EV-1 simulation or the audit scripts of `audit/`. `audit/MANIFEST.sha256` records the files and hashes of the audited revision.

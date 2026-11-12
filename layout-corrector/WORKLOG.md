@@ -103,3 +103,6 @@
 ## 2026-11-09
 - F-3 closed (6d7d14d). L3 run r9 on the code of 6d7d14d: 718 mutants, 684 killed = 95.3%, 34 survivors classified (audit/L3). Spec rev 305 committed (720713e). tests.yml had invalid YAML (python at column 0 inside `run: |`), re-indented.
 - Independent L9 and L1 round 2: agent launches stopped at the usage limit (reset 21:30 local); not done, audit not declared complete.
+
+## 2026-11-12
+- L9 F1-F9, F11 fixed (code, tests P17, TZ rev 418 = repo spec copy, L7 IDENTICAL x4). L3 r10: 795 mutants, 760 killed = 95.6%. L1 round 2 report exists but is not blind. Attack scripts re-run on the final code (0 silent corruption outside residual R-1..R-3). Local Qwen was unreachable from the cloud container (no kit, nothing on 127.0.0.1:8080), nothing was delegated. Audit NOT complete.
