@@ -1,4 +1,38 @@
-# L9 independent safety and privacy report (spec rev305, reference lfengine.py)
+# L9 independent safety and privacy report (original review on spec rev305; status refreshed on the final code)
+
+## Status on the final code (added 2026-11-12)
+
+Code under test: commit of the re-run header in `L9_rerun_final_output.md`; `lfengine.py` sha256 `4af41c76efefbc7d48dc26c696f15822dd447d726cc02813e17fb0673c3eae5f`, `conformance.py` sha256 `ddcc300c3fca57983bbbe6c411c9bfd1368f3f11eb85e64c8d28e2f0e124e580`; spec doc rev 418 (L7: all four code blocks IDENTICAL). The text below this section is the review as written on rev305 and is history. Where an old script caption contradicts the numbers printed (for example "the user's undo was consumed", "a second transaction would start on a quarantined application", "a conversion that never happened earns the run prior"), the printed numbers are the result and the caption is stale: after the fixes `undo()` returns None before VERIFIED, `exception added: False`, credit 0, and the next decision on a quarantined application is `None`. No stale caption was taken as a confirmed bug.
+
+Exact commands (from the repository root, run on the commit named in the output file):
+- `cd layout-corrector/reference && python3 conformance.py` and `python3 -O conformance.py`: both print `OK (1863346 checks, 1821 single and double faults, 641 fuzz conversions, 207 fuzz undos)`.
+- `sh layout-corrector/audit/L9_independent/run_all_attacks.sh > layout-corrector/audit/L9_independent/L9_rerun_final_output.md`: runs all 15 scripts, 15 of 15 exit 0, raw output saved.
+- The workflow `layout-corrector.yml` does **not** run these scripts (they print, they do not assert); a green CI is therefore not evidence for L9. The evidence is the conformance groups P16/P17 (which CI does run) plus the saved raw output.
+
+| Finding | Status | Check on the final code |
+|---|---|---|
+| F1 caret anchor (P1) | fixed; residual R-2 accepted | `attack_caret_anchor.py`: the counted arrow key and pointer press give ABORTED typed_ahead; the caret move that no hook sees still gives VERIFIED with a wrong word (the line is marked RESIDUAL). Conformance P17 |
+| F2 M2 arrow mid-batch (P1) | fixed | `attack_m2_arrow_midbatch.py`: 0 silent corruptions of 4 (UNRECOVERED with incident); `attack_fuzz_transaction.py` 60,000 runs, 0 violations (3 only with `EVENTS_IN_MARK=1`, the residual R-1) |
+| F3 word head (P1) | fixed | `attack_word_head.py`, `attack_gate_midword.py`: ABORTED echo_mismatch, field unchanged, 0 silent half-converted words; `attack_pipeline_fuzz.py` 20,000 words |
+| F4 focus switch (P1) | fixed for a conforming adapter; residual R-3 | `attack_focus_switch.py`: 0 reads and 0 writes on the other element, never VERIFIED. A non-conforming adapter is not modelled |
+| F5 non-AdapterError (P2) | fixed | `attack_nonadapter_exception.py`: M1 partial write gives RESTORED with incident and quarantine, M2 mid-batch gives UNRECOVERED with incident and quarantine |
+| F6 neighbour damage (P2) | fixed | `attack_neighbour_damage.py`: both damages end RESTORED verify_failed with incident |
+| F7 engine state at the decision (P2) | fixed | `attack_engine_state.py` F6 section, `attack_pending_state.py`: snapshot unconfirmed, undo None, credit 0 until VERIFIED |
+| F8 incident does not stop the engine (P2) | fixed | `attack_engine_state.py` F7 section: next decision None, quarantined True until `release_quarantine` |
+| F9 undo commits early (P2) | fixed | `attack_undo_commit.py`: ABORTED gate_changed, exception not learned, cool-down 0, snapshot alive, a second chord is possible |
+| P3 F8 layout id only in a key, P3 F9 Backspaces in a dropped word | fixed | `attack_engine_state.py`: snapshot dropped in both |
+| P3 F10 clock stepped back, `ts_ms=0` | **open** | `attack_engine_state.py` F10: undo still works with a stepped-back clock; a `ts_ms=0` event leaves the snapshot alive |
+| P3 F11 exception list bound | fixed | 10,050 undone words give 10,000 entries (LRU) |
+| P3 E-2 unknown layout id | **open** | `attack_engine_fuzz.py`: KeyError for None and 'de' after the run was flushed |
+| P3 H-1 repeated key hides a loss, H-2, H-3, H-4 | **open** (not touched) | `attack_hookhealth.py` as printed: H-1 declared 300 ms late, H-3 evidence erased, H-4 tap re-enabled 10 of 10 times without MANUAL_ONLY. Fuzz: 0 false alarms, 0 undeclared losses except H-1 masking |
+| P3 privacy P-1 repr | **partly fixed** | the repr of `UndoSnapshot` shows only the number of keys, direction and confirmed flag; the repr of `Decision` still contains the converted word and the repr of `Event` the physical key (open) |
+| P3 privacy P-2 HookHealth queues signatures in a DENY gate | **open** | `attack_privacy.py`: scan codes of a password field are queued for up to 300 ms. The reference cannot close this: the class has no gate input |
+| P3 privacy P-3 exceptions are a plain set in memory | open, requirement | bounded now; no hashing or persistence in the reference |
+
+**R-2, stated plainly.** A caret move that neither a key nor a pointer press counted (a program, an assistive tool, remote input) before step 3 can make an identical earlier word the converted fragment and the outcome is VERIFIED with a wrong field. The reference cannot detect it: it sees only counted events and reads. It is documented in 13.2 (G-FIELD) and measured only by RT-4 on a real adapter. R-1 (an event between the last processed event and the freeze) and R-3 are the other two residuals.
+
+**Limits of independence.** The original attacks and findings came from a separate review run. The fixes, the adapted fuzz scripts (`mark()` injects events only with `EVENTS_IN_MARK=1`; the engine fuzz was changed for the new undo semantics) and this re-run were done by the author of the code, so nothing here is a second independent review of the fixes.
+
 
 Baseline: `python3 conformance.py 20000` prints OK (204771 checks). All scripts import lfengine from work/ (copy of in/).
 Run any script with `python3 attack_X.py`; each prints the outcome. Nothing below is reported unless the script reproduced it.

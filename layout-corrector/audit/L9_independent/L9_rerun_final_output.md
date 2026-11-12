@@ -1,25 +1,32 @@
-# L9 re-run of all attack scripts on the final code (spec rev 411, lfengine sha256 4af41c76efefbc7d)
+# L9 re-run of all attack scripts on the final code
 
-Date 2026-11-11. Raw output; the only line allowed to print SILENT WRONG WORD is the documented residual R-2 (caret move no hook sees).
+Commit (code under test): 6ee6ad5e6efa96023a15c8b054c2a52426758f80
+lfengine.py sha256: 4af41c76efefbc7d48dc26c696f15822dd447d726cc02813e17fb0673c3eae5f
+conformance.py sha256: ddcc300c3fca57983bbbe6c411c9bfd1368f3f11eb85e64c8d28e2f0e124e580
+Python: Python 3.13.17
+Date: 2026-11-12T13:09:45Z
+Only the line marked RESIDUAL R-2 may print SILENT WRONG WORD.
 
 ## attack_caret_anchor.py
-~~~
+```
 M1 + arrow key (counted)         -> ABORTED    typed_ahead  field='ghbdtn ghbdtn '  
 M1 + pointer press (counted, contract 20.14) -> ABORTED    typed_ahead  field='ghbdtn ghbdtn '  
 M1 + caret move no hook sees (RESIDUAL, 13.2) -> VERIFIED   ok           field='привет ghbdtn '  <== SILENT WRONG WORD (only the documented residual may print this)
 M2 + caret move no hook sees (RESIDUAL, 13.2) -> VERIFIED   ok           field='привет ghbdtn '  <== SILENT WRONG WORD (only the documented residual may print this)
 M2 + arrow key (counted)         -> ABORTED    typed_ahead  field='ghbdtn ghbdtn '  
-~~~
+exit=0
+```
 
 ## attack_engine_fuzz.py
-~~~
+```
 events/steps 400000 conversions 51840 {} {}
 E-2 layout id None -> on_event RAISED KeyError None | run already flushed: True
 E-2 layout id 'de' -> on_event RAISED KeyError 'de' | run already flushed: True
-~~~
+exit=0
+```
 
 ## attack_engine_state.py
-~~~
+```
 == F6: snapshot exists before the replacement has happened
    decision: CONVERT | snapshot alive before any write; undo() -> None | exception added: False | field still 'ghbdtn '
    then the transaction runs: VERIFIED -> field 'привет ' | snapshot: UndoSnapshot(<6 keys, en2ru, confirmed=True>) (the user's undo was consumed, the word is now a permanent exception, the conversion stands)
@@ -37,10 +44,11 @@ E-2 layout id 'de' -> on_event RAISED KeyError 'de' | run already flushed: True
    ts_ms=0 event after a snapshot (non-monotonic input) leaves it alive: True
 == F11: exception list bound
    10050 undone words -> len(exceptions) = 10000 (spec: at most 10,000, least-recently-used eviction)
-~~~
+exit=0
+```
 
 ## attack_focus_switch.py
-~~~
+```
 (a) other field, different caret
    outcome=ABORTED echo_mismatch  A(original field)='Hello ghbdtn '  B(other)='user@example.org' (was 'user@example.org')
 (b1) other field, caret differs by one
@@ -50,15 +58,17 @@ E-2 layout id 'de' -> on_event RAISED KeyError 'de' | run already flushed: True
 (c) other element is a password field
    outcome=ABORTED echo_mismatch  A(original field)='Hello ghbdtn '  B(other)='hunter2!hunter2' (was 'hunter2!hunter2')
    reads performed on the secure element: 0
-~~~
+exit=0
+```
 
 ## attack_fuzz_transaction.py
-~~~
+```
 runs 60000 {'VERIFIED': 22446, 'ABORTED': 30903, 'RESTORED': 2394, 'UNRECOVERED': 4257}
-~~~
+exit=0
+```
 
 ## attack_gate_midword.py
-~~~
+```
 (a) focus: gate UNKNOWN -> ALLOW in the middle of the word
    engine saw 'hbdtn' -> CONVERT score_above_threshold
    transaction: ABORTED echo_mismatch   field='Hello ghbdtn '   
@@ -70,10 +80,11 @@ runs 60000 {'VERIFIED': 22446, 'ABORTED': 30903, 'RESTORED': 2394, 'UNRECOVERED'
    engine saw 'hbdtn' -> CONVERT score_above_threshold
    transaction: ABORTED echo_mismatch   field='Hello ghbdtn '   
 silent half-converted words: 0 of 3
-~~~
+exit=0
+```
 
 ## attack_hookhealth.py
-~~~
+```
 fuzz runs 20000 {'undeclared_loss': 0, 'false_alarm': 0} first seeds: {} (undeclared losses are repeated-signature masking, H-1: a lost key paired with a later key of the same signature)
 H-1 repeated key hides a loss
    at 350 ms ok = True | at 401 ms ok = False (the loss is declared 300 ms after the 2nd key)
@@ -83,10 +94,11 @@ H-3 reinstalled() while healthy erases evidence
    ok at 2000 ms: True (the lost key is never declared)
 H-4 macOS: unlimited re-enabling
    tap disabled 10 times in a row, reinstalled each time: ok after reinstall 10 of 10 (spec: MANUAL_ONLY after the 3rd in 60 s)
-~~~
+exit=0
+```
 
 ## attack_m2_arrow_midbatch.py
-~~~
+```
 (1) word at the start of the field, ONE Left arrow before event 1
     UNRECOVERED verify_failed incident=True  field='привет  '  expected 'привет '
 (2) word at the start of the field, ONE Left arrow before event 9
@@ -96,26 +108,29 @@ H-4 macOS: unlimited re-enabling
 (4) control: 'Hello ' in front, ONE Left arrow before event 3
     UNRECOVERED verify_failed incident=True  field='Helloпривет t'  expected 'Hello привет '
 silent corruptions: 0 of 4
-~~~
+exit=0
+```
 
 ## attack_neighbour_damage.py
-~~~
+```
 damage before: RESTORED  verify_failed incident=True
    before: 'Hello, ghbdtn '
    after : 'Hello,?ghbdtn '
 damage after : RESTORED  verify_failed incident=True
    before: 'Hello ghbdtn  and the rest of the sentence'
    after : 'Hello ghbdtn #and the rest of the sentence'
-~~~
+exit=0
+```
 
 ## attack_nonadapter_exception.py
-~~~
+```
 M1 replace raises OSError after a partial write -> returned TxResult(outcome='RESTORED', reason='write_error', method='M1', incident=True, quarantine=True)
 M2 send raises OSError in the middle of the batch -> returned TxResult(outcome='UNRECOVERED', reason='write_error', method='M2', incident=True, quarantine=True)
-~~~
+exit=0
+```
 
 ## attack_pending_state.py
-~~~
+```
 control: word B alone (default prior)
    B decision: KEEP abstain margin -1.59
 (1)+(2) A pending, B decided meanwhile, then A is ABORTED
@@ -127,15 +142,17 @@ control: word B alone (default prior)
    then the transaction: VERIFIED field='привет ' (the word is converted AND an exception)
 (4) a non-AdapterError between decision and outcome
    snapshot alive: True credit: 0 -> undo(): None (a conversion that never happened)
-~~~
+exit=0
+```
 
 ## attack_pipeline_fuzz.py
-~~~
+```
 words 20000 perturb True {'VERIFIED': 9157, 'undo': 1909, 'ABORTED': 2126}
-~~~
+exit=0
+```
 
 ## attack_privacy.py
-~~~
+```
 P-1 repr(snapshot) = UndoSnapshot(<6 keys, en2ru, confirmed=False>)
     repr(decision) = Decision(action='CONVERT', reason='score_above_threshold', replacement='привет', margin=0.8931441493827936, n_keys=6)  <- contains the converted word
     repr(event)    = Event(kind='key', key=Key(id=30, shift=False, caps=False), layout='en', ts_ms=5)  <- the physical key of one keystroke
@@ -145,10 +162,11 @@ P-2 HookHealth with a password field in focus (the class has no gate input):
 P-3 exception list:
     engine.exceptions = set() (plain text; no hashing, no LRU bound, no clear)
     the set is what a persistent store would serialise; the reference has a hashed alternative (LEX_TAGS exc_en2ru) that is not used by Engine
-~~~
+exit=0
+```
 
 ## attack_undo_commit.py
-~~~
+```
 (a) 10 characters typed after the conversion (inside the 100-key window)
    undo text 'ghbdtn' -> restore transaction: ABORTED typed_ahead | field='Hello привет abcdefghij'
    engine: exception learned = False | cool_words = 0 | snapshot alive = True | second chord returns 'ghbdtn' (a retry is possible when the snapshot lives)
@@ -158,12 +176,14 @@ P-3 exception list:
 (c) the gate is no longer ALLOW (focus moved to a protected element)
    undo text 'ghbdtn' -> restore transaction: ABORTED gate_changed | field='Hello привет '
    engine: exception learned = False | cool_words = 0 | snapshot alive = True | second chord returns 'ghbdtn' (a retry is possible when the snapshot lives)
-~~~
+exit=0
+```
 
 ## attack_word_head.py
-~~~
+```
 (a) engine decision: CONVERT score_above_threshold 'ривет'
     outcome: ABORTED field: 'Hello ghbdtn ' 
 (b) engine decision: CONVERT score_above_threshold 'привет'
     outcome: ABORTED field: 'Hello reghbdtn '
-~~~
+exit=0
+```
