@@ -2862,7 +2862,7 @@ def ev1_pass(false_corrections: Sequence[Tuple[str, str]], n_negatives: int, n_u
 
 This block is the normative form of 7.7. `WittenBell.fit` counts contexts of 0, 1 and 2 tokens over the rows of `S-TRAIN` (each row is `BOS`, key tokens, `EOS` or a prefix without `EOS`; a row may carry a multiplicity). `WittenBell.logp` returns the sum of the log-probabilities of every token after `BOS`, with no length normalisation. `baseline_logits` adds the class prior and returns three logits that enter `score` (20.5) with `kind="ngram"`.
 
-`LFB1` stores, for each class and each order, the contexts (key, total, distinct) and the pairs (key, count) as sorted records of 64-bit FNV-1a hashes; a context hash is `FNV-1a-64(0xC0+k ‖ context bytes)` and a pair hash is `FNV-1a-64(0xD0+k ‖ context bytes ‖ next token)`. Two different contexts or pairs of one class and order could in theory share a 64-bit key, so lfb\_pack fails the build if they do. `LFL1` stores the stage-4 sets as sorted unique 64-bit keys per table tag. `lfb_logp` over a loaded file equals `WittenBell.logp` of the packed model to float rounding (MD-12).
+`LFB1` stores, for each class and each order, the contexts (key, total, distinct) and the pairs (key, count) as sorted records of 64-bit FNV-1a hashes; a context hash is `FNV-1a-64(0xC0+k ‖ context bytes)` and a pair hash is `FNV-1a-64(0xD0+k ‖ context bytes ‖ next token)`. Two different contexts or pairs of one class and order could in theory share a 64-bit key, so lfb\_pack fails the build if they do. `LFL1` stores the stage-4 sets as sorted unique 64-bit keys per table tag. `lfb_logp` over a loaded file equals `WittenBell.logp` of the packed model to float rounding (MD-12). The byte layout of LFB1 and LFL1 (magic, header fields and their widths, the order of the blocks, where the log of the class prior is stored) is defined only by the code of this section, lfb\_pack and lfl\_pack, and the golden bytes of 20.12; the prose above does not repeat it, and an implementation in another language takes the layout from that code (audit finding L1-R2 F1, F3).
 
 ```python
 # ==== 20.10 Statistical baseline: Witten-Bell trigram over key tokens, table format LFB1 =============
@@ -3079,7 +3079,7 @@ def lfl_load(b: bytes) -> Dict[str, HashedSet]:
 
 ### 20.11 Network weight file LFW1 and the reference forward pass
 
-`LFW1` is the portable weight file that the trainer exports next to the ONNX file of DP-1 (MD-14). The header is the magic, the channel count, the embedding width and the kernel list; the body is float32 little endian in a fixed order: the embedding table `[97][e]`, then for each convolution its weight `[ch][cin][k]` and bias `[ch]`, then the head weight `[3][2*ch]` and bias `[3]`. `lfw_forward` is deliberately slow and simple (same-padding convolutions, ReLU, max and mean pooling over every position, `BOS` and `EOS` included, true length without padding); it exists to check a native implementation, which MUST agree with it on the toy weights of `toy_weights` to 1e-5 and on the exported weights of the trained network to 1e-4 per logit (MD-14). `toy_weights` uses integer arithmetic only, so every language reproduces the same file byte for byte.
+`LFW1` is the portable weight file that the trainer exports next to the ONNX file of DP-1 (MD-14). The header is the magic, the channel count, the embedding width and the kernel list; the body is float32 little endian in a fixed order: the embedding table `[97][e]`, then for each convolution its weight `[ch][cin][k]` and bias `[ch]`, then the head weight `[3][2*ch]` and bias `[3]`. `lfw_forward` is deliberately slow and simple (same-padding convolutions, ReLU, max and mean pooling over every position, `BOS` and `EOS` included, true length without padding); it exists to check a native implementation, which MUST agree with it on the toy weights of `toy_weights` to 1e-5 and on the exported weights of the trained network to 1e-4 per logit (MD-14). `toy_weights` uses integer arithmetic only, so every language reproduces the same file byte for byte. As for LFB1 and LFL1, the exact header bytes of LFW1 and the integer formula of toy\_weights are defined only by the code of this section and by the golden values of 20.12 (audit finding L1-R2 F2); the same holds for the canonical JSON text of the calibration package (key order, separators and number format of cal\_to\_json in 20.5).
 
 ```python
 # ==== 20.11 Network weight file LFW1 and reference forward pass ======================================
@@ -3172,15 +3172,15 @@ def toy_weights(ch: int = 4, emb_dim: int = 4, kernels=(3, 5, 3), seed: int = 1)
 | `priors`, `lambdas`, `scores`, `cal_json` | Prior vectors, thresholds in nats, the score, the bytes of the calibration package | 20.5 |
 | `decide` | Rows 5 to 12 of the priority matrix with a stub scorer | 20.6 |
 | `trace_run`, `trace_undo`, `scen` | Run credit, cool-down, boundaries, gate, layout change | 20.7 |
-| `undo` | The undo snapshot (17 steps): its content, the expiry at exactly 10,000 ms and at 100 characters, one snapshot only, Caps Lock, and every event that destroys it | 20.7 |
+| `undo` | The undo snapshot (27 steps): its content, the expiry at exactly 10,000 ms and at 100 characters, one snapshot only, Caps Lock, and every event that destroys it | 20.7 |
 | `manual` | Manual conversion | 20.8 |
 | `ev1`, `poisson` | The EV-1 pass rule | 20.9 |
 | `wb`, `wb_score`, `fnv`, `lfl` | Baseline log-probabilities, `LFB1` and `LFL1` bytes, hash keys | 20.10 |
 | `lfw` | `LFW1` toy weights and reference logits | 20.11 |
 | `modes`, `outcome` | The facts and the mode they give (`engine_mode`, 14 cases) and the classification of the outcome of a replacement (6 cases) | 20.14 |
-| `tx` | The fault matrix of the replacement transaction, 57 named cases: capabilities, field text, injected faults, typed-ahead keys, the expected outcome, reason, final text and incident flag | 20.14 |
+| `tx` | The fault matrix of the replacement transaction, 66 named cases: capabilities, field text, injected faults, typed-ahead keys, the expected outcome, reason, final text and incident flag | 20.14 |
 | `fingerprint` | The fingerprints of the two supported layouts and of changed tables, and the layout each one identifies (4 cases) | 20.14 |
-| `hook` | The model of the stream check (17 steps): whether the stream is trusted, whether a gap was reported, and why | 20.14 |
+| `hook` | The model of the stream check (21 steps): whether the stream is trusted, whether a gap was reported, and why | 20.14 |
 
 **How to read the traces.** In `trace_run` the word `ghbdtn` is converted in the state `default` and sets the run credit to 3; `z` (one key) is KEEP and leaves the credit at 3; the next three words are decided in the state `run` and lower the credit to 2, 1 and 0; the following `ntcn` is decided in the state `default` again and is KEEP (`abstain`, margin −2.707), so a chain of run-assisted conversions stops after three words. In `trace_undo` an undo at 1,000 ms makes the next words KEEP (`cooldown`) until 3 word decisions have been suppressed and 10,000 ms have passed; at 11,500 ms the same word is still KEEP, now with the reason user\_exception: the undo put the pair on the exception list (13.3), and only the cool-down has ended. In `scen`, Enter and Tab are context breaks and give no decision; a layout change inside a word drops the word; a Space read on another layout gives `layout_changed_at_boundary`; a closed gate stores nothing, and the first word after the gate reopens is decided normally; 65 keys give `overflow`; a second Space after a decision gives nothing. The keys of 20.14 are lists of cases. An entry of tx is: name, capabilities, field text, faults (operation:k means the k-th call of that operation), typed-ahead keys, extra arguments, outcome, reason, final text of the field, incident flag. An entry of modes is: name, capabilities, support status, health facts that are false, mode. An entry of fingerprint is: name, digest, the layout identified (null: not supported). An entry of hook is: name, whether the stream is trusted, whether a gap was reported, and the reason when there is one.
 
@@ -3962,7 +3962,7 @@ An implementation of the engine, in any language and on any platform, is conform
 | --- | --- |
 | CT-1 | Every entry of the expected JSON of 20.12 is reproduced: strings, integers, booleans, token lists, hashes and byte counts exactly; floats equal after rounding to the number of decimals printed. |
 | CT-2 | The output is deterministic. The reference generator prints byte-identical output on every run, on every Python from 3.9 upwards and for every value of `PYTHONHASHSEED`; no result depends on the iteration order of a set or a dictionary. |
-| CT-3 | The property tests of `conformance.py` below pass, under both python and python -O (no test uses the assert statement, so none disappears when Python is optimised): 200,000 random key runs (no key lost or duplicated by the candidate, core made of letters only, at most one leading and two trailing marks), priors that sum to 1, a probability stored where nats are expected is refused, the `LFB1` round trip, and the `LFW1` size rule of MD-14; the negative tests of the calibration package and of the three binary formats (every damaged file is refused); the engine tests (modes, undo snapshot, gap in the event stream, and an event fuzz of 200,000 events, 1,000,000 in the audit run, that checks the invariants of 13.5); the fault matrix of the replacement transaction (57 named cases and 1,665 single and paired faults, 13.2); the tests of the stream check (20.14); and every threshold of the specification, tested on both sides of its edge (part 3, P14). |
+| CT-3 | The property tests of `conformance.py` below pass, under both python and python -O (no test uses the assert statement, so none disappears when Python is optimised): 200,000 random key runs (no key lost or duplicated by the candidate, core made of letters only, at most one leading and two trailing marks), priors that sum to 1, a probability stored where nats are expected is refused, the `LFB1` round trip, and the `LFW1` size rule of MD-14; the negative tests of the calibration package and of the three binary formats (every damaged file is refused); the engine tests (modes, undo snapshot, gap in the event stream, and an event fuzz of 200,000 events, 1,000,000 in the audit run, that checks the invariants of 13.5); the fault matrix of the replacement transaction (66 named cases and 1,821 single and paired faults, 13.2); the tests of the stream check (20.14); and every threshold of the specification, tested on both sides of its edge (part 3, P14). |
 | CT-4 | With the real lexicon of 8.9: no word of the 20,000 most frequent word forms of either language, typed on its own layout, has a core shorter than the whole run, and every Russian word of that list that uses only keys of the Russian layout, typed on the English layout, comes back from `candidate` with its whole run as core. A failure is a defect of the segmentation, not of the lexicon (the seven letter-keys, 5.3). |
 | CT-5 | The runtime meets MD-12 (baseline log-probabilities within 1e-9 of the reference) and MD-14 (network logits within 1e-5 on the toy weights of 20.12 and within 1e-4 on at least 100,000 key sequences of the exported network). |
 | CT-6 | A change of the code of 20.2 to 20.11 or 20.14 that changes any entry of 20.12 is a change of this specification: the expected output of 20.12 is updated in the same revision. |
@@ -5162,6 +5162,53 @@ T(("en2ru", "w5") in e11.exceptions and ("en2ru", "w6") not in e11.exceptions, "
 e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
 T("ghbdtn" not in repr(e9.snapshot) and "привет" not in repr(e9.snapshot) and "Key(" not in repr(e9.snapshot), "P-1: repr of the snapshot holds no text")
 
+
+# L9 round 3 (mutation run r10 found these lines untested): quarantine, exception limit, read window, bookkeeping of the simulated field.
+T(L.MAX_EXCEPTIONS == 10_000, "13.3: the exception list holds at most 10,000 words")
+ex = L.Engine(L.example_cal(), scorer, LEX)
+for i in range(L.MAX_EXCEPTIONS + 1):
+    ex.undoing = (L.UndoSnapshot((), "en", "en2ru", f"w{i}", 0), 0)
+    ex.undo_outcome("VERIFIED")
+T(len(ex.exceptions) == 10_000 and ("en2ru", "w0") not in ex.exceptions and ("en2ru", "w1") in ex.exceptions and ("en2ru", "w10000") in ex.exceptions,
+  "13.3: the 10,001st exception evicts exactly the oldest one")
+ex.undoing = (L.UndoSnapshot((), "en", "en2ru", "w1", 0), 0); ex.undo_outcome("VERIFIED")
+ex.undoing = (L.UndoSnapshot((), "en", "en2ru", "wnew", 0), 0); ex.undo_outcome("VERIFIED")
+T(("en2ru", "w1") in ex.exceptions and ("en2ru", "w2") not in ex.exceptions, "13.3: a word undone again is the most recent, not the oldest")
+
+eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
+T(eq.undo(2000) == "ghbdtn" and eq.credit == 3, "R10: setup of an undo that ends UNRECOVERED without the incident flag")
+eq.undo_outcome("UNRECOVERED", quarantine=False)
+T(eq.credit == 0 and eq.snapshot is None and not eq.quarantined, "R10: UNRECOVERED destroys the snapshot and the credit even without quarantine")
+
+eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
+for ch in "gh":
+    eq.on_event(L.Event("key", L.keys_from_text(ch, "en")[0], "en", 2000))
+eq.skip, eq.after_switch = True, True
+eq.on_outcome("VERIFIED", quarantine=True)
+T(eq.run == [] and eq.run_layout is None and eq.skip is False and eq.after_switch is False and eq.credit == 0 and eq.snapshot is None and eq.quarantined,
+  "R10: an incident empties the word, the flags, the credit and even a confirmed snapshot")
+eq.release_quarantine()
+T(eq.run == [] and eq.snapshot is None and eq.credit == 0 and not eq.skip and not eq.after_switch, "R10: nothing survives the release of a quarantine")
+
+eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
+T(eq.snapshot is not None and eq.credit == 3, "R10: setup of a layout change after a conversion")
+eq.on_event(L.Event("key", L.keys_from_text("п", "ru")[0], "ru", 2000))
+T(eq.credit == 0 and eq.snapshot is None, "R10: a key of another layout after a conversion drops the snapshot and the credit")
+
+for rd in (0, 1):
+    class _Rec(L.SimField):
+        reads = []
+        def read(self, a, b):
+            _Rec.reads.append((a, b)); return super().read(a, b)
+    _Rec.reads = []
+    fr = _Rec(BASE, M1)
+    rr = L.run_transaction(fr, OLD, NEW)
+    T(rr.outcome == "VERIFIED" and _Rec.reads[0] == (len(BASE) - 7 - 1, len(BASE) + 1),
+      f"R10: the read window holds the fragment and one character on each side, got {_Rec.reads[:1]}")
+T(fr.other_reads == 0 and fr.silent == 0, "R10: a plain transaction reaches no other element and counts no silent key")
+fk = L.SimField(BASE, M2, {("event", 2): "key"})
+L.run_transaction(fk, OLD, NEW, "", mode="MANUAL_ONLY")
+T(fk.silent == 1, "R10: a key fault of the field counts exactly one user event")
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
 ```

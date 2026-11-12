@@ -1,0 +1,51 @@
+render       PASS 10/10
+caps         PASS 4/4
+caps_all     PASS 48/48
+prefix       PASS 1/1
+tok25        PASS 1/1
+cands        PASS 14/14
+guards       PASS 8/8
+manual       PASS 6/6
+priors       PASS 6/6
+lambdas      PASS 6/6
+scores       PASS 6/6
+decide       PASS 13/13
+trace_run    PASS 6/6
+scen         PASS 11/11
+trace_undo   PASS 7/7
+undo         PASS 27/27
+ev1          PASS 7/7
+poisson      PASS 6/6
+fnv          PASS 5/5
+wb           FAIL 7/9
+    - lfb_bytes (LFB1 layout not in text): got null expected 5216
+    - lfb_sha256_16 (LFB1 layout not in text): got null expected "1adf64096abc09a8"
+wb_score     PASS 1/1
+lfw          FAIL 0/5
+    - bytes (LFW1 layout and toy_weights not in text): got null expected 2440
+    - sha256_16 (LFW1 layout and toy_weights not in text): got null expected "0fd995cb611e1201"
+    - logits_ghbdtn (LFW1 layout and toy_weights not in text): got null expected [-0.005081,-0.254659,-0.122052]
+    - logits_hello (LFW1 layout and toy_weights not in text): got null expected [-0.011607,-0.263225,-0.101561]
+    - first_floats (LFW1 layout and toy_weights not in text): got null expected [-0.25,0,-0.03125,0.28125]
+lfl          FAIL 6/8
+    - bytes (LFL1 layout not in text): got null expected 84
+    - sha256_16 (LFL1 layout not in text): got null expected "c737f8710843f069"
+cal_json     FAIL 0/2
+    - bytes (LFC1 serialisation not in text): got null expected 1332
+    - sha256_16 (LFC1 serialisation not in text): got null expected "bc05f74d7a47562d"
+modes        PASS 14/14
+outcome      PASS 6/6
+tx           PASS 66/66
+fingerprint  PASS 4/4
+hook         FAIL 11/21
+    - key unseen by the hook, past the limit: got ["key unseen by the hook, past the limit",true,false,null] expected ["key unseen by the hook, past the limit",false,true,"canary_missing"]
+    - gap is reported once: got ["gap is reported once",true,false] expected ["gap is reported once",false,false]
+    - re-arm pair 1: got ["re-arm pair 1",true,false] expected ["re-arm pair 1",false,false]
+    - re-arm pair 2: got ["re-arm pair 2",true,false] expected ["re-arm pair 2",false,false]
+    - lost b and extra c cancel as counts, past the limit: got ["lost b and extra c cancel as counts, past the limit",true,false,null] expected ["lost b and extra c cancel as counts, past the limit",false,true,"canary_missing"]
+    - extra hook key alone, past the limit: got ["extra hook key alone, past the limit",true,false,null] expected ["extra hook key alone, past the limit",false,true,"canary_extra"]
+    - two physical presses, one reported, past the limit of the unmatched press: got ["two physical presses, one reported, past the limit of the unmatched press",true,false,null] expected ["two physical presses, one reported, past the limit of the unmatched press",false,true,"canary_missing"]
+    - hook event one ms too late, the watchdog has not run: got ["hook event one ms too late, the watchdog has not run",true,false,null] expected ["hook event one ms too late, the watchdog has not run",false,true,"canary_missing"]
+    - raw event one ms too late, the watchdog has not run: got ["raw event one ms too late, the watchdog has not run",true,false,null] expected ["raw event one ms too late, the watchdog has not run",false,true,"canary_extra"]
+    - a later event of the same side shows that the first has expired: got ["a later event of the same side shows that the first has expired",true,false,null] expected ["a later event of the same side shows that the first has expired",false,true,"canary_missing"]
+TOTAL 307/328

@@ -1181,4 +1181,51 @@ e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
 T("ghbdtn" not in repr(e9.snapshot) and "привет" not in repr(e9.snapshot) and "Key(" not in repr(e9.snapshot), "P-1: repr of the snapshot holds no text")
 
 
+# L9 round 3 (mutation run r10 found these lines untested): quarantine, exception limit, read window, bookkeeping of the simulated field.
+T(L.MAX_EXCEPTIONS == 10_000, "13.3: the exception list holds at most 10,000 words")
+ex = L.Engine(L.example_cal(), scorer, LEX)
+for i in range(L.MAX_EXCEPTIONS + 1):
+    ex.undoing = (L.UndoSnapshot((), "en", "en2ru", f"w{i}", 0), 0)
+    ex.undo_outcome("VERIFIED")
+T(len(ex.exceptions) == 10_000 and ("en2ru", "w0") not in ex.exceptions and ("en2ru", "w1") in ex.exceptions and ("en2ru", "w10000") in ex.exceptions,
+  "13.3: the 10,001st exception evicts exactly the oldest one")
+ex.undoing = (L.UndoSnapshot((), "en", "en2ru", "w1", 0), 0); ex.undo_outcome("VERIFIED")
+ex.undoing = (L.UndoSnapshot((), "en", "en2ru", "wnew", 0), 0); ex.undo_outcome("VERIFIED")
+T(("en2ru", "w1") in ex.exceptions and ("en2ru", "w2") not in ex.exceptions, "13.3: a word undone again is the most recent, not the oldest")
+
+eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
+T(eq.undo(2000) == "ghbdtn" and eq.credit == 3, "R10: setup of an undo that ends UNRECOVERED without the incident flag")
+eq.undo_outcome("UNRECOVERED", quarantine=False)
+T(eq.credit == 0 and eq.snapshot is None and not eq.quarantined, "R10: UNRECOVERED destroys the snapshot and the credit even without quarantine")
+
+eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
+for ch in "gh":
+    eq.on_event(L.Event("key", L.keys_from_text(ch, "en")[0], "en", 2000))
+eq.skip, eq.after_switch = True, True
+eq.on_outcome("VERIFIED", quarantine=True)
+T(eq.run == [] and eq.run_layout is None and eq.skip is False and eq.after_switch is False and eq.credit == 0 and eq.snapshot is None and eq.quarantined,
+  "R10: an incident empties the word, the flags, the credit and even a confirmed snapshot")
+eq.release_quarantine()
+T(eq.run == [] and eq.snapshot is None and eq.credit == 0 and not eq.skip and not eq.after_switch, "R10: nothing survives the release of a quarantine")
+
+eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
+T(eq.snapshot is not None and eq.credit == 3, "R10: setup of a layout change after a conversion")
+eq.on_event(L.Event("key", L.keys_from_text("п", "ru")[0], "ru", 2000))
+T(eq.credit == 0 and eq.snapshot is None, "R10: a key of another layout after a conversion drops the snapshot and the credit")
+
+for rd in (0, 1):
+    class _Rec(L.SimField):
+        reads = []
+        def read(self, a, b):
+            _Rec.reads.append((a, b)); return super().read(a, b)
+    _Rec.reads = []
+    fr = _Rec(BASE, M1)
+    rr = L.run_transaction(fr, OLD, NEW)
+    T(rr.outcome == "VERIFIED" and _Rec.reads[0] == (len(BASE) - 7 - 1, len(BASE) + 1),
+      f"R10: the read window holds the fragment and one character on each side, got {_Rec.reads[:1]}")
+T(fr.other_reads == 0 and fr.silent == 0, "R10: a plain transaction reaches no other element and counts no silent key")
+fk = L.SimField(BASE, M2, {("event", 2): "key"})
+L.run_transaction(fk, OLD, NEW, "", mode="MANUAL_ONLY")
+T(fk.silent == 1, "R10: a key fault of the field counts exactly one user event")
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

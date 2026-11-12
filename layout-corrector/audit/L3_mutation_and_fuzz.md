@@ -8,24 +8,29 @@ physical events by a real hook or Raw Input (that needs `INTEGRATION_VERIFIED`, 
 | item | value |
 |---|---|
 | code under test | `layout-corrector/reference/lfengine.py` |
-| git blob SHA-1 | `bb6f9b135c6bfa4f26b57dbc9e5eb6f902dedd2d` (file SHA-1 `479d687186c025085d760fc2dd7f810b6be56f4a`) |
-| SHA-256 | `bf6082dc1fafafd7d076daae2d70fdc08a674d7a661be4a2bf3f79b2d62b5cae` |
-| tests (the oracle) | `layout-corrector/reference/conformance.py`, blob `2a0c98132348763f51973957af016a6b697210b0`, SHA-256 `132efe38baad8f3c8e99dc7baaeea79261f1f61037f120e7cef3e19bdddab3a6` |
-| first commit that holds exactly these two files | `6d7d14d` (branch `claude/layout-corrector-spec`); unchanged since (spec rev 305 was committed in `720713e`) |
-| specification | rev 305; its code blocks of section 20 are byte-identical to the files (`audit/L7_check_spec_blocks.py`). Rev 293 and rev 295 were the editions of the earlier run r8 (code blob `6c5fc740...`), which is history |
-| run | `r9`, 2026-11-07, all 718 valid mutants, no sampling |
+| git blob SHA-1 | `502292ce85c50e1b40d10a8a9c8239be3defb541` |
+| SHA-256 | `4af41c76efefbc7d48dc26c696f15822dd447d726cc02813e17fb0673c3eae5f` |
+| tests (the oracle) | `layout-corrector/reference/conformance.py`, blob `48eee1f5373697eb3116332abb1989590462de9a`, SHA-256 `ddcc300c3fca57983bbbe6c411c9bfd1368f3f11eb85e64c8d28e2f0e124e580` |
+| specification | rev 418 or later; its code blocks of section 20 are byte-identical to the files (`audit/L7_check_spec_blocks.py`, run after the last edit) |
+| run | `r10`, 2026-11-12, all 795 valid mutants, no sampling; see "How r10 was run" for the two stages |
 
-If the code changes again (for example after the independent L9 review), r9 is void and must be run again.
+The code is the code after the independent review L9 (findings F1 to F11). The earlier run r9 (718 mutants, 684 killed, 95.3%) was on the code before
+those fixes and is void; r8 and older are history. If the code changes again, r10 is void and must be run again.
 
-The mutants were generated from a copy of these files (`base/` of the run; the generated report prints the SHA-256 of that copy, and it equals
-the two SHA-256 values above). Earlier runs (r1 to r8) are history and are **not** evidence for the final code; r8 (708 mutants, 674 killed,
-95.2%, code before F-3) is described below only because its survivors led to the real defects F-1 and F-3.
+How r10 was run (two stages, stated because the second is a shortcut): (1) all 795 mutants against `conformance.py` as it was after the L9 fixes
+(blob before the stage-2 additions): 746 killed, 1 timeout, 48 survivors = 94.0%, **below the 95% criterion**; (2) the 48 survivors showed holes in the
+tests of the new code (limit of the exception list, quarantine, read window, bookkeeping of the simulated field), a block of regression tests
+(`# L9 round 3` at the end of `conformance.py`) was added, and **only the 49 mutants that had not been killed in stage 1 were run again** with the final
+`conformance.py`: 13 more were killed. The added block only appends checks, so a mutant killed in stage 1 stays killed; this is an argument,
+not a re-measurement. A full re-run of all 795 against the final tests was not done.
+
+The mutants were generated from a copy of `lfengine.py` (`base/` of the run; the generated report prints the SHA-256 of that copy and it equals the value above).
 
 ## What was run
 
 * Tool: `audit/L3/mutate.py` (standard library only), driver `audit/L3/resume_run.py` (resumable, 2 workers).
-* Mutated file: `lfengine.py` from line 173 (`# ==== 20.5`) to the end (line 1393), six first-order operators: comparison swap,
-  boolean swap, integer literal ±1, float literal ×2 and ÷2, statement deletion, True/False swap. All 718 compile; all were run.
+* Mutated file: `lfengine.py` from line 173 (`# ==== 20.5`) to the end (line 1496), six first-order operators: comparison swap,
+  boolean swap, integer literal ±1, float literal ×2 and ÷2, statement deletion, True/False swap. All 795 compile; all were run.
 * Oracle for each mutant: `conformance.py 20000` (property, negative, boundary and fault-injection tests), timeout 150 s. Survivors
   also get `vectors.py` against `vectors_out.json` and `test_ref.py`.
 * Raw results: `audit/L3/results.json`; the generated listing is `audit/L3/L3_mutation_report.md`.
@@ -36,84 +41,54 @@ the two SHA-256 values above). Earlier runs (r1 to r8) are history and are **not
 
 ## Result
 
-| quantity | r9, final code |
+| quantity | r10, final code |
 |---|---|
-| mutants generated, valid, run | 718, 718, 718 |
-| killed (one of them by timeout, see below) | **684** |
-| survived | 34 |
+| mutants generated, valid, run | 795, 795, 795 |
+| killed (one of them by timeout, see below) | **760** |
+| survived | 35 |
 | survived and `vectors.py` output differs | 0 |
 | survived and `test_ref.py` fails | 0 |
-| **kill rate on all mutants** | **95.3%** (684 / 718) |
-| kill rate without the timeout (killed by a failing check only) | 95.2% (683 / 718) |
-| kill rate without the 16 survivors that are the same program (below) | 97.5% (684 / 702) |
-| kill rate on the mutants that change behaviour (all but the 34 survivors shown to be the same program, equal up to rounding, a tie that cannot happen or redundant) | 100% (684 / 684) |
+| **kill rate on all mutants** | **95.6%** (760 / 795) |
+| kill rate without the timeout (killed by a failing check only) | 95.5% (759 / 795) |
+| kill rate without the 16 survivors that are the same program (below) | 97.6% (760 / 779) |
+| kill rate on the mutants that change behaviour (all but the 35 survivors shown to be the same program, equal up to rounding, a tie that cannot happen, redundant, or unreachable) | 100% (760 / 760) |
 
-**The plan's criterion ("at least 95% of mutants killed") is met literally, on all mutants, with a margin of 0.3 percentage
-points.** The margin is thin, so the table of survivors below is part of the result and not an appendix.
+**The plan's criterion ("at least 95% of mutants killed") is met literally, on all mutants, with a margin of 0.6 percentage points, but only after the
+stage-2 tests** (stage 1 gave 94.0%). The table of survivors below is part of the result and not an appendix.
 
-The timeout is `L0678_c02` (`hi * 2` became `hi * (2-1)` in the new `while` loop of `poisson_upper`): the loop never ends, which is
-a visible failure and the right verdict.
+The timeout is `L0735_c02` (`hi * 2` became `hi * (2-1)` in the `while` loop of `poisson_upper`): the loop never ends, which is a visible failure and the right verdict.
 
-Per operator (from the generated report): comparison 125 (6 survived), boolean 96 (0), integer literal 278 (7), float literal 80
-(21), statement deletion 82 (0), True/False 57 (0). Of the 21 float-literal survivors, sixteen are `0.0*2` and `0.0/2`, which are the
-same number, and five change a search bracket or a range bound (next section).
+Per operator (from the generated report): comparison 142 (6 survived), boolean 112 (0), integer literal 290 (7), float literal 80 (21), statement
+deletion 105 (1), True/False 66 (0). Of the 21 float-literal survivors, sixteen are `0.0*2` and `0.0/2`, which are the same number, and five change a
+search bracket or a range bound (next section).
 
-## History that matters: r7 found a real defect
+## The 35 survivors of r10
 
-The run before this one (r7, 695 mutants, previous final code) killed 650 (93.5%) and left 45 survivors. Reading them showed that the
-survivors around `poisson_upper` were not harmless: the tests that were written to kill them found that the function
-
-```python
-lo, hi = 0.0, 10.0 + 10.0 * k      # fixed search interval
-```
-
-returns **a wrong limit silently** when the confidence is above 0.99995 (for `k = 0` the limit is `-ln(1 - conf)`, 11.5 for
-`conf = 0.99999`, and the interval ends at 10). The EV-1 rule uses only `conf = 0.95`, so no acceptance decision was ever affected, but a function with a
-`conf` parameter must not be wrong without a signal. It was changed (20.9 of the specification and `lfengine.py`): the interval
-doubles until it holds the limit, and `k < 0`, a non-integer `k`, `conf <= 0` or `conf >= 1` raise `ValueError`. The values for `conf = 0.95` are
-unchanged (`vectors_out.json` is byte-identical), so no other file moved.
-
-### Findings of this line
-
-| id | finding | status |
-|---|---|---|
-| F-1 | `poisson_upper` wrong above `conf` 0.99995 (silent) | **fixed**; test group P15 pins `conf` 0.999, 0.99999, 0.999999 for `k` 0, 1, 2, 5, the refusals and the limits near 0 and 1 |
-| F-2 | other test gaps of r7: default temperature of `log_softmax`; `pi_train_counts` with a zero count, a share exactly 0, above 1, and a share that is off by exactly the tolerance; the default `min_count` of `WittenBell`; the number of reads of a failed match in `run_transaction` (the loop of typed-ahead lengths); a caret two places forward after two keys that type nothing; the initial state of `HookHealth` | **closed** by test group P15 of `conformance.py` (each check names the line it pins) |
-| F-3 (as found in r8) | `WittenBell.fit` did not check that the multiplicity of a row is at least 1. With a multiplicity of 0 the table keeps zero counts, which `logp` then treats as seen types. Section 8.3 allows 1 to 5, so the data path of the project never produces 0 | **closed** (commit `6d7d14d`, spec 20.10): `fit` validates before touching the model that there is one weight per row, each an `int` (not `bool`) from 1 to 5, counts into a separate structure and merges at the end, so a refusal leaves the model unchanged. Test group P16 pins zero, negative, fractional, float-whole, bool, above 5, string, fewer and more weights, no weights for two rows, and the unchanged model after each refusal; the two r8 survivors `L0727_a01/c02` are now redundant (`L0740_a01/c02`) |
-
-## The 34 survivors of r9
-
-Each was run against the original on a stated set of inputs by `L3_equivalence_evidence.py` (fixed seeds). The classes:
+Each was run against the original on a stated set of inputs by `L3_equivalence_evidence.py` (fixed seeds); none ended as GAP. The classes:
 
 | class | meaning | mutants |
 |---|---|---|
-| IDENTICAL (16) | the changed literal is the same number: `0.0*2` and `0.0/2` equal `0.0`, so the program is the same | `L0267_d01/d02`, `L0275_d01/d02`, `L0280_d01/d02`, `L0670_d01/d02`, `L0676_d01/d02`, `L0751_d01/d02`, `L0858_d01/d02`, `L0980_d01/d02` |
-| DIFFERENTIAL, rounding only (13) | original and mutant agree on a large stated set of inputs up to the rounding of the arithmetic (numbers below) | `L0212_c01/c02/c04`, `L0676_d03` to `d06`, `L0677_a01`, `L0678_c01`, `L0679_c01/c02`, `L0681_a01`, `L0980_a01` |
-| TIE_IMPOSSIBLE (2) | differs only when two floats are exactly equal, and the script shows that cannot happen | `L0278_a01`, `L0705_a01` |
-| REDUNDANT (3) | another check refuses the same inputs (`L0280_d03`), or the changed pruning bound cannot matter because every count is at least 1 since F-3 (`L0740_a01/c02`) | `L0280_d03`, `L0740_a01`, `L0740_c02` |
+| IDENTICAL (16) | the changed literal is the same number: `0.0*2` and `0.0/2` equal `0.0`, so the program is the same | `L0267_d01/d02`, `L0275_d01/d02`, `L0280_d01/d02`, `L0727_d01/d02`, `L0733_d01/d02`, `L0808_d01/d02`, `L0915_d01/d02`, `L1037_d01/d02` |
+| DIFFERENTIAL (14) | original and mutant agree on a large stated set of inputs, up to the rounding of the arithmetic or because the changed state cannot be reached (numbers below) | `L0212_c01/c02/c04`, `L0733_d03` to `d06`, `L0734_a01`, `L0735_c01`, `L0736_c01/c02`, `L0738_a01`, `L1037_a01`, `L0611_e01` |
+| TIE_IMPOSSIBLE (2) | differs only when two floats are exactly equal, and the script shows that cannot happen | `L0278_a01`, `L0762_a01` |
+| REDUNDANT (3) | another check refuses the same inputs (`L0280_d03`), or the changed pruning bound cannot matter because every count is at least 1 since F-3 (`L0797_a01/c02`) | `L0280_d03`, `L0797_a01`, `L0797_c02` |
 
 The evidence, class by class:
 
-* `L0212_c01/c02/c04` (the normaliser `norm` in `score`): `norm` is subtracted from both log-probabilities, so it cancels. On 20,000
-  random inputs (logits in [-30, 30], random temperature, `o_lat`, class mix, word weight, both layouts) the scores differ by at most
-  2.84e-14 nats (rounding).
-* `L0676_d03` to `d06`, `L0678_c01`, `L0679_c01/c02`, `L0677_a01`, `L0681_a01` (search interval start, growth factor, iteration count,
-  `>` against `>=` in `poisson_upper`): 396 pairs (k up to 200, conf from 0.01 to 1 − 1e-12) agree to at most 1.6e-13 relative; against a
-  60-digit decimal solution on 72 pairs the original is off by at most 1.8e-14 and the mutants by at most 4.6e-15 (relative). The
-  differences are the resolution of the rounded cumulative sum (a plateau of equal floats), not a different limit.
-* `L0980_a01` (`s >= 0` against `s > 0` in the ReLU): differs only for `s == 0`, where both give a zero (`-0.0` at most);
-  400 random small networks with weights in {-1, 0, 1} give equal logits.
-* `L0278_a01`: the tie needs `abs(sum - 1.0) == 1e-9`; for a float sum near 1 the difference is a multiple of 2⁻⁵³ and 1e-9 is
-  9007199.25 of those units, so it cannot happen. (The same check for the individual shares, `L0276_a01`, is **killed** since r8 by
-  the test that uses a share that is off by exactly 1e-9.)
-* `L0705_a01` (`<=` against `<` at exactly 1e-4 in `ev1_pass`): the bound is `U(c) · m / n` with an irrational `U(c)`; 145,200
-  combinations (clusters 0 to 120, largest cluster 1 to 300, `n` next to `U · m / 1e-4`) contain no exact tie.
-* `L0280_d03` (upper bound of `o_lat` 1.0 to 2.0): the values between 1 and 2 are refused by `o_lat >= 1.0` right after; the verdict is
-  equal on twelve values including `inf` and `nan`.
-* `L0740_a01/c02` (`min_count > 1` against `>= 1` or `> 0` in `WittenBell.fit`): since F-3 every multiplicity is an integer from 1 to 5, so every count is at least 1 and pruning below 1 removes nothing; 600 random fits are equal, and original and mutant both refuse weights outside 1 to 5.
+* `L0212_c01/c02/c04` (the normaliser `norm` in `score`): `norm` is subtracted from both log-probabilities, so it cancels. On 20,000 random inputs the scores differ by at most 2.84e-14 nats (rounding).
+* `L0733_d03` to `d06`, `L0735_c01`, `L0736_c01/c02`, `L0734_a01`, `L0738_a01` (search interval start, growth factor, iteration count, `>` against `>=` in `poisson_upper`): the evidence script compares the original and the mutant on 396 pairs (k up to 200, conf from 0.01 to 1 - 1e-12) and against a 60-digit decimal solution; the numbers are printed in `L3_equivalence_evidence.json`. The differences are the resolution of the rounded cumulative sum (a plateau of equal floats), not a different limit.
+* `L1037_a01` (`s >= 0` against `s > 0` in the ReLU): differs only for `s == 0`, where both give a zero (`-0.0` at most); 400 random small networks with weights in {-1, 0, 1} give equal logits.
+* `L0611_e01` (`_drop_snapshot()` when a key of another layout arrives inside a word): reaching it needs a snapshot that has the layout of the new key while the word in progress has another layout. A word never starts while a snapshot of another layout is alive (the check just above drops it), and a snapshot is made only at a Space, after the word was flushed. 9,644 random events (keys, Spaces, breaks, Backspaces, layout changes, VERIFIED outcomes in both layouts) give 0 differences in the word, snapshot, credit, flags and decisions. This is an argument plus a differential test, not a proof; the statement could be deleted from the code, but it is kept as a defence in depth.
+* `L0278_a01`: the tie needs `abs(sum - 1.0) == 1e-9`; for a float sum near 1 the difference is a multiple of 2^-53 and 1e-9 is 9007199.25 of those units, so it cannot happen.
+* `L0762_a01` (`<=` against `<` at exactly 1e-4 in `ev1_pass`): the bound is `U(c) * m / n` with an irrational `U(c)`; 145,200 combinations contain no exact tie.
+* `L0280_d03` (upper bound of `o_lat` 1.0 to 2.0): the values between 1 and 2 are refused by `o_lat >= 1.0` right after; the verdict is equal on twelve values including `inf` and `nan`.
+* `L0797_a01/c02` (`min_count > 1` against `>= 1` or `> 0` in `WittenBell.fit`): since F-3 every multiplicity is an integer from 1 to 5, so every count is at least 1 and pruning below 1 removes nothing (600 random fits equal).
 
-An equivalence argument is an argument, not a proof. Each can be re-checked by running `m/<id>/lfengine.py` against the tests, and the script prints
-the inputs it used.
+What the stage-1 survivors taught (fixed by tests, not by code): the new code of L9 had no test for the exact limit of 10,000 exceptions and its eviction order, for the
+state that an incident empties (word, flags, credit, a confirmed snapshot) and that a release does not bring back, for the credit and snapshot that an UNRECOVERED undo
+destroys even without the incident flag, for the drop of the snapshot by a key of another layout, for the exact window of the read in step 3, and for the counters of the simulated field.
+
+An equivalence argument is an argument, not a proof. Each can be re-checked by running `m/<id>/lfengine.py` against the tests, and the script prints the inputs it used.
 
 ## Invariants and fuzzing
 
@@ -124,13 +99,13 @@ recorded layout. Full-size runs on the final files (`N = 1,000,000` events per g
 
 | command | output |
 |---|---|
-| `python3 conformance.py 1000000` | `OK (9222553 checks, 1665 single and double faults, 3303 fuzz conversions, 2274 fuzz undos)` |
-| `python3 -O conformance.py 1000000` | `OK (9222553 checks, 1665 single and double faults, 3303 fuzz conversions, 2274 fuzz undos)` (the same number of checks: none disappears under `-O`) |
+| `python3 conformance.py 1000000` | `OK (9222949 checks, 1821 single and double faults, 3401 fuzz conversions, 1106 fuzz undos)` |
+| `python3 -O conformance.py 1000000` | `OK (9222949 checks, 1821 single and double faults, 3401 fuzz conversions, 1106 fuzz undos)` (the same number of checks: none disappears under `-O`) |
 
 (Python 3.13 of the audit container; the workflow runs 3.9, 3.11 and 3.13 with `N = 200000`.)
 
-The fault matrix of 13.2 has 57 named rows; in addition every single fault and every pair of faults of the transaction (1,665 combinations, M1 with
-rollback) and the M2 sweep are executed, with the invariants "never VERIFIED with a wrong text", "never ABORTED after a change",
+The fault matrix of 13.2 has 66 named rows; in addition every single fault and every pair of faults of the transaction (1,821 combinations, M1 with
+rollback and M2) and the M2 sweep are executed, with the invariants "never VERIFIED with a wrong text", "never ABORTED after a change",
 "UNRECOVERED always with incident and quarantine", "the user's own keys exactly once".
 
 ## Limits
@@ -139,4 +114,4 @@ rollback) and the M2 sweep are executed, with the invariants "never VERIFIED wit
   independent re-implementation (line L1).
 * Operators are first-order; combinations of two defects were not generated.
 * The mutation score is a property of this test suite on this code. It does not measure whether the specification is right.
-* The oracle is a reference model. A real adapter is another program and needs its own regression tests (13.6, RT-1 to RT-18).
+* The oracle is a reference model. A real adapter is another program and needs its own regression tests (13.6, RT-1 to RT-25).

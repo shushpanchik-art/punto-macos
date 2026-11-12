@@ -192,11 +192,11 @@ def c_poisson(mid):
     err_o = max(abs(Decimal(O.poisson_upper(k, c)) - exact_root(k, c)) / exact_root(k, c) for k, c in ex)
     err_m = max(abs(Decimal(mod.poisson_upper(k, c)) - exact_root(k, c)) / exact_root(k, c) for k, c in ex)
     ok = rel[0] <= 1e-11 and err_m <= 1e-11
-    what = {"L0676": "the start of the search interval only decides how many times it is doubled before the bisection",
-            "L0677": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)",
-            "L0678": "tripling instead of doubling changes only the bracket",
-            "L0679": "199 or 201 halvings of an interval that is exhausted after about 60",
-            "L0681": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)"}[mid[:5]]
+    what = {"L0733": "the start of the search interval only decides how many times it is doubled before the bisection",
+            "L0734": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)",
+            "L0735": "tripling instead of doubling changes only the bracket",
+            "L0736": "199 or 201 halvings of an interval that is exhausted after about 60",
+            "L0738": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)"}[mid[:5]]
     return ("DIFFERENTIAL" if ok else "GAP"), (f"{what}: {pairs} (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): {n_diff} differ, at most {rel[0]:.1e} relative "
                                                f"(k={rel[1]}, conf={rel[2]}); against a 60-digit root on {len(ex)} pairs the original is off by at most {float(err_o):.1e} "
                                                f"and the mutant by at most {float(err_m):.1e} (relative), the resolution of the rounded cdf")
@@ -269,6 +269,36 @@ def c_relu(mid):
                                                       f"{n} random small networks with weights in {{-1, 0, 1}} (many exact zeros) give equal logits")
 
 
+def c_engine_state(mid):
+    """Line 611 (`_drop_snapshot()` when a key of another layout arrives inside a word): a snapshot that survives the check of the
+    key's layout against the snapshot's layout (line 605) must have the layout of the key, while the word has another one; such a
+    state cannot be reached, because a word never starts while a snapshot of another layout is alive (line 605 drops it first) and
+    a snapshot is made only at a Space, after the word is flushed. Differential check on random event streams."""
+    mod = M(mid)
+    rnd = random.Random(23)
+    scorer = lambda ids: [-3, 9, -2]
+    n = diff = 0
+    for _ in range(300):
+        a = O.Engine(O.example_cal(), scorer, {"en": {"hello"}, "ru": {"привет"}})
+        b = mod.Engine(mod.example_cal(), scorer, {"en": {"hello"}, "ru": {"привет"}})
+        t = 1000
+        for _ in range(rnd.randint(5, 60)):
+            t += rnd.randint(1, 400)
+            kind = rnd.choice(("key", "key", "key", "space", "break", "backspace", "layout"))
+            lay = rnd.choice(("en", "ru"))
+            ch = rnd.choice("ghbdtn" if lay == "en" else "привет")
+            ev = lambda m: m.Event(kind, m.keys_from_text(ch, lay)[0] if kind == "key" else None, lay, t)
+            da, db = a.on_event(ev(O)), b.on_event(ev(mod))
+            if da is not None and da.action == "CONVERT":
+                a.on_outcome("VERIFIED"); b.on_outcome("VERIFIED")
+            n += 1
+            sa = ([k.id for k in a.run], a.snapshot is None, a.credit, a.skip, a.after_switch, da is None and db is None or (da.action, da.reason) == (db.action, db.reason))
+            sb = ([k.id for k in b.run], b.snapshot is None, b.credit, b.skip, b.after_switch, True)
+            diff += sa != sb
+    return ("DIFFERENTIAL" if diff == 0 else "GAP"), (f"{n} random events (both layouts, keys, Spaces, breaks, Backspaces, layout changes, VERIFIED outcomes): "
+                                                       f"{diff} differences in the word, snapshot, credit, flags or decision; the unreachable state is explained in the text above")
+
+
 GROUPS = [c_identical]
 
 
@@ -277,8 +307,9 @@ def classify(mid):
     if r:
         return r
     ln = MUTANTS[mid]["line"]
-    for line_range, f in ((range(212, 213), c_score_cancels), (range(267, 281), c_cal), (range(676, 682), c_poisson),
-                          (range(705, 706), c_ev1), (range(740, 741), c_wb), (range(980, 981), c_relu)):
+    for line_range, f in ((range(212, 213), c_score_cancels), (range(267, 281), c_cal), (range(733, 739), c_poisson),
+                          (range(762, 763), c_ev1), (range(797, 798), c_wb), (range(1037, 1038), c_relu),
+                          (range(611, 612), c_engine_state)):
         if ln in line_range:
             r = f(mid)
             if r:
