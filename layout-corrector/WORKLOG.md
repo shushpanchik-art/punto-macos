@@ -106,3 +106,6 @@
 
 ## 2026-11-12
 - L9 F1-F9, F11 fixed (code, tests P17, TZ rev 418 = repo spec copy, L7 IDENTICAL x4). L3 r10: 795 mutants, 760 killed = 95.6%. L1 round 2 report exists but is not blind. Attack scripts re-run on the final code (0 silent corruption outside residual R-1..R-3). Local Qwen was unreachable from the cloud container (no kit, nothing on 127.0.0.1:8080), nothing was delegated. Audit NOT complete.
+
+## 2026-11-12 (second part)
+- Static audit of ae89222, six items: 1, 2, 3, 4, 5 confirmed and fixed, 6 not a bug (text and tests). Code commit ba604f1, TZ rev 454 = repo copy (L7 IDENTICAL x4). r10 is void; L1 round 2 not blind; L9 fixes not independently reviewed. See audit/L9_independent/L9_independent_report.md.

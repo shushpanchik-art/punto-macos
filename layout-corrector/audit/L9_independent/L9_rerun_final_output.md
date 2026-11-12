@@ -1,11 +1,10 @@
 # L9 re-run of all attack scripts on the final code
 
-Commit (code under test): 6ee6ad5e6efa96023a15c8b054c2a52426758f80
-lfengine.py sha256: 4af41c76efefbc7d48dc26c696f15822dd447d726cc02813e17fb0673c3eae5f
-conformance.py sha256: ddcc300c3fca57983bbbe6c411c9bfd1368f3f11eb85e64c8d28e2f0e124e580
+Commit (code under test): ba604f16173db55de69363343aedf40e9197aebf  (working tree dirty: 0 files)
+lfengine.py sha256: 7d4b7f679c20b9133f74d4caecbe6c5e68427a36f74baeff3c256572684c1a62
+conformance.py sha256: 074cc2847a6ce11817be13a2f69e6542099b3ef2962e7a556303c49b6b14f1f2
 Python: Python 3.13.17
-Date: 2026-11-12T13:09:45Z
-Only the line marked RESIDUAL R-2 may print SILENT WRONG WORD.
+Date: 2026-11-12T20:59:28Z
 
 ## attack_caret_anchor.py
 ```
@@ -13,9 +12,10 @@ M1 + arrow key (counted)         -> ABORTED    typed_ahead  field='ghbdtn ghbdtn
 M1 + pointer press (counted, contract 20.14) -> ABORTED    typed_ahead  field='ghbdtn ghbdtn '  
 M1 + caret move no hook sees (RESIDUAL, 13.2) -> VERIFIED   ok           field='привет ghbdtn '  <== SILENT WRONG WORD (only the documented residual may print this)
 M2 + caret move no hook sees (RESIDUAL, 13.2) -> VERIFIED   ok           field='привет ghbdtn '  <== SILENT WRONG WORD (only the documented residual may print this)
-M2 + arrow key (counted)         -> ABORTED    typed_ahead  field='ghbdtn ghbdtn '  
+M2 + arrow key (counted)         -> ABORTED    typed_ahead  field='ghbdtn ghbdtn '
 exit=0
 ```
+RUNNER attack_caret_anchor.py: ok; residual lines (R-2): 2; known open (P3): none
 
 ## attack_engine_fuzz.py
 ```
@@ -24,6 +24,7 @@ E-2 layout id None -> on_event RAISED KeyError None | run already flushed: True
 E-2 layout id 'de' -> on_event RAISED KeyError 'de' | run already flushed: True
 exit=0
 ```
+RUNNER attack_engine_fuzz.py: ok; residual lines (R-2): 0; known open (P3): ['E-2 unknown layout id raises KeyError (P3)']
 
 ## attack_engine_state.py
 ```
@@ -46,6 +47,7 @@ exit=0
    10050 undone words -> len(exceptions) = 10000 (spec: at most 10,000, least-recently-used eviction)
 exit=0
 ```
+RUNNER attack_engine_state.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_focus_switch.py
 ```
@@ -60,12 +62,14 @@ exit=0
    reads performed on the secure element: 0
 exit=0
 ```
+RUNNER attack_focus_switch.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_fuzz_transaction.py
 ```
 runs 60000 {'VERIFIED': 22446, 'ABORTED': 30903, 'RESTORED': 2394, 'UNRECOVERED': 4257}
 exit=0
 ```
+RUNNER attack_fuzz_transaction.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_gate_midword.py
 ```
@@ -82,6 +86,7 @@ exit=0
 silent half-converted words: 0 of 3
 exit=0
 ```
+RUNNER attack_gate_midword.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_hookhealth.py
 ```
@@ -96,6 +101,7 @@ H-4 macOS: unlimited re-enabling
    tap disabled 10 times in a row, reinstalled each time: ok after reinstall 10 of 10 (spec: MANUAL_ONLY after the 3rd in 60 s)
 exit=0
 ```
+RUNNER attack_hookhealth.py: ok; residual lines (R-2): 0; known open (P3): ['H-4 tap re-enabled without MANUAL_ONLY (P3)']
 
 ## attack_m2_arrow_midbatch.py
 ```
@@ -110,6 +116,7 @@ exit=0
 silent corruptions: 0 of 4
 exit=0
 ```
+RUNNER attack_m2_arrow_midbatch.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_neighbour_damage.py
 ```
@@ -121,6 +128,7 @@ damage after : RESTORED  verify_failed incident=True
    after : 'Hello ghbdtn #and the rest of the sentence'
 exit=0
 ```
+RUNNER attack_neighbour_damage.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_nonadapter_exception.py
 ```
@@ -128,6 +136,7 @@ M1 replace raises OSError after a partial write -> returned TxResult(outcome='RE
 M2 send raises OSError in the middle of the batch -> returned TxResult(outcome='UNRECOVERED', reason='write_error', method='M2', incident=True, quarantine=True)
 exit=0
 ```
+RUNNER attack_nonadapter_exception.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_pending_state.py
 ```
@@ -144,12 +153,14 @@ control: word B alone (default prior)
    snapshot alive: True credit: 0 -> undo(): None (a conversion that never happened)
 exit=0
 ```
+RUNNER attack_pending_state.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_pipeline_fuzz.py
 ```
 words 20000 perturb True {'VERIFIED': 9157, 'undo': 1909, 'ABORTED': 2126}
 exit=0
 ```
+RUNNER attack_pipeline_fuzz.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_privacy.py
 ```
@@ -164,6 +175,7 @@ P-3 exception list:
     the set is what a persistent store would serialise; the reference has a hashed alternative (LEX_TAGS exc_en2ru) that is not used by Engine
 exit=0
 ```
+RUNNER attack_privacy.py: ok; residual lines (R-2): 0; known open (P3): ['P-2 HookHealth queues signatures in a DENY gate (P3)']
 
 ## attack_undo_commit.py
 ```
@@ -178,6 +190,7 @@ exit=0
    engine: exception learned = False | cool_words = 0 | snapshot alive = True | second chord returns 'ghbdtn' (a retry is possible when the snapshot lives)
 exit=0
 ```
+RUNNER attack_undo_commit.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_word_head.py
 ```
@@ -187,3 +200,6 @@ exit=0
     outcome: ABORTED field: 'Hello reghbdtn '
 exit=0
 ```
+RUNNER attack_word_head.py: ok; residual lines (R-2): 0; known open (P3): none
+
+RUNNER SUMMARY: 15 scripts, 0 with unexpected results
