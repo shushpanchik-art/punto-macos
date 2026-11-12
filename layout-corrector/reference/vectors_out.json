@@ -224,7 +224,7 @@
  ["undo after 500 ms, VERIFIED", [["en2ru", "ghbdtn"]], 0, 3, false],
  ["second undo", null],
  ["undo ended ABORTED", [], 3, 0, true, "ghbdtn", false],
- ["undo ended RESTORED", [], 3, 0, true, "ghbdtn", false],
+ ["undo ended RESTORED", [], 0, 0, false, null, true],
  ["undo ended UNRECOVERED", [], 0, 0, false, null, true],
  ["undo before the conversion is VERIFIED", null, 0, true],
  ["conversion ended ABORTED", null, 0, false],

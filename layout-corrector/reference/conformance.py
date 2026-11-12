@@ -464,7 +464,7 @@ for rnd in range(max(1, N // 20_000)):
         elif x < .90:
             ops = [lambda: e.set_gate(fz.choice(("ALLOW", "ALLOW", "ALLOW", "ALLOW", "ALLOW", "DENY", "UNKNOWN"))),
                    lambda: e.set_mode(fz.choice(("AUTO", "AUTO", "AUTO", "AUTO", "AUTO", "MANUAL_ONLY", "OFF"))),
-                   lambda: e.on_outcome(fz.choice(L.OUTCOMES)),
+                   lambda: (e.on_outcome(fz.choice(L.OUTCOMES)), e.release_quarantine()),
                    lambda: e.tick(now)]
             fz.choice(ops)()
         else:
@@ -478,6 +478,8 @@ for rnd in range(max(1, N // 20_000)):
                 T(len(e.snapshot.keys) <= L.MAX_BUF, "snapshot size")
                 T(not e.snapshot.confirmed and e.undo(now) is None, "no undo before the outcome of the replacement")
                 e.on_outcome(fz.choice(("VERIFIED", "VERIFIED", "VERIFIED", "VERIFIED", "RESTORED", "ABORTED")))
+                if e.quarantined:
+                    e.release_quarantine()                       # RESTORED is an incident (13.5 row 10); the user re-arms the application
             if ev.kind in ("break", "layout", "gap"):
                 T(e.snapshot is None and e.run == [], f"{ev.kind} must leave no buffer and no snapshot")
         T(len(e.run) <= L.MAX_BUF, "buffer bound")
@@ -1150,14 +1152,14 @@ e8 = L.Engine(L.example_cal(), scorer, LEX); feed(e8, "ghbdtn", "en", 1000, veri
 T(e8.quarantined, "F8: the flag of the TxResult reaches the engine")
 
 # F9: the undo commits only when the restoring transaction is VERIFIED.
-for oc, kept, learned in (("VERIFIED", False, True), ("ABORTED", True, False), ("RESTORED", True, False), ("UNRECOVERED", False, False)):
+for oc, kept, learned in (("VERIFIED", False, True), ("ABORTED", True, False), ("RESTORED", False, False), ("UNRECOVERED", False, False)):
     e9 = L.Engine(L.example_cal(), scorer, LEX); feed(e9, "ghbdtn", "en", 1000)
     T(e9.undo(2000) == "ghbdtn", "F9 setup")
-    e9.undo_outcome(oc, quarantine=(oc == "UNRECOVERED"))
+    e9.undo_outcome(oc, quarantine=(oc != "ABORTED" and oc != "VERIFIED"))   # the real TxResult of RESTORED and UNRECOVERED always carries it
     T((e9.snapshot is not None) == kept and (("en2ru", "ghbdtn") in e9.exceptions) == learned, f"F9: undo ended {oc}")
     T((e9.cool_words == 3) == learned and (e9.credit == 3) == kept, f"F9: cool-down and credit after {oc}")
     T(e9.undo(2100) == ("ghbdtn" if kept else None), f"F9: a second chord after {oc}")
-    T(e9.quarantined == (oc == "UNRECOVERED"), f"F9: quarantine after {oc}")
+    T(e9.quarantined == (oc in ("RESTORED", "UNRECOVERED")), f"F9: quarantine after {oc}")
 raises(ValueError, lambda: L.Engine(L.example_cal(), scorer, LEX).undo_outcome("MAYBE"), "F9: outcome vocabulary of the undo")
 e9 = L.Engine(L.example_cal(), scorer, LEX); e9.undo_outcome("VERIFIED")
 T(e9.exceptions == set(), "F9: an outcome without an undo changes nothing")
@@ -1196,7 +1198,7 @@ T(("en2ru", "w1") in ex.exceptions and ("en2ru", "w2") not in ex.exceptions, "13
 eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
 T(eq.undo(2000) == "ghbdtn" and eq.credit == 3, "R10: setup of an undo that ends UNRECOVERED without the incident flag")
 eq.undo_outcome("UNRECOVERED", quarantine=False)
-T(eq.credit == 0 and eq.snapshot is None and not eq.quarantined, "R10: UNRECOVERED destroys the snapshot and the credit even without quarantine")
+T(eq.credit == 0 and eq.snapshot is None and eq.quarantined, "R10: UNRECOVERED destroys the snapshot and the credit, and implies the quarantine even without the flag")
 
 eq = L.Engine(L.example_cal(), scorer, LEX); feed(eq, "ghbdtn", "en", 1000)
 for ch in "gh":
@@ -1227,5 +1229,125 @@ T(fr.other_reads == 0 and fr.silent == 0, "R10: a plain transaction reaches no o
 fk = L.SimField(BASE, M2, {("event", 2): "key"})
 L.run_transaction(fk, OLD, NEW, "", mode="MANUAL_ONLY")
 T(fk.silent == 1, "R10: a key fault of the field counts exactly one user event")
+
+# Audit items 1 to 6 (static review of commit ae89222, checked against the code first): every check runs the real path.
+# Item 1: an undo that ends RESTORED is an incident like any other (13.5 row 10), taken from the real TxResult.
+for fault, want in ((("replace", 1), "RESTORED"),):
+    e = L.Engine(L.example_cal(), scorer, LEX); d = feed(e, "ghbdtn", "en", 1000)
+    fld = L.SimField("привет ", M1)                       # the converted word is in the field
+    T(e.undo(2000) == "ghbdtn", "A1 setup")
+    fld.faults = {("replace", 1): "partial"}
+    r = L.run_transaction(fld, "привет", "ghbdtn")
+    T(r.outcome == want and r.quarantine and r.incident, f"A1: the real transaction ends {want} with an incident, got {r}")
+    e.undo_outcome(r.outcome, r.quarantine)
+    T(e.quarantined and e.snapshot is None and e.undoing is None and ("en2ru", "ghbdtn") not in e.exceptions
+      and e.credit == 0 and e.undo(2100) is None, "A1: RESTORED undo: quarantine, snapshot destroyed, nothing learned, no second chord")
+    e2 = L.Engine(L.example_cal(), scorer, LEX); feed(e2, "ghbdtn", "en", 1000); e2.undo(2000); e2.undo_outcome("RESTORED")   # the flag is implied
+    T(e2.quarantined and e2.snapshot is None, "A1: RESTORED implies the quarantine even when the flag is not passed")
+    e3 = L.Engine(L.example_cal(), scorer, LEX); feed(e3, "ghbdtn", "en", 1000); e3.undo(2000); e3.undo_outcome("ABORTED")
+    T(not e3.quarantined and e3.snapshot is not None and e3.undo(2100) == "ghbdtn", "A1: ABORTED undo: no incident, the snapshot lives, a retry is possible")
+    e4 = L.Engine(L.example_cal(), scorer, LEX); feed(e4, "ghbdtn", "en", 1000, verified=False); e4.on_outcome("RESTORED")
+    T(e4.quarantined and e4.snapshot is None, "A1: RESTORED conversion implies the quarantine")
+
+# Item 2: the manual transaction (13.3) on a selection and on the last word; the automatic transaction never writes over a selection.
+fs = L.SimField("say ghbdtn now", M1); fs.select(4, 10)
+T(L.run_transaction(fs, OLD, NEW).outcome == "ABORTED" and fs.text == "say ghbdtn now", "A2: the automatic transaction refuses a non-empty selection (caret error)")
+for caps, name in ((M1, "M1"), (M2, "M2")):
+    fs = L.SimField("say ghbdtn now", caps); fs.select(4, 10)
+    r = L.run_manual_transaction(fs, OLD, NEW)
+    T(r.outcome == "VERIFIED" and r.method == name and fs.text == "say привет now" and fs.selection()[1] == 10, f"A2: selection, {name}")
+    fl = L.SimField("say ghbdtn", caps)
+    r = L.run_manual_transaction(fl, OLD, NEW, source="last_word")
+    T(r.outcome == "VERIFIED" and fl.text == "say привет" and fl.selection() == (10, 10), f"A2: last word without a Space, {name}")
+    fl = L.SimField("sayghbdtn", caps)
+    T(L.run_manual_transaction(fl, OLD, NEW, source="last_word").reason == "echo_mismatch" and fl.text == "sayghbdtn", f"A2: a tail of a word is not converted, {name}")
+fs = L.SimField("say ghbdtn now", M1); fs.select(4, 9)
+T(L.run_manual_transaction(fs, OLD, NEW).reason == "echo_mismatch" and fs.text == "say ghbdtn now", "A2: a selection of another length")
+fs = L.SimField("say ghbdta now", M1); fs.select(4, 10)
+T(L.run_manual_transaction(fs, OLD, NEW).reason == "echo_mismatch", "A2: a selection whose text differs")
+fs = L.SimField("say ghbdtn now", M1); fs.sel = (4, 4)
+T(L.run_manual_transaction(fs, OLD, NEW).reason == "echo_mismatch", "A2: an empty selection is not a selection conversion")
+fs = L.SimField("say ghbdtn now", M1, {("selection", 2): "forward"}); fs.select(4, 10)
+T(L.run_manual_transaction(fs, OLD, NEW).reason == "echo_mismatch" and fs.text == "say ghbdtn now", "A2: the selection moves before the write")
+fs = L.SimField("say ghbdtn now", M1, {("replace", 1): "user:x"}); fs.select(4, 10)
+r = L.run_manual_transaction(fs, OLD, NEW)
+T(r.outcome != "VERIFIED", "A2: a user key during a manual write is never VERIFIED")
+for fault in ("partial", "autocorrect", "spill", "ignored", "applied_error", "raise"):
+    fs = L.SimField("say ghbdtn now", M1, {("replace", 1): fault}); fs.select(4, 10)
+    r = L.run_manual_transaction(fs, OLD, NEW)
+    okfinal = fs.text in ("say ghbdtn now", "say привет now") if r.outcome == "VERIFIED" else True
+    T(r.outcome in ("RESTORED", "UNRECOVERED", "ABORTED") and not (r.outcome == "VERIFIED"), f"A2: fault {fault} is not VERIFIED, got {r.outcome}")
+    if r.outcome == "RESTORED":
+        T(fs.text[:10] == "say ghbdtn" and r.incident and r.quarantine, f"A2: {fault} RESTORED restores the selected range (a damaged neighbour stays an incident, as in 13.2)")
+fs = L.SimField("say ghbdtn now", M1, gate="DENY"); fs.select(4, 10)
+T(L.run_manual_transaction(fs, OLD, NEW).reason == "gate_changed" and fs.text == "say ghbdtn now", "A2: a DENY gate")
+T(L.run_manual_transaction(L.SimField("ab", M1), "ab", "фи", mode="OFF").reason == "mode_off", "A2: mode OFF")
+T(L.run_manual_transaction(L.SimField("x" * 10_001, M1), "x" * 10_001, "ч" * 10_001, source="last_word").reason == "length", "A2: more than 10,000 characters")
+fx = L.SimField("x" * 10_000, M1); T(L.run_manual_transaction(fx, "x" * 10_000, "ч" * 10_000, source="last_word").outcome == "VERIFIED", "A2: exactly 10,000 characters")
+raises(ValueError, lambda: L.run_manual_transaction(L.SimField("a", M1), "a", "bb"), "A2: a replacement keeps the length")
+
+# Item 3: what the engine may convert is what it can undo: runs of 21 to 64 keys (the buffer bound), never more.
+for nkeys in (20, 21, 40, 64):
+    e = L.Engine(L.example_cal(), scorer, LEX); word_ = "ghbdtn" * 11
+    word_ = word_[:nkeys]
+    d = feed(e, word_, "en", 1000, verified=False)
+    if d.action != "CONVERT":
+        T(True, f"A3: {nkeys} keys are decided {d.reason}"); continue
+    cv = d.replacement
+    fld = L.SimField("a " + word_ + " ", M1)
+    r = L.run_transaction(fld, word_, cv)
+    e.on_outcome(r.outcome, r.quarantine)
+    T(r.outcome == "VERIFIED" and len(e.snapshot.keys) == nkeys <= L.MAX_BUF, f"A3: {nkeys} keys: converted and the whole run is in the snapshot")
+    back = e.undo(2000)
+    T(back == word_, f"A3: {nkeys} keys: the undo text is the typed word")
+    r2 = L.run_transaction(fld, cv, back)
+    e.undo_outcome(r2.outcome, r2.quarantine)
+    T(r2.outcome == "VERIFIED" and fld.text == "a " + word_ + " " and e.snapshot is None and ("en2ru", word_.casefold()) in e.exceptions,
+      f"A3: {nkeys} keys: the undo transaction is VERIFIED and commits")
+e = L.Engine(L.example_cal(), scorer, LEX); d = feed(e, "ghbdtn" * 11 + "g", "en", 1000)
+T(d.reason == "overflow" and e.snapshot is None, "A3: 65 keys are KEEP overflow, nothing to undo")
+
+# Item 4: the minimal record of an undo in flight holds no keys and is discarded on every reset path.
+def undoing_engine():
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+    T(e.undo(2000) == "ghbdtn" and e.undoing is not None and e.undoing[0].keys == (), "A4 setup: no keys are retained in the record")
+    return e
+for what, act in {
+    "gate DENY": lambda e: e.set_gate("DENY"),
+    "mode OFF": lambda e: e.set_mode("OFF"), "mode MANUAL_ONLY": lambda e: e.set_mode("MANUAL_ONLY"),
+    "quarantine": lambda e: e._quarantine(), "outcome that never came": lambda e: e.tick(2000 + L.UNDO_OUTCOME_MS + 1),
+}.items():
+    e = undoing_engine(); act(e)
+    T(e.undoing is None, f"A4: {what} discards the record of the undo in flight")
+    e.undo_outcome("VERIFIED")
+    T(("en2ru", "ghbdtn") not in e.exceptions, f"A4: {what}: a late VERIFIED commits nothing")
+for what, act in {
+    "break": lambda e: e.on_event(L.Event("break", None, None, 2100)), "layout": lambda e: e.on_event(L.Event("layout", None, "ru", 2100)),
+    "gap": lambda e: e.on_event(L.Event("gap", None, None, 2100)),
+    "backspace before the word": lambda e: e.on_event(L.Event("backspace", None, "en", 2100)),
+    "another layout": lambda e: e.on_event(L.Event("key", L.keys_from_text("п", "ru")[0], "ru", 2100)),
+}.items():
+    e = undoing_engine(); act(e)
+    T(e.snapshot is None and e.undoing is not None and e.undoing[0].keys == (), f"A4: {what} ends the snapshot but the in-flight record holds no keys")
+    e.undo_outcome("VERIFIED")
+    T(("en2ru", "ghbdtn") in e.exceptions and e.undoing is None, f"A4: {what}: a VERIFIED undo is still learned and the record is cleared")
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); e.undo(10_500); e.tick(1006 + L.UNDO_WINDOW_MS + 1)                    # a plain expiry while the restoring transaction runs
+T(e.snapshot is None and e.undoing is not None, "A4: a plain expiry keeps the in-flight record (the undo may still finish)")
+e.undo_outcome("VERIFIED")
+T(("en2ru", "ghbdtn") in e.exceptions and e.undoing is None, "A4: and its VERIFIED outcome commits and clears it")
+
+# Item 6: the boundaries of the undo window through the chord itself: valid at exactly 10,000 ms and after exactly 100 characters.
+for dt, alive in ((9_999, True), (10_000, True), (10_001, False)):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+    T((e.undo(1006 + dt) == "ghbdtn") == alive, f"A6: the undo chord {dt} ms after the replacement")
+for n_after, alive in ((99, True), (100, True), (101, False)):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+    for i in range(n_after):
+        e.on_event(L.Event("space" if i % 2 else "key", L.Key(i % 47) if i % 2 == 0 else None, "en", 1010 + i))
+    T((e.undo(2000) == "ghbdtn") == alive, f"A6: the undo chord after {n_after} characters (keys and Spaces count)")
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+for i in range(100):
+    e.on_event(L.Event("backspace", None, "en", 1010 + i))
+T(e.snapshot is None, "A6: Backspaces are not characters: the first one in an empty buffer is a break")
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

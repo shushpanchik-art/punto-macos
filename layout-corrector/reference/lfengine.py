@@ -454,7 +454,9 @@ COOLDOWN_MS = 10_000
 EVIDENCE_KEEP = {"user_exception", "acronym", "lexicon_active", "abstain", "scorer_invalid"}   # KEEP reasons that end a run
 GATE_ALLOW, GATE_DENY, GATE_UNKNOWN = "ALLOW", "DENY", "UNKNOWN"
 OUTCOMES = ("VERIFIED", "RESTORED", "UNRECOVERED", "ABORTED")   # 20.14
+INCIDENT_OUTCOMES = ("RESTORED", "UNRECOVERED")                  # 13.2 step 6: the application is quarantined
 UNDO_WINDOW_MS = 10_000        # 13.3: the undo snapshot lives 10 s ...
+UNDO_OUTCOME_MS = 1_000        # the outcome of the restoring transaction must arrive within 1 s (its deadline is 250 ms)
 UNDO_MAX_CHARS = 100           # ... or until 100 further printable keys and Spaces, whichever comes first
 
 
@@ -505,8 +507,14 @@ class Engine:
     def _flush(self):
         self.run, self.run_layout, self.overflow = [], None, False
 
-    def _drop_snapshot(self):
+    def _drop_snapshot(self, keep_undoing: bool = False):
+        """The snapshot ends. An undo in flight keeps its minimal record (direction and case-folded word, no keys) only
+        when the end is an expiry or a context event of the event stream (`keep_undoing`: the user's undo is still a decision to
+        learn, and the record is bounded by UNDO_OUTCOME_MS); a change of the gate, of the mode, a quarantine or a non-VERIFIED
+        outcome discards it at once (audit item 4)."""
         self.snapshot = None
+        if not keep_undoing:
+            self.undoing = None
 
     def set_mode(self, mode: str):
         """Mode from `engine_mode` (20.14). Only AUTO records and classifies; MANUAL_ONLY and OFF record nothing (13.5).
@@ -523,14 +531,17 @@ class Engine:
         """Clock input of the runtime timer: the snapshot expires 10 s after the replacement."""
         s = self.snapshot
         if s is not None and now_ms - s.created_ms > UNDO_WINDOW_MS:
-            self._drop_snapshot()
+            self._drop_snapshot(keep_undoing=True)
+        u = self.undoing
+        if u is not None and now_ms - u[1] > UNDO_OUTCOME_MS:
+            self.undoing = None                           # the outcome of the restoring transaction never came
 
     def _count_char(self):
         s = self.snapshot
         if s is not None:
             s.after += 1
             if s.after > UNDO_MAX_CHARS:
-                self._drop_snapshot()
+                self._drop_snapshot(keep_undoing=True)
 
     def set_gate(self, state: str):
         """Stage 0 verdict from the runtime. Anything but ALLOW discards the buffer, the run state and the snapshot."""
@@ -549,14 +560,15 @@ class Engine:
         s = self.snapshot
         if s is None or not s.confirmed:
             return None
-        self.undoing = (s, now_ms)
+        self.undoing = (UndoSnapshot((), s.layout, s.direction, s.typed, s.created_ms), now_ms)   # no keys are kept
         return render(s.keys, s.layout)
 
     def undo_outcome(self, outcome: str, quarantine: bool = False):
         """Result of the transaction that restored the typed text. VERIFIED: the word joins the exception list, the run
-        credit is lost, the cool-down starts, the snapshot is destroyed. ABORTED or RESTORED: the field still holds the
-        converted text and nothing is committed; the snapshot stays until its own expiry. UNRECOVERED: the text is
-        unknown, the snapshot is destroyed and the incident quarantines the application (L9 F9)."""
+        credit is lost, the cool-down starts, the snapshot is destroyed. ABORTED: the field still holds the converted text,
+        nothing is committed and the snapshot stays until its own expiry. RESTORED and UNRECOVERED are incidents (13.2, step 6):
+        the application is quarantined and the snapshot is destroyed; after RESTORED the field holds the converted text, after
+        UNRECOVERED the text is unknown (L9 F9, audit item 1)."""
         if outcome not in OUTCOMES:
             raise ValueError(outcome)
         u, self.undoing = self.undoing, None
@@ -579,8 +591,8 @@ class Engine:
         elif outcome == "UNRECOVERED":
             self.credit = 0
             self._drop_snapshot()
-        if quarantine:
-            self._quarantine()
+        if quarantine or outcome in INCIDENT_OUTCOMES:
+            self._quarantine()                            # RESTORED and UNRECOVERED are incidents (13.2 step 6): the snapshot goes too
 
     def _quarantine(self):
         self.quarantined = True
@@ -604,11 +616,11 @@ class Engine:
                 return None
             if self.snapshot is not None and ev.layout != self.snapshot.layout:
                 self.credit = 0                           # a key of another layout means the layout changed (13.3): no undo
-                self._drop_snapshot()
+                self._drop_snapshot(keep_undoing=True)
             if self.run and ev.layout != self.run_layout:
                 self._flush()
                 self.skip, self.credit = True, 0          # a layout change inside a word drops the word
-                self._drop_snapshot()
+                self._drop_snapshot(keep_undoing=True)
                 return None
             if not self.run:
                 self.run_layout = ev.layout
@@ -622,7 +634,7 @@ class Engine:
                 self.run.pop()
             elif not self.skip:
                 self.credit = 0                           # editing text before the word start: a break
-                self._drop_snapshot()
+                self._drop_snapshot(keep_undoing=True)
             return None
         if ev.kind == "layout":                           # manual layout change (the tool never changes it)
             if self.run:
@@ -630,17 +642,17 @@ class Engine:
                 self.skip = True
             self.after_switch = True
             self.credit = 0
-            self._drop_snapshot()
+            self._drop_snapshot(keep_undoing=True)
             return None
         if ev.kind == "break":
             self._flush()
             self.skip, self.credit = False, 0
-            self._drop_snapshot()
+            self._drop_snapshot(keep_undoing=True)
             return None
         if ev.kind == "gap":                              # the event stream was interrupted (13.5, hook health)
             self._flush()
             self.skip, self.credit = True, 0              # the rest of the current word is unknown: ignore it
-            self._drop_snapshot()
+            self._drop_snapshot(keep_undoing=True)
             return None
         if ev.kind == "space":
             return self._boundary(ev)
@@ -659,7 +671,7 @@ class Engine:
         elif outcome != "VERIFIED":
             self.credit = 0
             self._drop_snapshot()
-        if quarantine:
+        if quarantine or outcome in INCIDENT_OUTCOMES:
             self._quarantine()
 
     def _boundary(self, ev: Event) -> Optional[Decision]:
@@ -1108,6 +1120,7 @@ class Adapter:
 
     def gate(self) -> str: raise NotImplementedError                                    # ALLOW | DENY | UNKNOWN
     def caret(self) -> int: raise NotImplementedError
+    def selection(self) -> Tuple[int, int]: raise NotImplementedError   # (start, end) of the selection; start == end is the caret
     def read(self, start: int, end: int) -> Optional[str]: raise NotImplementedError    # None: not readable
     def replace(self, start: int, end: int, text: str) -> None: raise NotImplementedError   # M1, one operation
     def send(self, events: Sequence[Tuple[str, str]]) -> None: raise NotImplementedError    # M2: ("bs","") / ("ch",c)
@@ -1246,6 +1259,108 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
     return TxResult(outcome, "write_error" if failed else "verify_failed", method, True, True)
 
 
+MANUAL_MAX = 10_000        # 13.3: a manual conversion converts at most 10,000 characters
+
+
+def run_manual_transaction(ad: Adapter, old: str, new: str, *, source: str = "selection", mode: str = "MANUAL_ONLY",
+                           element: object = None) -> TxResult:
+    """The transaction of 13.2 for the hotkey (13.3). `source` 'selection': the text `old` is the current selection, exactly
+    and without a trailing Space. `source` 'last_word': `old` is the word that ends at the caret (an empty selection), and
+    the character before it must be white space or the field must start there. There is no Space and no typed-ahead
+    key in a manual fragment, and the user's own keys are not part of it: any user input event since the freeze aborts
+    with typed_ahead. Steps 1 to 7 are those of `run_transaction`: the range comes from the content, both neighbours
+    are compared before and after the write, M1 is rolled back once, M2 is not. After M1 on a selection the same range
+    must still be selected (or the caret must stand after it); after M2 the caret stands after the text."""
+    n = len(old)
+    if len(new) != n:
+        raise ValueError("a replacement keeps the length")
+    if source not in ("selection", "last_word"):
+        raise ValueError(source)
+    if mode not in ("AUTO", "MANUAL_ONLY"):
+        return TxResult("ABORTED", "mode_off")
+    method = "M1" if REPLACE_RANGE in ad.caps else ("M2" if SYNTHETIC_INPUT in ad.caps else "")
+    if not method or READ_RANGE not in ad.caps:
+        return TxResult("ABORTED", "capability", method)
+    if n == 0 or n > MANUAL_MAX:
+        return TxResult("ABORTED", "length", method)
+    if method == "M2" and ad.modifier_down():
+        return TxResult("ABORTED", "modifier_down", method)
+    try:
+        m = ad.mark()
+    except Exception:
+        return TxResult("ABORTED", "adapter_error", method)
+    try:
+        g = ad.gate()
+        tok = ad.element()
+    except Exception:
+        g = GATE_UNKNOWN
+    if g != GATE_ALLOW or (element is not None and tok != element):
+        return TxResult("ABORTED", "gate_changed", method)
+    try:
+        s0, e0 = ad.selection()
+        if source == "selection":
+            if e0 - s0 != n:
+                return TxResult("ABORTED", "echo_mismatch", method)
+            start = s0
+        else:
+            if s0 != e0:
+                return TxResult("ABORTED", "echo_mismatch", method)
+            start = e0 - n
+        if start < 0:
+            return TxResult("ABORTED", "echo_mismatch", method)
+        lo = max(start - 1, 0)
+        t = ad.read(lo, start + n + 1)
+        h = start - lo
+        if t is None or t[h:h + n] != old or (source == "last_word" and h > 0 and not t[0].isspace()):
+            return TxResult("ABORTED", "echo_mismatch", method)
+        head, tail = t[:h], t[h + n:][:1]
+        if ad.keys_since(m) > 0:
+            return TxResult("ABORTED", "typed_ahead", method)
+        if ad.selection() != (s0, e0):
+            return TxResult("ABORTED", "echo_mismatch", method)
+        if ad.element() != tok:
+            return TxResult("ABORTED", "gate_changed", method)
+    except Exception:
+        return TxResult("ABORTED", "adapter_error", method)
+    end = start + n
+    failed = False
+    try:
+        if method == "M1":
+            ad.replace(start, end, new)
+        else:
+            if source == "last_word":
+                ad.send([("bs", "")] * n + [("ch", ch) for ch in new])
+            else:
+                ad.send([("bs", "")] + [("ch", ch) for ch in new])      # the first Backspace deletes the selection
+    except Exception:
+        failed = True
+    ok = False
+    if not failed:
+        try:
+            got = ad.read(lo, end + 1)
+            k = ad.keys_since(m)
+            sel = ad.selection()
+            where_ok = sel in ((s0, e0), (end, end)) if method == "M1" else sel == (end, end)
+            ok = (k == 0 and got is not None and got[:len(head) + n] == head + new and got[len(head) + n:] == tail
+                  and where_ok and ad.element() == tok)
+        except Exception:
+            ok = False
+    if ok:
+        return TxResult("VERIFIED", "ok", method)
+    final: Optional[str] = None
+    try:
+        if method == "M1" and ROLLBACK in ad.caps and ad.element() == tok:
+            ad.replace(start, end, old)
+        final = ad.read(start, end)
+    except Exception:
+        try:
+            final = ad.read(start, end)
+        except Exception:
+            final = None
+    outcome = classify_outcome(True, old, new, final, False)
+    return TxResult(outcome, "write_error" if failed else "verify_failed", method, True, True)
+
+
 class SimField(Adapter):
     """In-memory text field with fault injection, the test double of the replacement transaction.
     `faults` maps (operation, k) to a fault name, k = the 1-based number of the call of that operation:
@@ -1264,6 +1379,7 @@ class SimField(Adapter):
 
     def __init__(self, text: str, caps, faults=None, gate: str = GATE_ALLOW):
         self.text, self.pos = text, len(text)
+        self.sel: Optional[Tuple[int, int]] = None   # a non-empty selection (start, end); None: only the caret
         self.caps, self.faults, self._gate = frozenset(caps), dict(faults or {}), gate
         self.count: Dict[str, int] = {}
         self.user: List[str] = []         # every character the user typed, in order (evidence for G-EVENT)
@@ -1305,9 +1421,24 @@ class SimField(Adapter):
         self.bound = self.focus
         return self._gate if f == "focus" else (f or self._gate)
 
+    def select(self, start: int, end: int):
+        """The user selects a range (the adapter counts it as an input event, like a pointer press)."""
+        self.sel, self.pos = (start, end), end
+        self.silent += 1
+
+    def selection(self) -> Tuple[int, int]:
+        f = self._hit("selection")
+        self._chk(f)
+        if f == "raise":
+            raise AdapterError("selection")
+        a, b = self.sel if self.sel else (self.pos, self.pos)
+        return (a + 1, b + 1) if f == "forward" else (a, b)
+
     def caret(self) -> int:
         f = self._hit("caret")
         self._chk(f)
+        if self.sel is not None:
+            raise AdapterError("the selection is not empty")   # 13.7: a caret is reported only for an empty selection
         if f == "raise":
             raise AdapterError("caret")
         return {"back": -1, "forward": 1, "forward2": 2}.get(f, 0) + self.pos
@@ -1344,6 +1475,10 @@ class SimField(Adapter):
         if f == "spill" and tail:
             tail = "?" + tail[1:]
         self.text = self.text[:start] + w + tail
+        if self.sel == (start, end):
+            self.sel = (start, start + len(w))             # M1 keeps the selection (13.7 REPLACE_RANGE)
+        elif self.sel is not None:
+            self.sel = None
         if f in ("partial", "applied_error"):
             raise AdapterError("timeout")
 
@@ -1368,7 +1503,10 @@ class SimField(Adapter):
                 raise AdapterError("timeout")
             if f == "drop":
                 continue
-            if kind == "bs":
+            if kind == "bs" and self.sel is not None:       # a Backspace deletes the selection
+                a, b = self.sel
+                self.text, self.pos, self.sel = self.text[:a] + self.text[b:], a, None
+            elif kind == "bs":
                 if self.pos > 0:
                     self.text, self.pos = self.text[:self.pos - 1] + self.text[self.pos:], self.pos - 1
             else:
