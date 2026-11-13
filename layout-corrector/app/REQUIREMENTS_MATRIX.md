@@ -18,9 +18,11 @@ Environment of this session: a Linux container without macOS, Windows, a display
 
 ## Spikes S-1 to S-7 (13.7): each needs a real OS, none was run
 
+For all seven the JSON result format and the decision rule (CONFIRMED / REFUTED / INCOMPLETE / INVALID, synthetic data never evidence) are in `spikes/spikes.py` and tested by `spikes/test_spikes.py`. The measuring programs are not written and no spike was run: every row stays `BLOCKED`.
+
 | Spike | Question | State |
 |---|---|---|
-| S-1 | Is Raw Input the primary event source or only the canary (Windows)? | `BLOCKED`, harness not written |
+| S-1 | Is Raw Input the primary event source or only the canary (Windows)? | `BLOCKED`: result format and decision rule exist (`spikes/spikes.py`, tested with synthetic files only); the measuring program does not |
 | S-2 | Does `GetKeyboardLayout` for another process's thread work and does `ToUnicodeEx` accept that HKL? If not the pair stays OFF | `BLOCKED` |
 | S-3 | The hotkey conflict rule; is input of an elevated window delivered to a non-elevated hook? Key auto-repeat agreement of the two sources | `BLOCKED` |
 | S-4 | Write results by control class across processes (the five tests per class) | `BLOCKED` |
@@ -36,7 +38,7 @@ Environment of this session: a Linux container without macOS, Windows, a display
 | RT-2 | Nothing stored while the gate is not ALLOW | `REFERENCE_VERIFIED` (engine) | `SIM_TESTED` incl. HookHealth queues (L9 P-2) | `BLOCKED` |
 | RT-3 | Guards before the model | `REFERENCE_VERIFIED` | n/a | n/a |
 | RT-4 | Every replacement follows the transaction, one outcome | `REFERENCE_VERIFIED` (1,821 faults) | `SIM_TESTED` (incident -> quarantine, exception -> incident) | `BLOCKED` (real frequency of the M2 race is measured on a device) |
-| RT-5 | Undo restores the recorded keys | `REFERENCE_VERIFIED` | `SIM_TESTED` only when no key followed the replacement; **U-1 open**: the write path after further typing is not specified | `BLOCKED` |
+| RT-5 | Undo restores the recorded keys | `REFERENCE_VERIFIED` | `SIM_TESTED` (also after further typing: U-1 closed, `ahead_len`, M1 only) | `BLOCKED` |
 | RT-6, RT-17 | Nothing persisted or logged; crash handler | `REFERENCE_VERIFIED` for reprs (L9 P-1) | n/a | `NOT_STARTED` (adapter and crash handler) |
 | RT-7 | An error before step 4 changes nothing | `REFERENCE_VERIFIED` | `SIM_TESTED` (adapter exception = incident, no crash) | `BLOCKED` |
 | RT-8 | The hook never delays or drops a key | `REFERENCE_VERIFIED` (invariant I1) | `SIM_TESTED` (runtime has no path that holds a key) | `BLOCKED` (RT-16 measurement) |
@@ -58,12 +60,12 @@ Environment of this session: a Linux container without macOS, Windows, a display
 
 ## Open items found while writing the runtime (not hidden)
 
-* **U-1** The undo write path after the user typed further characters is not specified in 13.3 or 20.14. The runtime refuses it (`undo_unavailable`) rather than guess. The specification needs a rule (for example, the fragment is the word, the Space and the characters typed since, read back and rolled back as one) before an adapter can implement it.
+* **U-1** (closed in the reference, rev 501) The undo after further typing runs `run_transaction(..., ahead_len=snapshot.after)`: the typed characters are read, never written, only M1. Covered by conformance group U-1 and `test_runtime.py`; the adapter must still show it on a real application.
 * **U-2** The `last_word` manual source exists in `run_manual_transaction` but nothing supplies the word before the caret; the adapter has to.
 * The state that the runtime keeps per application (support status, quarantine, incident counter) is memory only. Persistence of the support matrix and the exception list is the adapter's work (13.7).
 
 ## Next step that does not need an OS
 
-1. Specify U-1 (13.3, 20.14) and cover it in conformance, then lift the refusal in the runtime.
+1. (done) U-1.
 2. Write the adapter contract tests as a reusable suite (`SimField` already follows `Adapter`), so that a Windows or macOS adapter can be plugged in and run against the same cases on a device.
-3. Write the spike harnesses S-1 to S-7 as scripts with their measurement format, so that a person with the devices only has to run them. They stay `BLOCKED` until they run.
+3. (format done) Write the measuring programs of S-1 to S-7 for Windows (C#/C++) and macOS (Swift); they cannot be compiled or run in this Linux container, so they stay `BLOCKED` until they run on devices.

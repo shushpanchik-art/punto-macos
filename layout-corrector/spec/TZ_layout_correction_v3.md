@@ -5700,6 +5700,11 @@ r, f = mtx(M1, {("selection", 3): "forward"})
 T(r.outcome == "RESTORED" and f.text == "say ghbdtn now", "G: text right but the selection moved: M1 rolls back")
 r, f = mtx(M1, {("read", 2): "focus"})
 T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: the focus moved before the rollback: no write to the other element")
+# the character read behind the word (the Space the user typed) is kept and compared again after the write: a damaged first read is
+# never VERIFIED (found by L3_equivalence_evidence, r12: `start + n + 1` read as `start + n + 2` went unnoticed)
+r, f = mtx(M1, {("read", 1): "stale"}); T(r.outcome == "RESTORED" and f.text == "say ghbdtn now", "G: a damaged first read: M1 rolls back")
+r, f = mtx(M1_NOROLL, {("read", 1): "stale"}); T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: a damaged first read: no rollback without ROLLBACK")
+r, f = mtx(M2, {("read", 1): "stale"}); T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: a damaged first read: M2 is never rolled back")
 
 # U-1 (audit/L3 run r12, RT-5): the undo after the user typed further. The engine counted `after` characters and knows none of
 # them; the transaction reads them from the field, never writes them, and only M1 may do it (M2 would delete the user's text).

@@ -1,32 +1,32 @@
-# L3 mutation report: lfengine.py (reference engine), mutants from line 173 (`# ==== 20.5`) to line 1497
+# L3 mutation report: lfengine.py (reference engine), mutants from line 173 (`# ==== 20.5`) to line 1788
 
-Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-256 4af41c76efefbc7d48dc26c696f15822dd447d726cc02813e17fb0673c3eae5f; conformance.py ddcc300c3fca57983bbbe6c411c9bfd1368f3f11eb85e64c8d28e2f0e124e580). Baseline: `python3 conformance.py 20000` prints OK; `vectors.py` matches `vectors_out.json`; `test_ref.py` passes. Each mutant runs `timeout 150 python3 conformance.py 20000` in its own directory.
+Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-256 e83eccdacfa3574ddd9b2d1a936057b0e4f1da916129256754d61420fbc03e30; conformance.py 0f83060f0116dc7f50df406281188892ecb5d55a826d9b211bdeb6e2c7d9e4a1). Baseline: `python3 conformance.py 20000` prints OK; `vectors.py` matches `vectors_out.json`; `test_ref.py` passes. Each mutant runs `timeout 150 python3 conformance.py 20000` in its own directory.
 
 ## Counts
 
 | quantity | value |
 |---|---|
-| generated (all operators, before compile check) | 795 |
+| generated (all operators, before compile check) | 991 |
 | did not compile (discarded) | 0 |
-| valid mutants | 795 |
-| run | 795 (sampled: no, all valid mutants) |
-| killed (incl. timeouts) | 760 |
+| valid mutants | 991 |
+| run | 991 (sampled: no, all valid mutants) |
+| killed (incl. timeouts) | 950 |
 | of which TIMEOUT | 1 |
-| survived | 35 |
+| survived | 41 |
 | survived-but-vectors-differ (subset of survived) | 0 |
 | survivors where test_ref.py also fails | 0 |
-| **kill rate = killed / run** | **95.6%** (760/795) |
+| **kill rate = killed / run** | **95.9%** (950/991) |
 
 ## Per operator
 
 | op | kind | generated | not compiling | valid | run | killed | survived |
 |---|---|---|---|---|---|---|---|
-| a | comparison | 142 | 0 | 142 | 142 | 136 | 6 |
-| b | boolean | 112 | 0 | 112 | 112 | 112 | 0 |
-| c | integer literal | 290 | 0 | 290 | 290 | 283 | 7 |
+| a | comparison | 193 | 0 | 193 | 193 | 187 | 6 |
+| b | boolean | 166 | 0 | 166 | 166 | 166 | 0 |
+| c | integer literal | 318 | 0 | 318 | 318 | 310 | 8 |
 | d | float literal | 80 | 0 | 80 | 80 | 59 | 21 |
-| e | statement deletion | 105 | 0 | 105 | 105 | 104 | 1 |
-| f | True/False | 66 | 0 | 66 | 66 | 66 | 0 |
+| e | statement deletion | 142 | 0 | 142 | 142 | 136 | 6 |
+| f | True/False | 92 | 0 | 92 | 92 | 92 | 0 |
 
 ## Survivors by enclosing function
 
@@ -53,64 +53,90 @@ Flags: `VECTORS_DIFFER` = vectors.py output differs from vectors_out.json (label
 | L0280_d02 | 280 | d | `_finite(cal["o_lat"], "o_lat", 0.0, 1.0, lo_open=True)` | `_finite(cal["o_lat"], "o_lat", (0.0/2), 1.0, lo_open=True)` |  |
 | L0280_d03 | 280 | d | `_finite(cal["o_lat"], "o_lat", 0.0, 1.0, lo_open=True)` | `_finite(cal["o_lat"], "o_lat", 0.0, (1.0*2), lo_open=True)` |  |
 
+### `Engine.undo_outcome` (2)
+
+| id | line | op | original | mutated | flags |
+|---|---|---|---|---|---|
+| L0628_e01 | 628 | e | `self.credit = 0` | `pass` |  |
+| L0629_e01 | 629 | e | `self._drop_snapshot()` | `pass` |  |
+
+### `Engine.toggle_outcome` (2)
+
+| id | line | op | original | mutated | flags |
+|---|---|---|---|---|---|
+| L0686_e01 | 686 | e | `self.credit = 0` | `pass` |  |
+| L0687_e01 | 687 | e | `self.manual = None` | `pass` |  |
+
+### `Engine._quarantine` (1)
+
+| id | line | op | original | mutated | flags |
+|---|---|---|---|---|---|
+| L0693_e01 | 693 | e | `self._drop_manual()` | `pass` |  |
+
 ### `Engine.on_event` (1)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0611_e01 | 611 | e | `self._drop_snapshot()` | `pass` |  |
+| L0725_e01 | 725 | e | `self._drop_snapshot(keep_undoing=True)` | `pass` |  |
 
 ### `poisson_upper` (13)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0727_d01 | 727 | d | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and 0.0 < conf < 1.0):` | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and (0.0*2) < conf < 1.0):` |  |
-| L0727_d02 | 727 | d | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and 0.0 < conf < 1.0):` | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and (0.0/2) < conf < 1.0):` |  |
-| L0733_d01 | 733 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = (0.0*2), 10.0 + 10.0 * k` |  |
-| L0733_d02 | 733 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = (0.0/2), 10.0 + 10.0 * k` |  |
-| L0733_d03 | 733 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, (10.0*2) + 10.0 * k` |  |
-| L0733_d04 | 733 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, (10.0/2) + 10.0 * k` |  |
-| L0733_d05 | 733 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, 10.0 + (10.0*2) * k` |  |
-| L0733_d06 | 733 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, 10.0 + (10.0/2) * k` |  |
-| L0734_a01 | 734 | a | `while cdf(hi) > 1 - conf:                      # the interval must hold the limit for every confidence` | `while cdf(hi) >= 1 - conf:                      # the interval must hold the limit for every confidence` |  |
-| L0735_c01 | 735 | c | `lo, hi = hi, hi * 2` | `lo, hi = hi, hi * (2+1)` |  |
-| L0736_c01 | 736 | c | `for _ in range(200):` | `for _ in range((200+1)):` |  |
-| L0736_c02 | 736 | c | `for _ in range(200):` | `for _ in range((200-1)):` |  |
-| L0738_a01 | 738 | a | `if cdf(mid) > 1 - conf:` | `if cdf(mid) >= 1 - conf:` |  |
+| L0841_d01 | 841 | d | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and 0.0 < conf < 1.0):` | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and (0.0*2) < conf < 1.0):` |  |
+| L0841_d02 | 841 | d | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and 0.0 < conf < 1.0):` | `if not (isinstance(k, int) and not isinstance(k, bool) and k >= 0 and (0.0/2) < conf < 1.0):` |  |
+| L0847_d01 | 847 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = (0.0*2), 10.0 + 10.0 * k` |  |
+| L0847_d02 | 847 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = (0.0/2), 10.0 + 10.0 * k` |  |
+| L0847_d03 | 847 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, (10.0*2) + 10.0 * k` |  |
+| L0847_d04 | 847 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, (10.0/2) + 10.0 * k` |  |
+| L0847_d05 | 847 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, 10.0 + (10.0*2) * k` |  |
+| L0847_d06 | 847 | d | `lo, hi = 0.0, 10.0 + 10.0 * k` | `lo, hi = 0.0, 10.0 + (10.0/2) * k` |  |
+| L0848_a01 | 848 | a | `while cdf(hi) > 1 - conf:                      # the interval must hold the limit for every confidence` | `while cdf(hi) >= 1 - conf:                      # the interval must hold the limit for every confidence` |  |
+| L0849_c01 | 849 | c | `lo, hi = hi, hi * 2` | `lo, hi = hi, hi * (2+1)` |  |
+| L0850_c01 | 850 | c | `for _ in range(200):` | `for _ in range((200+1)):` |  |
+| L0850_c02 | 850 | c | `for _ in range(200):` | `for _ in range((200-1)):` |  |
+| L0852_a01 | 852 | a | `if cdf(mid) > 1 - conf:` | `if cdf(mid) >= 1 - conf:` |  |
 
 ### `ev1_pass` (1)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0762_a01 | 762 | a | `and ev1_bound(false_corrections, n_negatives) <= 1e-4)` | `and ev1_bound(false_corrections, n_negatives) < 1e-4)` |  |
+| L0876_a01 | 876 | a | `and ev1_bound(false_corrections, n_negatives) <= 1e-4)` | `and ev1_bound(false_corrections, n_negatives) < 1e-4)` |  |
 
 ### `WittenBell.fit` (2)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0797_a01 | 797 | a | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count >= 1:                              # prune BEFORE the totals are derived` |  |
-| L0797_c02 | 797 | c | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count > (1-1):                              # prune BEFORE the totals are derived` |  |
+| L0911_a01 | 911 | a | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count >= 1:                              # prune BEFORE the totals are derived` |  |
+| L0911_c02 | 911 | c | `if self.min_count > 1:                              # prune BEFORE the totals are derived` | `if self.min_count > (1-1):                              # prune BEFORE the totals are derived` |  |
 
 ### `WittenBell.logp` (2)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0808_d01 | 808 | d | `total = 0.0` | `total = (0.0*2)` |  |
-| L0808_d02 | 808 | d | `total = 0.0` | `total = (0.0/2)` |  |
+| L0922_d01 | 922 | d | `total = 0.0` | `total = (0.0*2)` |  |
+| L0922_d02 | 922 | d | `total = 0.0` | `total = (0.0/2)` |  |
 
 ### `lfb_logp` (2)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L0915_d01 | 915 | d | `total = 0.0` | `total = (0.0*2)` |  |
-| L0915_d02 | 915 | d | `total = 0.0` | `total = (0.0/2)` |  |
+| L1029_d01 | 1029 | d | `total = 0.0` | `total = (0.0*2)` |  |
+| L1029_d02 | 1029 | d | `total = 0.0` | `total = (0.0/2)` |  |
 
 ### `lfw_forward` (3)
 
 | id | line | op | original | mutated | flags |
 |---|---|---|---|---|---|
-| L1037_a01 | 1037 | a | `row.append(s if s > 0 else 0.0)` | `row.append(s if s >= 0 else 0.0)` |  |
-| L1037_d01 | 1037 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0*2))` |  |
-| L1037_d02 | 1037 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0/2))` |  |
+| L1151_a01 | 1151 | a | `row.append(s if s > 0 else 0.0)` | `row.append(s if s >= 0 else 0.0)` |  |
+| L1151_d01 | 1151 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0*2))` |  |
+| L1151_d02 | 1151 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0/2))` |  |
+
+### `run_manual_transaction` (1)
+
+| id | line | op | original | mutated | flags |
+|---|---|---|---|---|---|
+| L1431_c01 | 1431 | c | `t = ad.read(lo, start + n + 1)` | `t = ad.read(lo, start + n + (1+1))` |  |
 
 ## Notes on how mutants were built
 

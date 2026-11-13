@@ -192,11 +192,11 @@ def c_poisson(mid):
     err_o = max(abs(Decimal(O.poisson_upper(k, c)) - exact_root(k, c)) / exact_root(k, c) for k, c in ex)
     err_m = max(abs(Decimal(mod.poisson_upper(k, c)) - exact_root(k, c)) / exact_root(k, c) for k, c in ex)
     ok = rel[0] <= 1e-11 and err_m <= 1e-11
-    what = {"L0733": "the start of the search interval only decides how many times it is doubled before the bisection",
-            "L0734": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)",
-            "L0735": "tripling instead of doubling changes only the bracket",
-            "L0736": "199 or 201 halvings of an interval that is exhausted after about 60",
-            "L0738": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)"}[mid[:5]]
+    what = {"L0847": "the start of the search interval only decides how many times it is doubled before the bisection",
+            "L0848": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)",
+            "L0849": "tripling instead of doubling changes only the bracket",
+            "L0850": "199 or 201 halvings of an interval that is exhausted after about 60",
+            "L0852": "`>` against `>=` differs only when the computed cdf equals 1 - conf exactly (a plateau of the rounded cdf)"}[mid[:5]]
     return ("DIFFERENTIAL" if ok else "GAP"), (f"{what}: {pairs} (k, conf) pairs (k up to 200, conf from 0.01 to 1 - 1e-12): {n_diff} differ, at most {rel[0]:.1e} relative "
                                                f"(k={rel[1]}, conf={rel[2]}); against a 60-digit root on {len(ex)} pairs the original is off by at most {float(err_o):.1e} "
                                                f"and the mutant by at most {float(err_m):.1e} (relative), the resolution of the rounded cdf")
@@ -299,6 +299,98 @@ def c_engine_state(mid):
                                                        f"{diff} differences in the word, snapshot, credit, flags or decision; the unreachable state is explained in the text above")
 
 
+
+def _state(e):
+    keys = ("credit", "skip", "cool_words", "cool_until_ms", "quarantined", "after_switch")
+    return (tuple(getattr(e, k) for k in keys), repr(e.snapshot), repr(e.manual), repr(e.toggling), repr(e.undoing),
+            tuple(sorted(e.exceptions)), tuple(k.id for k in e.run))
+
+
+def c_state_redundant(mid):
+    """Lines 628, 629, 686, 687, 693: the UNRECOVERED branch of on_outcome and of manual_outcome / toggle_outcome clears the credit,
+    the snapshot and the manual record, and the very next statement (`quarantine or outcome in INCIDENT_OUTCOMES`, always true for
+    UNRECOVERED) calls _quarantine(), which does the same; _quarantine itself also reaches _drop_manual through _drop_snapshot.
+    Differential check: random operation sequences on two engines, the whole state compared after every operation."""
+    mod = M(mid)
+    rnd = random.Random(31)
+    scorer = lambda ids: [-3, 9, -2]
+    lex = {"en": {"hello"}, "ru": {"привет"}}
+    n = diff = 0
+    for _ in range(400):
+        a = O.Engine(O.example_cal(), scorer, lex)
+        b = mod.Engine(mod.example_cal(), scorer, lex)
+        t = 1000
+        for _ in range(rnd.randint(5, 50)):
+            t += rnd.randint(1, 600)
+            op = rnd.choice(("key", "key", "space", "man", "toggle", "outcome", "toutcome", "mout", "undo", "uout", "release", "break"))
+            lay = rnd.choice(("en", "ru"))
+            ch = rnd.choice("ghbdtn" if lay == "en" else "привет")
+            oc = rnd.choice(("VERIFIED", "ABORTED", "RESTORED", "UNRECOVERED"))
+            q = rnd.random() < 0.3
+            res = []
+            for m, e in ((O, a), (mod, b)):
+                try:
+                    if op in ("key", "space", "break"):
+                        r = e.on_event(m.Event("key" if op == "key" else op, m.keys_from_text(ch, lay)[0] if op == "key" else None, lay, t))
+                        if r is not None and r.action == "CONVERT":
+                            e.on_outcome(rnd_oc[0])
+                        r = None if r is None else (r.action, r.reason)
+                    elif op == "man":
+                        r = e.manual_outcome("ghbdtn", "привет", "en2ru", oc, t, q)
+                    elif op == "toggle":
+                        r = e.toggle(t)
+                    elif op == "outcome":
+                        r = e.on_outcome(oc)
+                    elif op == "toutcome":
+                        r = e.toggle_outcome(oc, q)
+                    elif op == "mout":
+                        r = e.manual_outcome("abc", "фис", "en2ru", oc, t)
+                    elif op == "undo":
+                        r = e.undo(t)
+                    elif op == "uout":
+                        r = e.undo_outcome(oc, q)
+                    else:
+                        r = e.release_quarantine()
+                except Exception as x:
+                    r = ("EXC", type(x).__name__)
+                res.append(r)
+            n += 1
+            diff += res[0] != res[1] or _state(a) != _state(b)
+    return ("REDUNDANT" if diff == 0 else "GAP"), (f"{n} random operations on two engines (events, manual and toggle outcomes, undo and its outcomes, quarantine release): "
+                                                    f"{diff} differences in the results or in the whole state; the UNRECOVERED branch is followed by _quarantine(), which clears the same fields")
+
+
+rnd_oc = ["VERIFIED"]
+
+
+def c_read_one_more(mid):
+    """Line 1431: the manual transaction reads one character behind the word (`start + n + 1`) only to keep it as `tail`
+    (`t[h + n:][:1]`); a longer read gives the same first character and the same comparison of the word. Differential check on
+    the field simulator with every injected fault."""
+    mod = M(mid)
+    n = diff = 0
+    faults = [None, "partial", "autocorrect", "spill", "ignored", "applied_error", "raise", "key", "focus", "stale", "none", "forward", "back", "user:q"]
+    for caps in ("M1", "M1N", "M2"):
+        capset = {"M1": {O.READ_RANGE, O.REPLACE_RANGE, O.READBACK, O.ROLLBACK}, "M1N": {O.READ_RANGE, O.REPLACE_RANGE, O.READBACK},
+                  "M2": {O.READ_RANGE, O.READBACK, O.SYNTHETIC_INPUT}}[caps] if hasattr(O, "SYNTHETIC_INPUT") else None
+        if capset is None:
+            continue
+        for text in ("say ghbdtn now", "ghbdtn", "say ghbdtn", "x ghbdtn  y"):
+            for op in ("replace", "read", "caret", "selection", "send"):
+                for k in (1, 2, 3):
+                    for fault in faults:
+                        res = []
+                        for m in (O, mod):
+                            f = m.SimField(text, capset)
+                            lo = text.index("ghbdtn")
+                            f.select(lo, lo + 6)
+                            f.faults = {} if fault is None else {(op, k): fault}
+                            r = m.run_manual_transaction(f, "ghbdtn", "привет", source="selection")
+                            res.append((r.outcome, r.reason, r.quarantine, f.text))
+                        n += 1
+                        diff += res[0] != res[1]
+    return ("DIFFERENTIAL" if diff == 0 and n else "GAP"), (f"{n} field texts x capability sets x fault kinds x call numbers: {diff} differences in outcome, reason, quarantine or final text")
+
 GROUPS = [c_identical]
 
 
@@ -307,9 +399,10 @@ def classify(mid):
     if r:
         return r
     ln = MUTANTS[mid]["line"]
-    for line_range, f in ((range(212, 213), c_score_cancels), (range(267, 281), c_cal), (range(733, 739), c_poisson),
-                          (range(762, 763), c_ev1), (range(797, 798), c_wb), (range(1037, 1038), c_relu),
-                          (range(611, 612), c_engine_state)):
+    for line_range, f in ((range(212, 213), c_score_cancels), (range(267, 281), c_cal), (range(847, 853), c_poisson),
+                          (range(876, 877), c_ev1), (range(911, 912), c_wb), (range(1151, 1152), c_relu),
+                          (range(725, 726), c_engine_state), ((628, 629, 686, 687, 693), c_state_redundant),
+                          (range(1431, 1432), c_read_one_more)):
         if ln in line_range:
             r = f(mid)
             if r:

@@ -109,3 +109,10 @@
 
 ## 2026-11-12 (second part)
 - Static audit of ae89222, six items: 1, 2, 3, 4, 5 confirmed and fixed, 6 not a bug (text and tests). Code commit ba604f1, TZ rev 454 = repo copy (L7 IDENTICAL x4). r10 is void; L1 round 2 not blind; L9 fixes not independently reviewed. See audit/L9_independent/L9_independent_report.md.
+
+## 2026-11-13
+* r11 mutation run (977 mutants, 91.9%) on the code with toggle, selection and P3 fixes: below the 95% criterion; block G of conformance.py closes 38 of its 79 holes.
+* U-1 closed in the reference: `run_transaction(..., ahead_len)`, M1 only, the typed characters are read and never written (13.3, 20.14, RT-5); runtime wired; 59 new checks. Spec rev 501.
+* r12 fresh full run (991 mutants, 950 killed = 95.9%); the evidence script found one GAP (L1431_c01), closed by three checks (spec rev 502, L7 4/4 IDENTICAL).
+* `spikes/`: result format and decision rules of S-1..S-7 with synthetic-only tests; no spike was run (needs Windows and macOS).
+* Not done and not claimed: blind L1, independent second L9 review (no independent executor), LocLLM (not available in this container), OS adapters, real applications, calibration/latency on devices.
