@@ -1,10 +1,10 @@
 # L9 re-run of all attack scripts on the final code
 
-Commit (code under test): ce53f8e76e1f783782901a881001eccaffe9e529  (working tree dirty: 3 files)
+Commit (code under test): c72168f4f78b9087fc1d67cb6d110803a782dafa  (working tree dirty: 0 files)
 lfengine.py sha256: 6647172f849a04a07f1fc47d519bfef3bb09e18faf26493de64dd8743b755474
 conformance.py sha256: a41ee6494c80dc48a7878ce53fbb0795c29d137246c3c4ac1de54fc6f10a9d5d
 Python: Python 3.13.17
-Date: 2026-11-13T06:59:02Z
+Date: 2026-11-13T06:59:27Z
 
 ## attack_caret_anchor.py
 ```
