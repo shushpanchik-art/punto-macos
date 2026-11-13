@@ -48,6 +48,16 @@ jobs:
       - name: the code blocks of section 20 of the specification are byte-identical to the reference files
         working-directory: layout-corrector/audit
         run: python L7_check_spec_blocks.py
+      - name: portable runtime against the simulated field (python and python -O)
+        working-directory: layout-corrector/app
+        run: |
+          python test_runtime.py
+          python -O test_runtime.py
+      - name: L9 attack scripts, with the negative control of the runner (this does not replace a second independent review)
+        working-directory: layout-corrector/audit/L9_independent
+        run: |
+          python run_all_attacks.py --selftest
+          sh run_all_attacks.sh > /tmp/l9.md; tail -1 /tmp/l9.md
       - name: the files of the audited revision have the hashes recorded in audit/MANIFEST.sha256
         working-directory: .
         run: sha256sum -c layout-corrector/audit/MANIFEST.sha256
