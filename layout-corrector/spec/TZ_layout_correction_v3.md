@@ -1127,7 +1127,7 @@ The engine is always in exactly one of three modes, for each application separat
 | 10 | A replacement incident: the outcome of 13.2 is RESTORED or UNRECOVERED | The application is quarantined (OFF for it, automatic and manual) until restart or until the user re-enables it | A notice; a counter. After UNRECOVERED the notice says that the field may differ from what was typed and that the application's own undo is the way back |
 | 11 | An unhandled exception in the worker | The current word is KEEP; the worker restarts once; a second failure within 60 seconds gives MANUAL\_ONLY | A notice after the second failure |
 | 12 | A package update fails signature or hash verification | The previous package stays active | A notice |
-| 13 | The event stream is incomplete. Windows: the hook was removed or is not installed, or it lost or invented a key. The independent Raw Input observer compares the signature (scan code, extended flag, direction) of every physical key event with the event that the hook reported; either may come first, tagged and other injected events are not compared, and an event without its counterpart within 300 ms is a loss, and a counterpart that comes later does not undo it even if the watchdog timer has not run yet (canary\_missing: a key the hook did not report; canary\_extra: a hook key the observer did not see), even when the two counts are equal. macOS: the tap was disabled (`tapDisabledByTimeout`, `tapDisabledByUserInput`) or a poll finds it disabled | The word buffer, the run state and the undo snapshot are discarded (the engine receives a gap event); MANUAL\_ONLY until the stream is trusted again: Windows after the hook is installed again and 3 pairs of Raw Input and hook events with equal signatures; macOS after the tap is enabled again, at most 3 times in 60 seconds, after which MANUAL\_ONLY lasts until the user re-enables AUTO | A notice |
+| 13 | The event stream is incomplete. Windows: the hook was removed or is not installed, or it lost or invented a key. The independent Raw Input observer compares the signature (scan code, extended flag, direction) of every physical key event with the event that the hook reported; either may come first, tagged and other injected events are not compared, and an event without its counterpart within 300 ms is a loss, and a counterpart that comes later does not undo it even if the watchdog timer has not run yet (canary\_missing: a key the hook did not report; canary\_extra: a hook key the observer did not see), even when the two counts are equal. macOS: the tap was disabled (`tapDisabledByTimeout`, `tapDisabledByUserInput`) or a poll finds it disabled | The word buffer, the run state and the undo snapshot are discarded (the engine receives a gap event); MANUAL\_ONLY until the stream is trusted again: Windows after the hook is installed again and 3 pairs of Raw Input and hook events with equal signatures; macOS after the tap is enabled again, at most 3 times in 60 seconds, after which MANUAL\_ONLY lasts until the user re-enables AUTO (\`HookHealth.reinstalled(now\_ms)\` counts the enablings, a window of exactly 60,000 ms still counts the oldest one, and \`user\_rearm\` starts the count again; a healthy stream is not changed by \`reinstalled\`). While the gate of the focused element is not ALLOW, \`HookHealth.set\_gate\_open(False)\` empties the queues and no key signature is queued, so nothing typed in a password field is kept for the comparison | A notice |
 | 14 | A permission needed to observe keys is missing or is revoked while the tool runs (macOS Input Monitoring; the hook cannot be installed on Windows) | OFF: nothing is recorded | A notice that names the permission and the way to restore it |
 
 A notice is shown at most once per cause and per 24 hours, and never takes focus.
@@ -2031,7 +2031,7 @@ Every requirement identifier of this document is verified by at least one level 
 
 **What is not here.** The operating-system adapters themselves (event capture, layout detection, the context gate, the text interface of each application) cannot be written as portable code. Sections 13.1, 13.2, 13.7 and 13.8 specify them; the event machine of 20.7 and the contract of 20.14 (`Adapter`, `run_transaction`, `HookHealth`) are the interface they drive, and the algorithm of the replacement transaction is part of this reference. What the reference proves is the algorithm (evidence level REFERENCE\_VERIFIED, 16.1); what a real application does is proved only by the integration tests RT-1 to RT-21 on the real operating systems. Training is specified in section 9. The forward pass of the network in 20.11 is a slow reference for tests; the production runtime uses a native implementation that is checked against it.
 
-**Assembling the files.** The code blocks of 20.2 to 20.11 and the code block of 20.14 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them into one file in the order 20.2, 20.3, and so on up to 20.11, then 20.14 (20.12 and 20.13 hold other files and are skipped), with exactly two empty lines between one block and the next; each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. The property, negative and fault-injection tests of 20.13 are the third file, `conformance.py`; it is printed in three code blocks, which are written into the file one after the other with exactly one empty line between one part and the next. All files are UTF-8 with LF line ends; a file is the reference file when it is identical to it byte for byte. `python conformance.py` prints OK, and so does `python -O conformance.py`: neither the engine nor the tests rely on the `assert` statement, so no check disappears when Python is run optimised. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
+**Assembling the files.** The code blocks of 20.2 to 20.11 and the code block of 20.14 are consecutive parts of one Python 3.9+ module, `lfengine.py`, which uses only the standard library. Copy them into one file in the order 20.2, 20.3, and so on up to 20.11, then 20.14 (20.12 and 20.13 hold other files and are skipped), with exactly two empty lines between one block and the next; each block starts with a marker comment `# ==== 20.n`. The vector generator of 20.12 is the second file, `vectors.py`. Run `python vectors.py > vectors_out.json` and compare the output with the expected JSON of 20.12. The property, negative and fault-injection tests of 20.13 are the third file, `conformance.py`; it is printed in four code blocks, which are written into the file one after the other with exactly one empty line between one part and the next. All files are UTF-8 with LF line ends; a file is the reference file when it is identical to it byte for byte. `python conformance.py` prints OK, and so does `python -O conformance.py`: neither the engine nor the tests rely on the `assert` statement, so no check disappears when Python is run optimised. An implementation in another language is conformant when, for every entry of that JSON, its own function gives the same result: floats to the precision shown, hashes, token lists and byte counts exactly.
 
 | Function or class | Part | Purpose |
 | --- | --- | --- |
@@ -2463,6 +2463,9 @@ class Decision:
     margin: Optional[float] = None       # score - lambda (nats), model decisions only
     n_keys: Optional[int] = None
 
+    def __repr__(self):                  # the replacement is the typed word: it never reaches a log or a traceback (13.4, L9 P-1)
+        return f"Decision({self.action}, {self.reason}, n_keys={self.n_keys})"
+
 
 def expected_echo(run: Sequence[Key], active: str) -> str:
     """The text the application should show for `run` as typed: used by the echo check before a replacement."""
@@ -2532,6 +2535,9 @@ class Event:
     key: Optional[Key] = None      # for kind == key
     layout: Optional[str] = None   # layout id sampled at the event (key, space)
     ts_ms: int = 0
+
+    def __repr__(self):                  # the physical key is the typed text: it is not printed (13.4, L9 P-1)
+        return f"Event({self.kind}, {self.layout}, ts={self.ts_ms})"
 
 
 MAX_BUF = 64
@@ -2605,6 +2611,7 @@ class Engine:
         self.cool_until_ms = 0
         self.quarantined = False     # an incident (13.2, step 6): nothing is recorded until release_quarantine() (L9 F8)
         self.undoing: Optional[Tuple[UndoSnapshot, int]] = None   # the snapshot of an undo whose outcome is not known yet
+        self._clock = 0              # the last time given to tick (L9 F10)
         self.manual: Optional[ManualRecord] = None                # the toggle record of the last VERIFIED manual conversion
         self.toggling: Optional[Tuple[ManualRecord, int]] = None  # a toggle whose outcome is not known yet
 
@@ -2633,7 +2640,13 @@ class Engine:
         self.mode = mode
 
     def tick(self, now_ms: int):
-        """Clock input of the runtime timer: the snapshot expires 10 s after the replacement."""
+        """Clock input of the runtime timer: the snapshot expires 10 s after the replacement. A clock that goes back
+        (a monotonic clock never does; a wall clock that was set back does) cannot be trusted to age anything, so every
+        record that the clock ages is destroyed at once (L9 F10)."""
+        if now_ms < self._clock:
+            self.credit = 0
+            self._drop_snapshot()
+        self._clock = now_ms
         s = self.snapshot
         if s is not None and now_ms - s.created_ms > UNDO_WINDOW_MS:
             self._drop_snapshot(keep_undoing=True)
@@ -2785,6 +2798,11 @@ class Engine:
             self._count_char()                            # characters typed after a replacement age the snapshot
         if ev.kind == "key":
             if self.skip:
+                return None
+            if ev.layout not in TABLE or ev.key is None:   # an unknown layout id or a key without an id is a break, never an exception (L9 E-2)
+                self._flush()
+                self.skip, self.credit = True, 0
+                self._drop_snapshot(keep_undoing=True)
                 return None
             if self.snapshot is not None and ev.layout != self.snapshot.layout:
                 self.credit = 0                           # a key of another layout means the layout changed (13.3): no undo
@@ -3654,7 +3672,7 @@ def build():
     c = L.HookHealth(); c.raw_key(0, "a"); c.raw_key(301, "b")
     hh.append(["a later event of the same side shows that the first has expired", c.ok, c.take_gap(), c.reason])
     m = L.HookHealth(canary=False); m.tap_disabled("timeout"); hh.append(["macOS tapDisabledByTimeout", m.ok, m.take_gap(), m.reason])
-    m.reinstalled(); hh.append(["macOS tap enabled again", m.ok, m.take_gap(), m.reason])
+    m.reinstalled(1000); hh.append(["macOS tap enabled again", m.ok, m.take_gap(), m.reason])
     m.tap_disabled("user_input"); hh.append(["macOS tapDisabledByUserInput", m.ok, m.take_gap(), m.reason])
     out["hook"] = hh
     return out
@@ -4498,10 +4516,10 @@ m = L.HookHealth(canary=False)                                        # macOS
 T(m.ok, "mac healthy")
 m.tap_disabled("timeout")
 T(not m.ok and m.take_gap() and m.reason == "tap_timeout", "tapDisabledByTimeout")
-m.reinstalled()
+m.reinstalled(1000)
 T(m.ok, "tap enabled again")
 m.tap_disabled("user_input"); T(not m.ok and m.reason == "tap_user_input", "tapDisabledByUserInput")
-m.reinstalled(); m.poll(False); T(not m.ok and m.reason == "poll", "poll finds the tap disabled")
+m.reinstalled(2000); m.poll(False); T(not m.ok and m.reason == "poll", "poll finds the tap disabled")
 raises(ValueError, lambda: m.tap_disabled("other"), "unknown reason")
 e = L.Engine(L.example_cal(), scorer, LEX)                            # the runtime sends the gap to the engine
 for k in L.keys_from_text("ghb", "en"):
@@ -5529,6 +5547,63 @@ for fault in ("partial", "autocorrect", "spill", "ignored", "applied_error", "ra
     T(r2.outcome != "VERIFIED" or fld.text == "say ghbdtn now", f"B4: fault {fault}: VERIFIED only with the field restored, got {r2.outcome}")
     if r2.outcome == "RESTORED":
         T(fld.text[:10] == "say привет" and r2.incident and r2.quarantine, f"B4: fault {fault}: RESTORED leaves the converted text")
+```
+
+```python
+# P3 findings of the independent review, closed (audit/L9_independent): every check names the finding.
+# H-4 macOS: at most 3 re-enablings in 60,000 ms (inclusive); the 4th stays MANUAL_ONLY until the user re-arms (13.5 row 13).
+for gap, sticky in ((15_000, True), (20_001, False)):               # 4 re-enablings within 45,000 ms; or the 1st leaves the window
+    m = L.HookHealth(canary=False)
+    for i_ in range(4):
+        m.tap_disabled("timeout"); m.take_gap(); m.reinstalled(i_ * gap)
+    T((not m.ok) == sticky and (m.reason == "tap_flapping") == sticky, f"H-4: four re-enablings, {gap} ms apart")
+m = L.HookHealth(canary=False)
+for t_ in (0, 20_000, 40_000, 60_000):                              # the 1st is exactly 60,000 ms old at the 4th: still counted
+    m.tap_disabled("user_input"); m.reinstalled(t_)
+T(not m.ok and m.reason == "tap_flapping", "H-4: the window is inclusive (60,000 ms)")
+m = L.HookHealth(canary=False)
+for t_ in (0, 20_000, 40_000, 60_001):
+    m.tap_disabled("user_input"); m.reinstalled(t_)
+T(m.ok, "H-4: one millisecond more and the oldest has left the window")
+m = L.HookHealth(canary=False)
+for t_ in (0, 1, 2, 3):
+    m.tap_disabled("timeout"); m.reinstalled(t_)
+m.reinstalled(10); T(not m.ok, "H-4: a later enabling does not clear the flapping state")
+m.poll(True); T(not m.ok, "H-4: nor does a healthy poll")
+m.user_rearm(); T(m.ok and m.reason is None and not m.sticky and m.reenabled == [], "H-4: the user re-arms AUTO and the count starts again")
+_m4 = L.HookHealth(canary=False); _m4.tap_disabled("timeout")
+raises(ValueError, lambda: _m4.reinstalled(), "H-4: a macOS re-enabling without its time is refused")
+# H-3 reinstalled() on a healthy stream must not erase the evidence of a waiting loss.
+h = L.HookHealth(); h.raw_key(1000, "a"); h.reinstalled()
+T(h.raw_only == [(1000, "a")] and not h.check(1200) is False and not h.check(1301), "H-3: the waiting key survives a reinstall on a healthy stream, the loss is declared")
+# P-2 nothing is queued while the gate is not ALLOW.
+h = L.HookHealth(); h.raw_key(10, ("scan", 1)); h.hook_key(11, ("scan", 2)); h.set_gate_open(False)
+T(h.raw_only == [] and h.hook_only == [], "P-2: closing the gate empties both queues")
+h.raw_key(20, ("scan", 3)); h.hook_key(21, ("scan", 4))
+T(h.raw_only == [] and h.hook_only == [] and h.check(5000) and h.ok, "P-2: nothing is queued or compared while the gate is closed")
+h.set_gate_open(True); h.raw_key(6000, ("scan", 5)); T(len(h.raw_only) == 1, "P-2: queuing resumes when the gate opens")
+# E-2 an unknown layout id or a key without an id is a break, never an exception.
+for lay in (None, "de", "", "EN"):
+    e = L.Engine(L.example_cal(), scorer, LEX)
+    for k in L.keys_from_text("gh", "en"):
+        e.on_event(L.Event("key", k, "en", 10))
+    e.on_event(L.Event("key", L.keys_from_text("b", "en")[0], lay, 11))
+    T(e.run == [] and e.skip and e.credit == 0, f"E-2: layout id {lay!r} flushes the word and skips its rest")
+    T(e.on_event(L.Event("space", None, "en", 12)) is None, f"E-2: no decision for the dropped word, layout {lay!r}")
+e = L.Engine(L.example_cal(), scorer, LEX); e.on_event(L.Event("key", None, "en", 10)); T(e.skip, "E-2: a key without an id is a break")
+# F10 a clock that goes back destroys what the clock ages.
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 5000, verified=True)
+T(e.snapshot is not None, "F10 setup"); e.tick(4000)
+T(e.snapshot is None and e.undo(4100) is None, "F10: a clock set back destroys the snapshot")
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 5000, verified=True); e.tick(5006)
+T(e.snapshot is not None, "F10: equal and forward time keep it")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection", ms=5000); e.tick(5000); e.tick(4999)
+T(e.manual is None, "F10: a clock set back destroys the toggle record too")
+# P-1 the representation of an event and of a decision never contains the typed text.
+T("ghbdtn" not in repr(L.Decision("CONVERT", "model", "привет", 1.0, 6)) and "привет" not in repr(L.Decision("CONVERT", "model", "привет", 1.0, 6)),
+  "P-1: a Decision does not print its replacement")
+T("Key" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)) and "id=" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)),
+  "P-1: an Event does not print its key")
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
 ```
@@ -6048,8 +6123,14 @@ class HookHealth:
     CANARY_MS = 300
     REARM_PAIRS = 3
 
+    TAP_REENABLE_MAX = 3
+    TAP_REENABLE_WINDOW_MS = 60_000
+
     def __init__(self, canary: bool = True):
         self.canary = canary
+        self.gate_open = True                            # False: nothing is queued (L9 P-2)
+        self.sticky = False                              # macOS: re-enabled too often, MANUAL_ONLY until the user re-arms (13.5 row 13)
+        self.reenabled: List[int] = []
         self.ok = True
         self.reason: Optional[str] = None
         self.raw_only: List[Tuple[int, object]] = []     # (time, sig) of physical keys the hook has not reported yet
@@ -6080,14 +6161,23 @@ class HookHealth:
                 return
         mine.append((ts, sig))
 
+    def set_gate_open(self, open_: bool):
+        """The gate of the focused element (13.7). While it is not ALLOW the signatures of the keys, which can be those
+        of a password, are not queued and the queues are emptied, so nothing of such a field outlives the gate (L9 P-2).
+        The stream is not compared while closed; the engine drops its word when the gate changes anyway."""
+        self.gate_open = bool(open_)
+        if not open_:
+            self.raw_only.clear()
+            self.hook_only.clear()
+
     def raw_key(self, ts: int, sig):
         """The independent observer saw a physical key event (Windows only)."""
-        if self.canary:
+        if self.canary and self.gate_open:
             self._meet(self.raw_only, self.hook_only, ts, sig)
 
     def hook_key(self, ts: int, sig, injected: bool = False):
         """The hook saw a key event; `injected` is the hook's own flag for synthetic events."""
-        if self.canary and not injected:
+        if self.canary and not injected and self.gate_open:
             self._meet(self.hook_only, self.raw_only, ts, sig)
 
     def check(self, now_ms: int) -> bool:
@@ -6109,14 +6199,33 @@ class HookHealth:
         if not enabled:
             self._lose("poll")
 
-    def reinstalled(self):
-        """The runtime installed the hook again (Windows) or enabled the tap again (macOS)."""
-        self.raw_only.clear()
-        self.hook_only.clear()
-        self.pairs = 0
+    def reinstalled(self, now_ms: Optional[int] = None):
+        """The runtime installed the hook again (Windows) or enabled the tap again (macOS, `now_ms` required: the rule of
+        at most 3 re-enablings in 60,000 ms, inclusive, counts them; the 4th stays MANUAL_ONLY until `user_rearm`).
+        On a healthy stream it changes nothing: it must not erase the evidence of a loss that is still waiting (L9 H-3)."""
+        if self.ok and not self.sticky:
+            return
         if self.canary:
+            self.raw_only.clear()
+            self.hook_only.clear()
+            self.pairs = 0
             self.reinstalled_flag = True
-        else:
+            return
+        if now_ms is None:
+            raise ValueError("a macOS re-enabling needs its time")
+        self.reenabled = [t for t in self.reenabled if now_ms - t <= self.TAP_REENABLE_WINDOW_MS]
+        self.reenabled.append(now_ms)
+        if len(self.reenabled) > self.TAP_REENABLE_MAX:
+            self.sticky, self.reason = True, "tap_flapping"
+            return
+        if not self.sticky:
+            self.ok, self.reason = True, None
+
+    def user_rearm(self):
+        """The user re-enabled AUTO after a flapping tap: the count starts again."""
+        self.sticky = False
+        self.reenabled.clear()
+        if not self.canary:
             self.ok, self.reason = True, None
 
     def take_gap(self) -> bool:

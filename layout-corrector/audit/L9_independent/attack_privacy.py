@@ -28,18 +28,23 @@ def word(e, text, t0=1000):
 e = L.Engine(L.example_cal(), scorer, {})
 d = word(e, SECRET)
 print("P-1 repr(snapshot) =", repr(e.snapshot)[:140])
-print("    repr(decision) =", repr(d)[:140], " <- contains the converted word")
+print("    repr(decision) =", repr(d)[:140], "")
 ev = L.Event("key", L.keys_from_text("g", "en")[0], "en", 5)
-print("    repr(event)    =", repr(ev), " <- the physical key of one keystroke")
+print("    repr(event)    =", repr(ev), "")
 
-print("P-2 HookHealth with a password field in focus (the class has no gate input):")
+print("P-2 HookHealth with a password field in focus (closed since the P3 fix: set_gate_open, 13.5 row 13):")
 hh = L.HookHealth()
+hh.set_gate_open(False)                                                 # the adapter calls this on every gate change; the gate is DENY here
 for i, sc in enumerate((34, 35, 48, 32, 20, 49)):                       # scan codes of 'g h b d t n', typed in a password field
-    hh.raw_key(2000 + i * 20, ("scan", sc, "down"))                     # the hook is slow: it reports nothing within the window
-print("    raw_only queue holds", len(hh.raw_only), "signatures of keys typed in a protected field:", [s for _, s in hh.raw_only][:3], "...")
+    hh.raw_key(2000 + i * 20, ("scan", sc, "down"))
+    hh.hook_key(2000 + i * 20 + 3, ("scan", sc + 1, "down"))
+print("    gate closed: signatures queued:", len(hh.raw_only) + len(hh.hook_only), "(must be 0); ok:", hh.ok)
+hh.set_gate_open(True)
 hh2 = L.HookHealth()
 hh2.raw_key(3000, ("scan", 34, "down"))
-print("    even in the healthy case the first side to report is queued:", hh2.raw_only, "(stored key while the gate verdict is DENY)")
+hh2.set_gate_open(False)
+print("    a signature queued just before the gate closed is dropped:", hh2.raw_only, "(must be [])")
+print("    contract left to the adapter (not enforced by the class): it must call set_gate_open on EVERY gate change; an adapter that forgets it queues again")
 
 print("P-3 exception list:")
 e = L.Engine(L.example_cal(), scorer, {})

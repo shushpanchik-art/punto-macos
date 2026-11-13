@@ -1,10 +1,10 @@
 # L9 re-run of all attack scripts on the final code
 
-Commit (code under test): ba604f16173db55de69363343aedf40e9197aebf  (working tree dirty: 0 files)
-lfengine.py sha256: 7d4b7f679c20b9133f74d4caecbe6c5e68427a36f74baeff3c256572684c1a62
-conformance.py sha256: 074cc2847a6ce11817be13a2f69e6542099b3ef2962e7a556303c49b6b14f1f2
+Commit (code under test): ce53f8e76e1f783782901a881001eccaffe9e529  (working tree dirty: 3 files)
+lfengine.py sha256: 6647172f849a04a07f1fc47d519bfef3bb09e18faf26493de64dd8743b755474
+conformance.py sha256: a41ee6494c80dc48a7878ce53fbb0795c29d137246c3c4ac1de54fc6f10a9d5d
 Python: Python 3.13.17
-Date: 2026-11-12T20:59:28Z
+Date: 2026-11-13T06:59:02Z
 
 ## attack_caret_anchor.py
 ```
@@ -20,11 +20,11 @@ RUNNER attack_caret_anchor.py: ok; residual lines (R-2): 2; known open (P3): non
 ## attack_engine_fuzz.py
 ```
 events/steps 400000 conversions 51840 {} {}
-E-2 layout id None -> on_event RAISED KeyError None | run already flushed: True
-E-2 layout id 'de' -> on_event RAISED KeyError 'de' | run already flushed: True
+E-2 layout id None -> None
+E-2 layout id 'de' -> None
 exit=0
 ```
-RUNNER attack_engine_fuzz.py: ok; residual lines (R-2): 0; known open (P3): ['E-2 unknown layout id raises KeyError (P3)']
+RUNNER attack_engine_fuzz.py: ok; residual lines (R-2): 0; known open (P3): none
 
 ## attack_engine_state.py
 ```
@@ -47,7 +47,7 @@ RUNNER attack_engine_fuzz.py: ok; residual lines (R-2): 0; known open (P3): ['E-
    10050 undone words -> len(exceptions) = 10000 (spec: at most 10,000, least-recently-used eviction)
 exit=0
 ```
-RUNNER attack_engine_state.py: ok; residual lines (R-2): 0; known open (P3): none
+RUNNER attack_engine_state.py: ok; residual lines (R-2): 0; known open (P3): ['F10b a ts_ms=0 event is untimed and keeps the snapshot (documented limit)']
 
 ## attack_focus_switch.py
 ```
@@ -96,12 +96,12 @@ H-1 repeated key hides a loss
 H-2 raw side without injected flag
    ok at 1400 ms: False reason: canary_missing gap pending: True
 H-3 reinstalled() while healthy erases evidence
-   ok at 2000 ms: True (the lost key is never declared)
+   ok at 2000 ms: False (False: the loss is declared, the evidence was not erased)
 H-4 macOS: unlimited re-enabling
-   tap disabled 10 times in a row, reinstalled each time: ok after reinstall 10 of 10 (spec: MANUAL_ONLY after the 3rd in 60 s)
+   tap disabled 10 times in a row, reinstalled each time: ok after reinstall 3 of 10 (spec: MANUAL_ONLY after the 3rd in 60 s)
 exit=0
 ```
-RUNNER attack_hookhealth.py: ok; residual lines (R-2): 0; known open (P3): ['H-4 tap re-enabled without MANUAL_ONLY (P3)']
+RUNNER attack_hookhealth.py: ok; residual lines (R-2): 0; known open (P3): ['H-1 a repeated key hides a loss for 300 ms (inherent to signature matching)']
 
 ## attack_m2_arrow_midbatch.py
 ```
@@ -165,17 +165,18 @@ RUNNER attack_pipeline_fuzz.py: ok; residual lines (R-2): 0; known open (P3): no
 ## attack_privacy.py
 ```
 P-1 repr(snapshot) = UndoSnapshot(<6 keys, en2ru, confirmed=False>)
-    repr(decision) = Decision(action='CONVERT', reason='score_above_threshold', replacement='привет', margin=0.8931441493827936, n_keys=6)  <- contains the converted word
-    repr(event)    = Event(kind='key', key=Key(id=30, shift=False, caps=False), layout='en', ts_ms=5)  <- the physical key of one keystroke
-P-2 HookHealth with a password field in focus (the class has no gate input):
-    raw_only queue holds 6 signatures of keys typed in a protected field: [('scan', 34, 'down'), ('scan', 35, 'down'), ('scan', 48, 'down')] ...
-    even in the healthy case the first side to report is queued: [(3000, ('scan', 34, 'down'))] (stored key while the gate verdict is DENY)
+    repr(decision) = Decision(CONVERT, score_above_threshold, n_keys=6) 
+    repr(event)    = Event(key, en, ts=5) 
+P-2 HookHealth with a password field in focus (closed since the P3 fix: set_gate_open, 13.5 row 13):
+    gate closed: signatures queued: 0 (must be 0); ok: True
+    a signature queued just before the gate closed is dropped: [] (must be [])
+    contract left to the adapter (not enforced by the class): it must call set_gate_open on EVERY gate change; an adapter that forgets it queues again
 P-3 exception list:
     engine.exceptions = set() (plain text; no hashing, no LRU bound, no clear)
     the set is what a persistent store would serialise; the reference has a hashed alternative (LEX_TAGS exc_en2ru) that is not used by Engine
 exit=0
 ```
-RUNNER attack_privacy.py: ok; residual lines (R-2): 0; known open (P3): ['P-2 HookHealth queues signatures in a DENY gate (P3)']
+RUNNER attack_privacy.py: ok; residual lines (R-2): 0; known open (P3): ["P-3 the exception set is plain text in memory (the persistent store is the adapter's)"]
 
 ## attack_undo_commit.py
 ```

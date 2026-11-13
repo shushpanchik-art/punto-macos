@@ -387,6 +387,9 @@ class Decision:
     margin: Optional[float] = None       # score - lambda (nats), model decisions only
     n_keys: Optional[int] = None
 
+    def __repr__(self):                  # the replacement is the typed word: it never reaches a log or a traceback (13.4, L9 P-1)
+        return f"Decision({self.action}, {self.reason}, n_keys={self.n_keys})"
+
 
 def expected_echo(run: Sequence[Key], active: str) -> str:
     """The text the application should show for `run` as typed: used by the echo check before a replacement."""
@@ -444,6 +447,9 @@ class Event:
     key: Optional[Key] = None      # for kind == key
     layout: Optional[str] = None   # layout id sampled at the event (key, space)
     ts_ms: int = 0
+
+    def __repr__(self):                  # the physical key is the typed text: it is not printed (13.4, L9 P-1)
+        return f"Event({self.kind}, {self.layout}, ts={self.ts_ms})"
 
 
 MAX_BUF = 64
@@ -517,6 +523,7 @@ class Engine:
         self.cool_until_ms = 0
         self.quarantined = False     # an incident (13.2, step 6): nothing is recorded until release_quarantine() (L9 F8)
         self.undoing: Optional[Tuple[UndoSnapshot, int]] = None   # the snapshot of an undo whose outcome is not known yet
+        self._clock = 0              # the last time given to tick (L9 F10)
         self.manual: Optional[ManualRecord] = None                # the toggle record of the last VERIFIED manual conversion
         self.toggling: Optional[Tuple[ManualRecord, int]] = None  # a toggle whose outcome is not known yet
 
@@ -545,7 +552,13 @@ class Engine:
         self.mode = mode
 
     def tick(self, now_ms: int):
-        """Clock input of the runtime timer: the snapshot expires 10 s after the replacement."""
+        """Clock input of the runtime timer: the snapshot expires 10 s after the replacement. A clock that goes back
+        (a monotonic clock never does; a wall clock that was set back does) cannot be trusted to age anything, so every
+        record that the clock ages is destroyed at once (L9 F10)."""
+        if now_ms < self._clock:
+            self.credit = 0
+            self._drop_snapshot()
+        self._clock = now_ms
         s = self.snapshot
         if s is not None and now_ms - s.created_ms > UNDO_WINDOW_MS:
             self._drop_snapshot(keep_undoing=True)
@@ -697,6 +710,11 @@ class Engine:
             self._count_char()                            # characters typed after a replacement age the snapshot
         if ev.kind == "key":
             if self.skip:
+                return None
+            if ev.layout not in TABLE or ev.key is None:   # an unknown layout id or a key without an id is a break, never an exception (L9 E-2)
+                self._flush()
+                self.skip, self.credit = True, 0
+                self._drop_snapshot(keep_undoing=True)
                 return None
             if self.snapshot is not None and ev.layout != self.snapshot.layout:
                 self.credit = 0                           # a key of another layout means the layout changed (13.3): no undo
@@ -1648,8 +1666,14 @@ class HookHealth:
     CANARY_MS = 300
     REARM_PAIRS = 3
 
+    TAP_REENABLE_MAX = 3
+    TAP_REENABLE_WINDOW_MS = 60_000
+
     def __init__(self, canary: bool = True):
         self.canary = canary
+        self.gate_open = True                            # False: nothing is queued (L9 P-2)
+        self.sticky = False                              # macOS: re-enabled too often, MANUAL_ONLY until the user re-arms (13.5 row 13)
+        self.reenabled: List[int] = []
         self.ok = True
         self.reason: Optional[str] = None
         self.raw_only: List[Tuple[int, object]] = []     # (time, sig) of physical keys the hook has not reported yet
@@ -1680,14 +1704,23 @@ class HookHealth:
                 return
         mine.append((ts, sig))
 
+    def set_gate_open(self, open_: bool):
+        """The gate of the focused element (13.7). While it is not ALLOW the signatures of the keys, which can be those
+        of a password, are not queued and the queues are emptied, so nothing of such a field outlives the gate (L9 P-2).
+        The stream is not compared while closed; the engine drops its word when the gate changes anyway."""
+        self.gate_open = bool(open_)
+        if not open_:
+            self.raw_only.clear()
+            self.hook_only.clear()
+
     def raw_key(self, ts: int, sig):
         """The independent observer saw a physical key event (Windows only)."""
-        if self.canary:
+        if self.canary and self.gate_open:
             self._meet(self.raw_only, self.hook_only, ts, sig)
 
     def hook_key(self, ts: int, sig, injected: bool = False):
         """The hook saw a key event; `injected` is the hook's own flag for synthetic events."""
-        if self.canary and not injected:
+        if self.canary and not injected and self.gate_open:
             self._meet(self.hook_only, self.raw_only, ts, sig)
 
     def check(self, now_ms: int) -> bool:
@@ -1709,14 +1742,33 @@ class HookHealth:
         if not enabled:
             self._lose("poll")
 
-    def reinstalled(self):
-        """The runtime installed the hook again (Windows) or enabled the tap again (macOS)."""
-        self.raw_only.clear()
-        self.hook_only.clear()
-        self.pairs = 0
+    def reinstalled(self, now_ms: Optional[int] = None):
+        """The runtime installed the hook again (Windows) or enabled the tap again (macOS, `now_ms` required: the rule of
+        at most 3 re-enablings in 60,000 ms, inclusive, counts them; the 4th stays MANUAL_ONLY until `user_rearm`).
+        On a healthy stream it changes nothing: it must not erase the evidence of a loss that is still waiting (L9 H-3)."""
+        if self.ok and not self.sticky:
+            return
         if self.canary:
+            self.raw_only.clear()
+            self.hook_only.clear()
+            self.pairs = 0
             self.reinstalled_flag = True
-        else:
+            return
+        if now_ms is None:
+            raise ValueError("a macOS re-enabling needs its time")
+        self.reenabled = [t for t in self.reenabled if now_ms - t <= self.TAP_REENABLE_WINDOW_MS]
+        self.reenabled.append(now_ms)
+        if len(self.reenabled) > self.TAP_REENABLE_MAX:
+            self.sticky, self.reason = True, "tap_flapping"
+            return
+        if not self.sticky:
+            self.ok, self.reason = True, None
+
+    def user_rearm(self):
+        """The user re-enabled AUTO after a flapping tap: the count starts again."""
+        self.sticky = False
+        self.reenabled.clear()
+        if not self.canary:
             self.ok, self.reason = True, None
 
     def take_gap(self) -> bool:

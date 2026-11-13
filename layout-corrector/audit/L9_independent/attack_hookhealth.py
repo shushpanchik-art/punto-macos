@@ -64,11 +64,11 @@ print("H-3 reinstalled() while healthy erases evidence")
 hh = L.HookHealth()
 hh.raw_key(1000, ("g", "down"))                             # the hook never reports it
 hh.reinstalled()                                            # e.g. a resume handler reinstalls the hook
-print("   ok at 2000 ms:", hh.check(2000), "(the lost key is never declared)")
+print("   ok at 2000 ms:", hh.check(2000), "(False: the loss is declared, the evidence was not erased)")
 
 print("H-4 macOS: unlimited re-enabling")
 hh = L.HookHealth(canary=False)
 n = 0
 for i in range(10):
-    hh.tap_disabled("timeout"); hh.take_gap(); hh.reinstalled(); n += hh.ok
+    hh.tap_disabled("timeout"); hh.take_gap(); hh.reinstalled(i * 1000); n += hh.ok
 print("   tap disabled 10 times in a row, reinstalled each time: ok after reinstall", n, "of 10 (spec: MANUAL_ONLY after the 3rd in 60 s)")

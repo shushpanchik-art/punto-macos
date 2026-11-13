@@ -38,12 +38,12 @@ Exact commands (from the repository root, run on the commit named in the output 
 | F8 incident does not stop the engine (P2) | fixed | `attack_engine_state.py` F7 section: next decision None, quarantined True until `release_quarantine` |
 | F9 undo commits early (P2) | fixed | `attack_undo_commit.py`: ABORTED gate_changed, exception not learned, cool-down 0, snapshot alive, a second chord is possible |
 | P3 F8 layout id only in a key, P3 F9 Backspaces in a dropped word | fixed | `attack_engine_state.py`: snapshot dropped in both |
-| P3 F10 clock stepped back, `ts_ms=0` | **open** | `attack_engine_state.py` F10: undo still works with a stepped-back clock; a `ts_ms=0` event leaves the snapshot alive |
+| P3 F10 clock stepped back | **fixed** (13.2/20.6 `tick`: a clock that goes back destroys snapshot, credit and manual record); `ts_ms=0` untimed | **open, documented limit** | `conformance.py` F10 checks; runner EXPECT `attack_engine_state.py` and KNOWN F10b |
 | P3 F11 exception list bound | fixed | 10,050 undone words give 10,000 entries (LRU) |
-| P3 E-2 unknown layout id | **open** | `attack_engine_fuzz.py`: KeyError for None and 'de' after the run was flushed |
-| P3 H-1 repeated key hides a loss, H-2, H-3, H-4 | **open** (not touched) | `attack_hookhealth.py` as printed: H-1 declared 300 ms late, H-3 evidence erased, H-4 tap re-enabled 10 of 10 times without MANUAL_ONLY. Fuzz: 0 false alarms, 0 undeclared losses except H-1 masking |
-| P3 privacy P-1 repr | **partly fixed** | the repr of `UndoSnapshot` shows only the number of keys, direction and confirmed flag; the repr of `Decision` still contains the converted word and the repr of `Event` the physical key (open) |
-| P3 privacy P-2 HookHealth queues signatures in a DENY gate | **open** | `attack_privacy.py`: scan codes of a password field are queued for up to 300 ms. The reference cannot close this: the class has no gate input |
+| P3 E-2 unknown layout id | **fixed** (`on_event`: unknown layout id or key without id = break, no exception) | conformance E-2; runner EXPECT `attack_engine_fuzz.py` |
+| P3 H-1 repeated key hides a loss | **open** (inherent to signature matching, KNOWN in runner) | `attack_hookhealth.py` H-1. H-2 reports later without injected flag: open. **H-3 fixed** (`reinstalled()` on a healthy stream is a no-op), **H-4 fixed** (macOS: `reinstalled(now_ms)`, 3 per 60,000 ms inclusive, then sticky `tap_flapping` until `user_rearm`) | conformance H-3, H-4; runner EXPECT |
+| P3 privacy P-1 repr | **fixed** (`Decision`, `Event`, `UndoSnapshot` print no text or key) | conformance P-1; runner EXPECT `attack_privacy.py` |
+| P3 privacy P-2 HookHealth queues signatures in a DENY gate | **fixed in the class** (`set_gate_open(False)` empties and stops the queues); **adapter contract open**: the adapter must call it on every gate change (not enforced; untested on a real adapter) | conformance P-2; `attack_privacy.py` |
 | P3 privacy P-3 exceptions are a plain set in memory | open, requirement | bounded now; no hashing or persistence in the reference |
 
 **R-2, stated plainly.** A caret move that neither a key nor a pointer press counted (a program, an assistive tool, remote input) before step 3 can make an identical earlier word the converted fragment and the outcome is VERIFIED with a wrong field. The reference cannot detect it: it sees only counted events and reads. It is documented in 13.2 (G-FIELD) and measured only by RT-4 on a real adapter. R-1 (an event between the last processed event and the freeze) and R-3 are the other two residuals.

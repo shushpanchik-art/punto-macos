@@ -346,7 +346,7 @@ def build():
     c = L.HookHealth(); c.raw_key(0, "a"); c.raw_key(301, "b")
     hh.append(["a later event of the same side shows that the first has expired", c.ok, c.take_gap(), c.reason])
     m = L.HookHealth(canary=False); m.tap_disabled("timeout"); hh.append(["macOS tapDisabledByTimeout", m.ok, m.take_gap(), m.reason])
-    m.reinstalled(); hh.append(["macOS tap enabled again", m.ok, m.take_gap(), m.reason])
+    m.reinstalled(1000); hh.append(["macOS tap enabled again", m.ok, m.take_gap(), m.reason])
     m.tap_disabled("user_input"); hh.append(["macOS tapDisabledByUserInput", m.ok, m.take_gap(), m.reason])
     out["hook"] = hh
     return out

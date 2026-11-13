@@ -422,10 +422,10 @@ m = L.HookHealth(canary=False)                                        # macOS
 T(m.ok, "mac healthy")
 m.tap_disabled("timeout")
 T(not m.ok and m.take_gap() and m.reason == "tap_timeout", "tapDisabledByTimeout")
-m.reinstalled()
+m.reinstalled(1000)
 T(m.ok, "tap enabled again")
 m.tap_disabled("user_input"); T(not m.ok and m.reason == "tap_user_input", "tapDisabledByUserInput")
-m.reinstalled(); m.poll(False); T(not m.ok and m.reason == "poll", "poll finds the tap disabled")
+m.reinstalled(2000); m.poll(False); T(not m.ok and m.reason == "poll", "poll finds the tap disabled")
 raises(ValueError, lambda: m.tap_disabled("other"), "unknown reason")
 e = L.Engine(L.example_cal(), scorer, LEX)                            # the runtime sends the gap to the engine
 for k in L.keys_from_text("ghb", "en"):
@@ -1449,5 +1449,60 @@ for fault in ("partial", "autocorrect", "spill", "ignored", "applied_error", "ra
     T(r2.outcome != "VERIFIED" or fld.text == "say ghbdtn now", f"B4: fault {fault}: VERIFIED only with the field restored, got {r2.outcome}")
     if r2.outcome == "RESTORED":
         T(fld.text[:10] == "say привет" and r2.incident and r2.quarantine, f"B4: fault {fault}: RESTORED leaves the converted text")
+
+# P3 findings of the independent review, closed (audit/L9_independent): every check names the finding.
+# H-4 macOS: at most 3 re-enablings in 60,000 ms (inclusive); the 4th stays MANUAL_ONLY until the user re-arms (13.5 row 13).
+for gap, sticky in ((15_000, True), (20_001, False)):               # 4 re-enablings within 45,000 ms; or the 1st leaves the window
+    m = L.HookHealth(canary=False)
+    for i_ in range(4):
+        m.tap_disabled("timeout"); m.take_gap(); m.reinstalled(i_ * gap)
+    T((not m.ok) == sticky and (m.reason == "tap_flapping") == sticky, f"H-4: four re-enablings, {gap} ms apart")
+m = L.HookHealth(canary=False)
+for t_ in (0, 20_000, 40_000, 60_000):                              # the 1st is exactly 60,000 ms old at the 4th: still counted
+    m.tap_disabled("user_input"); m.reinstalled(t_)
+T(not m.ok and m.reason == "tap_flapping", "H-4: the window is inclusive (60,000 ms)")
+m = L.HookHealth(canary=False)
+for t_ in (0, 20_000, 40_000, 60_001):
+    m.tap_disabled("user_input"); m.reinstalled(t_)
+T(m.ok, "H-4: one millisecond more and the oldest has left the window")
+m = L.HookHealth(canary=False)
+for t_ in (0, 1, 2, 3):
+    m.tap_disabled("timeout"); m.reinstalled(t_)
+m.reinstalled(10); T(not m.ok, "H-4: a later enabling does not clear the flapping state")
+m.poll(True); T(not m.ok, "H-4: nor does a healthy poll")
+m.user_rearm(); T(m.ok and m.reason is None and not m.sticky and m.reenabled == [], "H-4: the user re-arms AUTO and the count starts again")
+_m4 = L.HookHealth(canary=False); _m4.tap_disabled("timeout")
+raises(ValueError, lambda: _m4.reinstalled(), "H-4: a macOS re-enabling without its time is refused")
+# H-3 reinstalled() on a healthy stream must not erase the evidence of a waiting loss.
+h = L.HookHealth(); h.raw_key(1000, "a"); h.reinstalled()
+T(h.raw_only == [(1000, "a")] and not h.check(1200) is False and not h.check(1301), "H-3: the waiting key survives a reinstall on a healthy stream, the loss is declared")
+# P-2 nothing is queued while the gate is not ALLOW.
+h = L.HookHealth(); h.raw_key(10, ("scan", 1)); h.hook_key(11, ("scan", 2)); h.set_gate_open(False)
+T(h.raw_only == [] and h.hook_only == [], "P-2: closing the gate empties both queues")
+h.raw_key(20, ("scan", 3)); h.hook_key(21, ("scan", 4))
+T(h.raw_only == [] and h.hook_only == [] and h.check(5000) and h.ok, "P-2: nothing is queued or compared while the gate is closed")
+h.set_gate_open(True); h.raw_key(6000, ("scan", 5)); T(len(h.raw_only) == 1, "P-2: queuing resumes when the gate opens")
+# E-2 an unknown layout id or a key without an id is a break, never an exception.
+for lay in (None, "de", "", "EN"):
+    e = L.Engine(L.example_cal(), scorer, LEX)
+    for k in L.keys_from_text("gh", "en"):
+        e.on_event(L.Event("key", k, "en", 10))
+    e.on_event(L.Event("key", L.keys_from_text("b", "en")[0], lay, 11))
+    T(e.run == [] and e.skip and e.credit == 0, f"E-2: layout id {lay!r} flushes the word and skips its rest")
+    T(e.on_event(L.Event("space", None, "en", 12)) is None, f"E-2: no decision for the dropped word, layout {lay!r}")
+e = L.Engine(L.example_cal(), scorer, LEX); e.on_event(L.Event("key", None, "en", 10)); T(e.skip, "E-2: a key without an id is a break")
+# F10 a clock that goes back destroys what the clock ages.
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 5000, verified=True)
+T(e.snapshot is not None, "F10 setup"); e.tick(4000)
+T(e.snapshot is None and e.undo(4100) is None, "F10: a clock set back destroys the snapshot")
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 5000, verified=True); e.tick(5006)
+T(e.snapshot is not None, "F10: equal and forward time keep it")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection", ms=5000); e.tick(5000); e.tick(4999)
+T(e.manual is None, "F10: a clock set back destroys the toggle record too")
+# P-1 the representation of an event and of a decision never contains the typed text.
+T("ghbdtn" not in repr(L.Decision("CONVERT", "model", "привет", 1.0, 6)) and "привет" not in repr(L.Decision("CONVERT", "model", "привет", 1.0, 6)),
+  "P-1: a Decision does not print its replacement")
+T("Key" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)) and "id=" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)),
+  "P-1: an Event does not print its key")
 
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
