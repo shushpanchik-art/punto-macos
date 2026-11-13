@@ -1350,4 +1350,104 @@ for i in range(100):
     e.on_event(L.Event("backspace", None, "en", 1010 + i))
 T(e.snapshot is None, "A6: Backspaces are not characters: the first one in an empty buffer is a break")
 
+# Toggle after a manual conversion (13.3): the hotkey pressed immediately after a VERIFIED manual conversion converts back and
+# the typed word joins the exception list. Every check runs the real path: manual transaction, engine, transaction again.
+def manual_then(caps, text, a, b, source, ms=1000, e=None, mode="AUTO"):
+    e = e or L.Engine(L.example_cal(), scorer, LEX)
+    fld = L.SimField(text, caps)
+    if source == "selection":
+        fld.select(a, b)
+        src_text = text[a:b]
+    else:
+        src_text = text[a:b]
+    direction, cvt = L.manual_convert(src_text)
+    r = L.run_manual_transaction(fld, src_text, cvt, source=source)
+    e.manual_outcome(src_text, cvt, direction, r.outcome, ms, r.quarantine)
+    return e, fld, r, src_text, cvt
+
+for caps, name in ((M1, "M1"), (M2, "M2")):
+    for source, text, a, b in (("selection", "say ghbdtn now", 4, 10), ("last_word", "say ghbdtn", 4, 10)):
+        e, fld, r, src, cvt = manual_then(caps, text, a, b, source)
+        T(r.outcome == "VERIFIED" and e.manual is not None, f"B1: {name} {source}: the conversion opens the toggle window")
+        plan = e.toggle(1500)
+        T(plan == (cvt, src), f"B1: {name} {source}: the plan is (what stands now, what to restore)")
+        r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle")
+        T(r2.outcome == "VERIFIED" and fld.text == text, f"B1: {name} {source}: the toggle restores the field, got {r2} {fld.text!r}")
+        e.toggle_outcome(r2.outcome, r2.quarantine)
+        T(("en2ru", "ghbdtn") in e.exceptions and e.manual is None and e.toggling is None and e.credit == 0 and e.cool_words == L.COOLDOWN_WORDS,
+          f"B1: {name} {source}: the word is learned, the window is closed, the cool-down starts")
+        T(e.toggle(1600) is None, f"B1: {name} {source}: a second press is an ordinary conversion (no record)")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+T(feed(e, "ghbdtn", "en", 2000, verified=False).action == "CONVERT" or True, "B1 setup")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+plan = e.toggle(1500); r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle"); e.toggle_outcome(r2.outcome)
+e.cool_words = 0; e.cool_until_ms = 0
+T(feed(e, "ghbdtn", "en", 9000).action == "KEEP", "B1: the learned word is not converted again by the automatic path")
+
+# a text with white space is restored but is not a word: no exception
+e, fld, r, src, cvt = manual_then(M1, "go ghbdtn rfr ltkf", 3, 18, "selection")
+plan = e.toggle(1500); r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle"); e.toggle_outcome(r2.outcome)
+T(r2.outcome == "VERIFIED" and fld.text == "go ghbdtn rfr ltkf" and not e.exceptions, "B1: several words are restored without an exception")
+
+# the window: 10,000 ms inclusive, any user event, gate, mode, quarantine, a long text and a non-VERIFIED manual outcome end it
+for dt, alive in ((9_999, True), (10_000, True), (10_001, False)):
+    e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+    T((e.toggle(1000 + dt) is not None) == alive, f"B2: the hotkey {dt} ms after the conversion")
+for what, act in {
+    "key": lambda e: e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 1100)),
+    "space": lambda e: e.on_event(L.Event("space", None, "en", 1100)),
+    "backspace": lambda e: e.on_event(L.Event("backspace", None, "en", 1100)),
+    "break": lambda e: e.on_event(L.Event("break", None, None, 1100)),
+    "layout": lambda e: e.on_event(L.Event("layout", None, "ru", 1100)),
+    "gap": lambda e: e.on_event(L.Event("gap", None, None, 1100)),
+    "gate DENY": lambda e: e.set_gate("DENY"), "mode OFF": lambda e: e.set_mode("OFF"),
+    "mode MANUAL_ONLY": lambda e: e.set_mode("MANUAL_ONLY"), "quarantine": lambda e: e._quarantine(),
+}.items():
+    e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); act(e)
+    T(e.manual is None and e.toggle(1200) is None, f"B2: {what} ends the toggle window")
+e = L.Engine(L.example_cal(), scorer, LEX); e.set_mode("MANUAL_ONLY")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection", e=e)
+e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 1100))
+T(e.manual is None, "B2: in MANUAL_ONLY mode too a user event ends the window")
+long_ = "ghbdtn" * 11 + "gh"                                           # 68 characters
+e, fld, r, src, cvt = manual_then(M1, long_, 0, len(long_), "selection")
+T(r.outcome == "VERIFIED" and e.manual is None and e.toggle(1100) is None, "B2: more than 64 characters: converted, no toggle record")
+e, fld, r, src, cvt = manual_then(M1, "x" * 64, 0, 64, "selection"); T(e.manual is not None, "B2: exactly 64 characters: a record")
+for oc in ("ABORTED", "RESTORED", "UNRECOVERED"):
+    e = L.Engine(L.example_cal(), scorer, LEX); e.manual_outcome("ghbdtn", "привет", "en2ru", oc, 1000)
+    T(e.manual is None and e.quarantined == (oc != "ABORTED"), f"B2: a manual conversion that ends {oc} leaves no record")
+
+# outcomes of the toggle itself
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.toggle_outcome("ABORTED")
+T(e.manual is not None and not e.exceptions and not e.quarantined and e.toggle(1600) is not None, "B3: ABORTED commits nothing and the window stays")
+for oc in ("RESTORED", "UNRECOVERED"):
+    e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.toggle_outcome(oc)
+    T(e.quarantined and e.manual is None and e.toggling is None and not e.exceptions, f"B3: {oc}: quarantine, record destroyed, nothing learned")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.set_gate("DENY"); e.toggle_outcome("VERIFIED")
+T(not e.exceptions, "B3: a late VERIFIED after a gate change commits nothing")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.tick(1500 + L.UNDO_OUTCOME_MS + 1); e.toggle_outcome("VERIFIED")
+T(not e.exceptions, "B3: an outcome that comes after one second commits nothing")
+e = L.Engine(L.example_cal(), scorer, LEX); T(e.toggle(1000) is None, "B3: no record, no toggle")
+T("ghbdtn" not in repr(L.ManualRecord("ghbdtn", "привет", "en2ru", 0)) and "привет" not in repr(L.ManualRecord("ghbdtn", "привет", "en2ru", 0)), "B3: the record never prints the text")
+
+# the toggle transaction: a user key, a changed field, a moved selection and write faults are never VERIFIED
+for caps, name in ((M1, "M1"), (M2, "M2")):
+    e, fld, r, src, cvt = manual_then(caps, "say ghbdtn now", 4, 10, "selection")
+    fld.text = "say привеТ now"                                                 # the application changed the text meanwhile
+    plan = e.toggle(1500)
+    r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle")
+    T(r2.outcome == "ABORTED" and r2.reason == "echo_mismatch" and fld.text == "say привеТ now", f"B4: {name}: a changed field is not overwritten")
+    e, fld, r, src, cvt = manual_then(caps, "say ghbdtn now", 4, 10, "selection")
+    fld.pos, fld.sel = 14, None; fld.silent += 1                                  # the user clicked elsewhere
+    plan = e.toggle(1500)
+    T(L.run_manual_transaction(fld, plan[0], plan[1], source="toggle").outcome == "ABORTED", f"B4: {name}: a moved caret or selection aborts")
+for fault in ("partial", "autocorrect", "spill", "ignored", "applied_error", "raise", "user:x"):
+    e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+    fld.faults = {("replace", 1): fault}
+    plan = e.toggle(1500)
+    r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle")
+    T(r2.outcome != "VERIFIED" or fld.text == "say ghbdtn now", f"B4: fault {fault}: VERIFIED only with the field restored, got {r2.outcome}")
+    if r2.outcome == "RESTORED":
+        T(fld.text[:10] == "say привет" and r2.incident and r2.quarantine, f"B4: fault {fault}: RESTORED leaves the converted text")
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

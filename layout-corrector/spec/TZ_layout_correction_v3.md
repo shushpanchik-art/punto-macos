@@ -1090,7 +1090,7 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 | Within 10 seconds after an automatic correction, with no context break since | **Undo.** Restore the original keys exactly as recorded, rendered with the layout id recorded with them (nothing is re-derived from the converted text). Add the word, case-folded with its direction, to the exception list; start the cool-down (it ends when 3 word decisions have been suppressed and 10 seconds have passed, whichever is later); clear the run credit |
 | A selection exists and the gate is ALLOW | **Manual conversion of the selection** (below) |
 | No selection and the gate is ALLOW | **Manual conversion of the last word**: the last run still in the buffer, or, if the buffer is empty, the last whitespace-delimited token before the caret, read through the text interface |
-| Immediately after a manual conversion | Converts back (toggle) and adds the word to the exception list |
+| Immediately after a manual conversion | Converts back (toggle) and, when the converted text is one word, adds it to the exception list. The toggle exists only while the conversion ended VERIFIED, for at most 64 characters, for at most 10 seconds, and until the first user event of any kind (a key, a Space, a Backspace, a click, a layout change, a focus change); a change of the gate or of the mode, a quarantine and the toggle itself end it. It is a manual transaction (source toggle, 20.14) on the text that the conversion left: it finds its range from the selection or from the caret behind the text, and it writes only when the field still holds exactly that text. Its outcome follows 13.2: only VERIFIED learns the word and starts the cool-down; ABORTED keeps the window; RESTORED and UNRECOVERED quarantine the application. After the toggle, or when no window exists, the hotkey is an ordinary manual conversion. |
 | The gate is DENY or UNKNOWN | No action and a short notice: the tool does not read text it is not allowed to read |
 
 - **Defaults and conflicts.** Proposed defaults, to be confirmed by the requester (16.3): Windows `Pause`, macOS `⌃⌥⌘Space`. The chord is registered through the OS hotkey interface (`RegisterHotKey` on Windows, `RegisterEventHotKey` on macOS), which keeps it from the application. If registration fails the tool tries the next chord of its fallback list (Windows `Ctrl+Alt+Pause`, `Ctrl+Alt+Space`; macOS `⌃⌥⌘L`, `⌃⌥⌘K`), tells the user which chord is active, and never binds silently to a chord the OS reports as taken. Esc is not bound by default, because it has its own meaning in many applications; "Esc also undoes" is an opt-in setting per application.
@@ -1162,6 +1162,7 @@ A notice is shown at most once per cause and per 24 hours, and never takes focus
 | RT-24 | M2 MUST be VERIFIED only when no user input event was counted during the transaction. Test: an arrow key (and any pair of arrow keys that cancel each other) at every position between the synthetic events of a six-letter word: never VERIFIED, and every UNRECOVERED has its incident and its quarantine. |
 | RT-25 | The engine state MUST follow the outcome: the undo snapshot, the run credit, the exception, the cool-down and the end of the snapshot of an undo are committed only when the transaction ends VERIFIED; an incident stops the engine for the application until release\_quarantine; and an error of any kind after the first write, not only an adapter error, ends in the rollback or the incident of 13.2. Test: every outcome of a conversion and of an undo, the keys typed during a transaction, a gate or mode change under quarantine, and exceptions of four classes raised in every call of the transaction. |
 | RT-26 | The hotkey MUST convert a selection and a last word only through the manual transaction (selection exact, no Space, no typed-ahead key, at most 10,000 characters); the automatic transaction MUST refuse a non-empty selection and write nothing. The undo MUST be possible at exactly 10,000 ms and after exactly 100 further keys and Spaces and impossible one unit later; an undo that ends RESTORED or UNRECOVERED MUST quarantine the application and destroy the snapshot; a run of 21 to 64 keys MUST be converted and undone completely. Test: a selection and a last word in every M1 and M2 application, with a user key, a moved selection, an autocorrect and a partial write; undo chords at 9,999, 10,000 and 10,001 ms and after 99, 100 and 101 characters; runs of 20, 21, 40 and 64 keys. |
+| RT-27 | The toggle MUST exist only immediately after a VERIFIED manual conversion of at most 64 characters, for at most 10,000 ms inclusive, and MUST end at the first user event of any kind, also in MANUAL\_ONLY mode; it MUST write only over exactly the text that the conversion left, and only a VERIFIED toggle of one word learns the word. The adapter MUST answer the selection query for the bound element and raise an error otherwise. Test: M1 and M2, selection and last word, at 9,999, 10,000 and 10,001 ms; every kind of user event, a gate change, a mode change and a quarantine between the conversion and the hotkey; a changed field, a moved caret or selection, a user key and each write fault during the toggle: never VERIFIED unless the field holds the typed text, never an exception without VERIFIED. |
 
 ### 13.7 Platforms, mechanisms and the first release
 
@@ -1184,13 +1185,13 @@ A notice is shown at most once per cause and per 24 hours, and never takes focus
 | Privileges and distribution | Runs unelevated, so elevated windows and the secure desktop cannot be observed or edited and resolve to UNKNOWN; signed MSIX or MSI installer | Input Monitoring (observing), Post Event (M2), Accessibility (AX text interface): three permissions, requested one by one (AP-1); hardened runtime, notarised package; first-run flow of 13.9 |
 | Autostart | Per-user startup entry | Login item (`SMAppService`, macOS 13+) |
 
-Each cell has a test in the end-to-end suite. The caret query reports the position of an empty selection and fails with an error when the selection is not empty; the reference model has the position only, so what real controls do with a selection is covered by the integration tests of RT-4. The mechanism of the macOS fingerprint is not fixed here but selected by spike S-6: Apple's page on UCKeyTranslate is reported to advise against its use in applications and to name NSEvent.characters(byApplyingModifiers:) as the alternative (status UNVERIFIED in the audit report, card M7), while that method translates the characters of an existing key event with other modifiers (card M7b), so S-6 must show for each candidate that all 94 characters of the layout of the pair, and not only of the active input source, can be obtained. A function that cannot be provided in some application or OS version makes the gate UNKNOWN for it (13.1) or lowers its mode (13.5); it is never emulated by guessing. On macOS M1 is the usual path and the automatic one. On Windows automatic correction is expected to be possible in few applications at first (classic edit controls, and the control classes that pass the table below); most modern controls will be MANUAL until a range replacement with a verified rollback is shown for them, and the evaluation report D6 says so openly, with the number of applications per OS in each of the modes AUTO, MANUAL\_ONLY and OFF. The 15 applications of 13.8 are the test set and not a promise that AUTO works in all of them.
+Each cell has a test in the end-to-end suite. The adapter has two position queries. The caret query reports the position of an empty selection and fails with an error when the selection is not empty, so the automatic transaction can never write over a selection. The selection query (selection(), part of READ\_RANGE) reports the pair (start, end) of the selection, with start equal to end for a caret, in the same units as the read and replace calls; it is the only query the manual transaction (13.3) and the toggle use to find their range. Guarantees that an adapter MUST give for both: the positions are those of the focused element that gate() classified (the binding of RT-22), they are read after the last user input event that the adapter counts, and a query that cannot be answered raises an error, never a guess. What a real control does with a selection (whether a replacement keeps it, whether a Backspace deletes it, whether an AX or UI Automation range is in code points or UTF-16 units) is not assumed: RT-4 and RT-26 measure it for each control class, and a class that fails them is not given REPLACE\_RANGE or the manual conversion. The mechanism of the macOS fingerprint is not fixed here but selected by spike S-6: Apple's page on UCKeyTranslate is reported to advise against its use in applications and to name NSEvent.characters(byApplyingModifiers:) as the alternative (status UNVERIFIED in the audit report, card M7), while that method translates the characters of an existing key event with other modifiers (card M7b), so S-6 must show for each candidate that all 94 characters of the layout of the pair, and not only of the active input source, can be obtained. A function that cannot be provided in some application or OS version makes the gate UNKNOWN for it (13.1) or lowers its mode (13.5); it is never emulated by guessing. On macOS M1 is the usual path and the automatic one. On Windows automatic correction is expected to be possible in few applications at first (classic edit controls, and the control classes that pass the table below); most modern controls will be MANUAL until a range replacement with a verified rollback is shown for them, and the evaluation report D6 says so openly, with the number of applications per OS in each of the modes AUTO, MANUAL\_ONLY and OFF. The 15 applications of 13.8 are the test set and not a promise that AUTO works in all of them.
 
 **Capabilities.** An adapter declares, per control class, which of five capabilities it has. The mode of an application follows from them (reference function `engine_mode`, section 20.14).
 
 | Capability | Meaning |
 | --- | --- |
-| `READ_RANGE` | The text of a character range of the focused element can be read |
+| `READ_RANGE` | The text of a character range of the focused element and the selection (start, end) can be read |
 | `REPLACE_RANGE` | A range can be replaced by one adapter operation (M1) with the caret and selection kept. Whether the application can interleave a user key with it is measured by RT-4, not assumed |
 | `READBACK` | The whole fragment, the caret and the selection can be read again after the write |
 | `ROLLBACK` | The original text can be written back by the same operation as the replacement |
@@ -1314,7 +1315,7 @@ A model without its data manifest, calibration tables and test evidence cannot b
 | D5 | Calibration package | One JSON of the strict schema LFC1 (20.5): a scalar temperature per scorer kind, the integer class counts pi\_train\_counts with the pi\_train derived from them, o\_lat, w per word state (the value w\_ship of 10.2), the threshold table in nats for both scorer kinds, both directions and all length buckets, the two-key allow-lists, the model hash; no other field | Fitted on validation only (CA-1 to CA-6); refused whole by the load check of CA-9 on any defect; hash stored with D4 |
 | D6 | Evaluation report | Generated document with every slice of section 11.4, confidence intervals and the seed spread | Produced by one command; contains the manifest hashes of the data it ran on, the latency of phases P1 to P7 (7.5) per device, application and method, the support matrix with the status of every application (13.8), the interval of w with the stored w\_ship and the sensitivity report (10.2), and the evidence level of each requirement (16.1) |
 | D7 | Benchmark harness | C or C++ micro-benchmarks and an ONNX Runtime script | Reports p50, p95, p99 per stage on each reference device (section 7.5) |
-| D8 | Runtime library | Hook, buffer, guards, replacer, undo (section 13) | RT-1 to RT-26 pass, including the end-to-end suite |
+| D8 | Runtime library | Hook, buffer, guards, replacer, undo (section 13) | RT-1 to RT-27 pass, including the end-to-end suite |
 | D9 | Model card | Two pages | Intended use, data sources and licences, known failures (acronyms, names, short words), π assumptions, limits of the proxy numbers |
 | D10 | Release package | Signed, versioned bundle of D3, D4, D5 and the lexicon, with a rollback path | Staged rollout and one-step rollback demonstrated (section 14.5) |
 
@@ -2565,6 +2566,20 @@ class UndoSnapshot:
         return f"UndoSnapshot(<{len(self.keys)} keys, {self.direction}, confirmed={self.confirmed}>)"
 
 
+@dataclass
+class ManualRecord:
+    """What the toggle needs after a VERIFIED manual conversion (13.3): the text that was converted and the text that
+    stands in the field now, at most MAX_BUF characters (a longer conversion has no toggle). Memory only, never logged,
+    destroyed by every user event, gate or mode change, quarantine, the timeout and the toggle itself."""
+    old: str
+    new: str
+    direction: str
+    created_ms: int
+
+    def __repr__(self):
+        return f"ManualRecord(n={len(self.old)}, {self.direction})"
+
+
 class Engine:
     """Consumes events in arrival order; returns a Decision at each Space that ends a non-empty run.
     The event kinds: key (a printable main-block key), space (the decision point), backspace, layout (a manual
@@ -2590,6 +2605,8 @@ class Engine:
         self.cool_until_ms = 0
         self.quarantined = False     # an incident (13.2, step 6): nothing is recorded until release_quarantine() (L9 F8)
         self.undoing: Optional[Tuple[UndoSnapshot, int]] = None   # the snapshot of an undo whose outcome is not known yet
+        self.manual: Optional[ManualRecord] = None                # the toggle record of the last VERIFIED manual conversion
+        self.toggling: Optional[Tuple[ManualRecord, int]] = None  # a toggle whose outcome is not known yet
 
     def _flush(self):
         self.run, self.run_layout, self.overflow = [], None, False
@@ -2602,6 +2619,7 @@ class Engine:
         self.snapshot = None
         if not keep_undoing:
             self.undoing = None
+        self._drop_manual()
 
     def set_mode(self, mode: str):
         """Mode from `engine_mode` (20.14). Only AUTO records and classifies; MANUAL_ONLY and OFF record nothing (13.5).
@@ -2622,6 +2640,12 @@ class Engine:
         u = self.undoing
         if u is not None and now_ms - u[1] > UNDO_OUTCOME_MS:
             self.undoing = None                           # the outcome of the restoring transaction never came
+        m = self.manual
+        if m is not None and now_ms - m.created_ms > UNDO_WINDOW_MS:
+            self.manual = None                            # the toggle window is the undo window (13.3)
+        t = self.toggling
+        if t is not None and now_ms - t[1] > UNDO_OUTCOME_MS:
+            self.toggling = None
 
     def _count_char(self):
         s = self.snapshot
@@ -2681,8 +2705,67 @@ class Engine:
         if quarantine or outcome in INCIDENT_OUTCOMES:
             self._quarantine()                            # RESTORED and UNRECOVERED are incidents (13.2 step 6): the snapshot goes too
 
+    def _drop_manual(self):
+        self.manual = None
+        self.toggling = None
+
+    def manual_outcome(self, old: str, new: str, direction: str, outcome: str, now_ms: int, quarantine: bool = False):
+        """Result of a manual conversion (`run_manual_transaction`). Only VERIFIED opens the toggle window, and only for
+        1 to MAX_BUF characters; every other outcome leaves no record, and RESTORED and UNRECOVERED quarantine the
+        application like any incident. A manual conversion also ends any automatic snapshot: the field changed."""
+        if outcome not in OUTCOMES:
+            raise ValueError(outcome)
+        self._drop_snapshot()
+        if outcome == "VERIFIED" and 1 <= len(old) <= MAX_BUF and len(new) == len(old) and direction in ("en2ru", "ru2en"):
+            self.manual = ManualRecord(old, new, direction, now_ms)
+        if quarantine or outcome in INCIDENT_OUTCOMES:
+            self._quarantine()
+
+    def toggle(self, now_ms: int) -> Optional[Tuple[str, str]]:
+        """The hotkey pressed immediately after a VERIFIED manual conversion (13.3). Returns (expected, restore): the text
+        that must stand in the field now and the text to put back, for `run_manual_transaction(..., source="toggle")`.
+        None when no record is alive (the press is then an ordinary manual conversion). Nothing is committed here."""
+        self.tick(now_ms)
+        m = self.manual
+        if m is None or self.quarantined or self.gate != GATE_ALLOW:
+            return None
+        self.toggling = (m, now_ms)
+        return m.new, m.old
+
+    def toggle_outcome(self, outcome: str, quarantine: bool = False):
+        """VERIFIED: the typed text is back, a single word joins the exception list (a text with white space is not a
+        word), the run credit is lost and the cool-down starts. ABORTED: nothing is committed and the window stays until
+        its own end. RESTORED and UNRECOVERED are incidents: quarantine, record destroyed, nothing learned."""
+        if outcome not in OUTCOMES:
+            raise ValueError(outcome)
+        t, self.toggling = self.toggling, None
+        if t is None:
+            return
+        m, now_ms = t
+        if outcome == "VERIFIED":
+            word = m.old.casefold()
+            if word and not any(c.isspace() for c in word):
+                item = (m.direction, word)
+                self._exc_order.pop(item, None)
+                self._exc_order[item] = None
+                self.exceptions.add(item)
+                while len(self._exc_order) > MAX_EXCEPTIONS:
+                    oldest = next(iter(self._exc_order))
+                    del self._exc_order[oldest]
+                    self.exceptions.discard(oldest)
+            self.credit = 0
+            self.cool_words = COOLDOWN_WORDS
+            self.cool_until_ms = now_ms + COOLDOWN_MS
+            self.manual = None
+        elif outcome == "UNRECOVERED":
+            self.credit = 0
+            self.manual = None
+        if quarantine or outcome in INCIDENT_OUTCOMES:
+            self._quarantine()
+
     def _quarantine(self):
         self.quarantined = True
+        self._drop_manual()
         self._flush()
         self.skip, self.credit, self.after_switch = False, 0, False
         self._drop_snapshot()
@@ -2692,6 +2775,8 @@ class Engine:
         self.quarantined = False
 
     def on_event(self, ev: Event) -> Optional[Decision]:
+        if self.manual is not None:
+            self.manual = None                            # "immediately after": any user event ends the toggle window
         if self.gate != GATE_ALLOW or self.mode != "AUTO" or self.quarantined:
             return None                                   # not stored, not counted, not classified
         if ev.ts_ms:
@@ -5345,6 +5430,106 @@ for i in range(100):
     e.on_event(L.Event("backspace", None, "en", 1010 + i))
 T(e.snapshot is None, "A6: Backspaces are not characters: the first one in an empty buffer is a break")
 
+# Toggle after a manual conversion (13.3): the hotkey pressed immediately after a VERIFIED manual conversion converts back and
+# the typed word joins the exception list. Every check runs the real path: manual transaction, engine, transaction again.
+def manual_then(caps, text, a, b, source, ms=1000, e=None, mode="AUTO"):
+    e = e or L.Engine(L.example_cal(), scorer, LEX)
+    fld = L.SimField(text, caps)
+    if source == "selection":
+        fld.select(a, b)
+        src_text = text[a:b]
+    else:
+        src_text = text[a:b]
+    direction, cvt = L.manual_convert(src_text)
+    r = L.run_manual_transaction(fld, src_text, cvt, source=source)
+    e.manual_outcome(src_text, cvt, direction, r.outcome, ms, r.quarantine)
+    return e, fld, r, src_text, cvt
+
+for caps, name in ((M1, "M1"), (M2, "M2")):
+    for source, text, a, b in (("selection", "say ghbdtn now", 4, 10), ("last_word", "say ghbdtn", 4, 10)):
+        e, fld, r, src, cvt = manual_then(caps, text, a, b, source)
+        T(r.outcome == "VERIFIED" and e.manual is not None, f"B1: {name} {source}: the conversion opens the toggle window")
+        plan = e.toggle(1500)
+        T(plan == (cvt, src), f"B1: {name} {source}: the plan is (what stands now, what to restore)")
+        r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle")
+        T(r2.outcome == "VERIFIED" and fld.text == text, f"B1: {name} {source}: the toggle restores the field, got {r2} {fld.text!r}")
+        e.toggle_outcome(r2.outcome, r2.quarantine)
+        T(("en2ru", "ghbdtn") in e.exceptions and e.manual is None and e.toggling is None and e.credit == 0 and e.cool_words == L.COOLDOWN_WORDS,
+          f"B1: {name} {source}: the word is learned, the window is closed, the cool-down starts")
+        T(e.toggle(1600) is None, f"B1: {name} {source}: a second press is an ordinary conversion (no record)")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+T(feed(e, "ghbdtn", "en", 2000, verified=False).action == "CONVERT" or True, "B1 setup")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+plan = e.toggle(1500); r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle"); e.toggle_outcome(r2.outcome)
+e.cool_words = 0; e.cool_until_ms = 0
+T(feed(e, "ghbdtn", "en", 9000).action == "KEEP", "B1: the learned word is not converted again by the automatic path")
+
+# a text with white space is restored but is not a word: no exception
+e, fld, r, src, cvt = manual_then(M1, "go ghbdtn rfr ltkf", 3, 18, "selection")
+plan = e.toggle(1500); r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle"); e.toggle_outcome(r2.outcome)
+T(r2.outcome == "VERIFIED" and fld.text == "go ghbdtn rfr ltkf" and not e.exceptions, "B1: several words are restored without an exception")
+
+# the window: 10,000 ms inclusive, any user event, gate, mode, quarantine, a long text and a non-VERIFIED manual outcome end it
+for dt, alive in ((9_999, True), (10_000, True), (10_001, False)):
+    e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+    T((e.toggle(1000 + dt) is not None) == alive, f"B2: the hotkey {dt} ms after the conversion")
+for what, act in {
+    "key": lambda e: e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 1100)),
+    "space": lambda e: e.on_event(L.Event("space", None, "en", 1100)),
+    "backspace": lambda e: e.on_event(L.Event("backspace", None, "en", 1100)),
+    "break": lambda e: e.on_event(L.Event("break", None, None, 1100)),
+    "layout": lambda e: e.on_event(L.Event("layout", None, "ru", 1100)),
+    "gap": lambda e: e.on_event(L.Event("gap", None, None, 1100)),
+    "gate DENY": lambda e: e.set_gate("DENY"), "mode OFF": lambda e: e.set_mode("OFF"),
+    "mode MANUAL_ONLY": lambda e: e.set_mode("MANUAL_ONLY"), "quarantine": lambda e: e._quarantine(),
+}.items():
+    e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); act(e)
+    T(e.manual is None and e.toggle(1200) is None, f"B2: {what} ends the toggle window")
+e = L.Engine(L.example_cal(), scorer, LEX); e.set_mode("MANUAL_ONLY")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection", e=e)
+e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 1100))
+T(e.manual is None, "B2: in MANUAL_ONLY mode too a user event ends the window")
+long_ = "ghbdtn" * 11 + "gh"                                           # 68 characters
+e, fld, r, src, cvt = manual_then(M1, long_, 0, len(long_), "selection")
+T(r.outcome == "VERIFIED" and e.manual is None and e.toggle(1100) is None, "B2: more than 64 characters: converted, no toggle record")
+e, fld, r, src, cvt = manual_then(M1, "x" * 64, 0, 64, "selection"); T(e.manual is not None, "B2: exactly 64 characters: a record")
+for oc in ("ABORTED", "RESTORED", "UNRECOVERED"):
+    e = L.Engine(L.example_cal(), scorer, LEX); e.manual_outcome("ghbdtn", "привет", "en2ru", oc, 1000)
+    T(e.manual is None and e.quarantined == (oc != "ABORTED"), f"B2: a manual conversion that ends {oc} leaves no record")
+
+# outcomes of the toggle itself
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.toggle_outcome("ABORTED")
+T(e.manual is not None and not e.exceptions and not e.quarantined and e.toggle(1600) is not None, "B3: ABORTED commits nothing and the window stays")
+for oc in ("RESTORED", "UNRECOVERED"):
+    e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.toggle_outcome(oc)
+    T(e.quarantined and e.manual is None and e.toggling is None and not e.exceptions, f"B3: {oc}: quarantine, record destroyed, nothing learned")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.set_gate("DENY"); e.toggle_outcome("VERIFIED")
+T(not e.exceptions, "B3: a late VERIFIED after a gate change commits nothing")
+e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.tick(1500 + L.UNDO_OUTCOME_MS + 1); e.toggle_outcome("VERIFIED")
+T(not e.exceptions, "B3: an outcome that comes after one second commits nothing")
+e = L.Engine(L.example_cal(), scorer, LEX); T(e.toggle(1000) is None, "B3: no record, no toggle")
+T("ghbdtn" not in repr(L.ManualRecord("ghbdtn", "привет", "en2ru", 0)) and "привет" not in repr(L.ManualRecord("ghbdtn", "привет", "en2ru", 0)), "B3: the record never prints the text")
+
+# the toggle transaction: a user key, a changed field, a moved selection and write faults are never VERIFIED
+for caps, name in ((M1, "M1"), (M2, "M2")):
+    e, fld, r, src, cvt = manual_then(caps, "say ghbdtn now", 4, 10, "selection")
+    fld.text = "say привеТ now"                                                 # the application changed the text meanwhile
+    plan = e.toggle(1500)
+    r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle")
+    T(r2.outcome == "ABORTED" and r2.reason == "echo_mismatch" and fld.text == "say привеТ now", f"B4: {name}: a changed field is not overwritten")
+    e, fld, r, src, cvt = manual_then(caps, "say ghbdtn now", 4, 10, "selection")
+    fld.pos, fld.sel = 14, None; fld.silent += 1                                  # the user clicked elsewhere
+    plan = e.toggle(1500)
+    T(L.run_manual_transaction(fld, plan[0], plan[1], source="toggle").outcome == "ABORTED", f"B4: {name}: a moved caret or selection aborts")
+for fault in ("partial", "autocorrect", "spill", "ignored", "applied_error", "raise", "user:x"):
+    e, fld, r, src, cvt = manual_then(M1, "say ghbdtn now", 4, 10, "selection")
+    fld.faults = {("replace", 1): fault}
+    plan = e.toggle(1500)
+    r2 = L.run_manual_transaction(fld, plan[0], plan[1], source="toggle")
+    T(r2.outcome != "VERIFIED" or fld.text == "say ghbdtn now", f"B4: fault {fault}: VERIFIED only with the field restored, got {r2.outcome}")
+    if r2.outcome == "RESTORED":
+        T(fld.text[:10] == "say привет" and r2.incident and r2.quarantine, f"B4: fault {fault}: RESTORED leaves the converted text")
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
 ```
 
@@ -5573,7 +5758,7 @@ def run_manual_transaction(ad: Adapter, old: str, new: str, *, source: str = "se
     n = len(old)
     if len(new) != n:
         raise ValueError("a replacement keeps the length")
-    if source not in ("selection", "last_word"):
+    if source not in ("selection", "last_word", "toggle"):
         raise ValueError(source)
     if mode not in ("AUTO", "MANUAL_ONLY"):
         return TxResult("ABORTED", "mode_off")
@@ -5597,7 +5782,14 @@ def run_manual_transaction(ad: Adapter, old: str, new: str, *, source: str = "se
         return TxResult("ABORTED", "gate_changed", method)
     try:
         s0, e0 = ad.selection()
-        if source == "selection":
+        if source == "toggle":                           # the field holds the converted text: still selected (M1) or caret behind it (M2)
+            if e0 - s0 == n:
+                start = s0
+            elif s0 == e0:
+                start = e0 - n
+            else:
+                return TxResult("ABORTED", "echo_mismatch", method)
+        elif source == "selection":
             if e0 - s0 != n:
                 return TxResult("ABORTED", "echo_mismatch", method)
             start = s0
@@ -5627,7 +5819,7 @@ def run_manual_transaction(ad: Adapter, old: str, new: str, *, source: str = "se
         if method == "M1":
             ad.replace(start, end, new)
         else:
-            if source == "last_word":
+            if s0 == e0:                                              # a caret behind the text: n Backspaces
                 ad.send([("bs", "")] * n + [("ch", ch) for ch in new])
             else:
                 ad.send([("bs", "")] + [("ch", ch) for ch in new])      # the first Backspace deletes the selection

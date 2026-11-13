@@ -478,6 +478,20 @@ class UndoSnapshot:
         return f"UndoSnapshot(<{len(self.keys)} keys, {self.direction}, confirmed={self.confirmed}>)"
 
 
+@dataclass
+class ManualRecord:
+    """What the toggle needs after a VERIFIED manual conversion (13.3): the text that was converted and the text that
+    stands in the field now, at most MAX_BUF characters (a longer conversion has no toggle). Memory only, never logged,
+    destroyed by every user event, gate or mode change, quarantine, the timeout and the toggle itself."""
+    old: str
+    new: str
+    direction: str
+    created_ms: int
+
+    def __repr__(self):
+        return f"ManualRecord(n={len(self.old)}, {self.direction})"
+
+
 class Engine:
     """Consumes events in arrival order; returns a Decision at each Space that ends a non-empty run.
     The event kinds: key (a printable main-block key), space (the decision point), backspace, layout (a manual
@@ -503,6 +517,8 @@ class Engine:
         self.cool_until_ms = 0
         self.quarantined = False     # an incident (13.2, step 6): nothing is recorded until release_quarantine() (L9 F8)
         self.undoing: Optional[Tuple[UndoSnapshot, int]] = None   # the snapshot of an undo whose outcome is not known yet
+        self.manual: Optional[ManualRecord] = None                # the toggle record of the last VERIFIED manual conversion
+        self.toggling: Optional[Tuple[ManualRecord, int]] = None  # a toggle whose outcome is not known yet
 
     def _flush(self):
         self.run, self.run_layout, self.overflow = [], None, False
@@ -515,6 +531,7 @@ class Engine:
         self.snapshot = None
         if not keep_undoing:
             self.undoing = None
+        self._drop_manual()
 
     def set_mode(self, mode: str):
         """Mode from `engine_mode` (20.14). Only AUTO records and classifies; MANUAL_ONLY and OFF record nothing (13.5).
@@ -535,6 +552,12 @@ class Engine:
         u = self.undoing
         if u is not None and now_ms - u[1] > UNDO_OUTCOME_MS:
             self.undoing = None                           # the outcome of the restoring transaction never came
+        m = self.manual
+        if m is not None and now_ms - m.created_ms > UNDO_WINDOW_MS:
+            self.manual = None                            # the toggle window is the undo window (13.3)
+        t = self.toggling
+        if t is not None and now_ms - t[1] > UNDO_OUTCOME_MS:
+            self.toggling = None
 
     def _count_char(self):
         s = self.snapshot
@@ -594,8 +617,67 @@ class Engine:
         if quarantine or outcome in INCIDENT_OUTCOMES:
             self._quarantine()                            # RESTORED and UNRECOVERED are incidents (13.2 step 6): the snapshot goes too
 
+    def _drop_manual(self):
+        self.manual = None
+        self.toggling = None
+
+    def manual_outcome(self, old: str, new: str, direction: str, outcome: str, now_ms: int, quarantine: bool = False):
+        """Result of a manual conversion (`run_manual_transaction`). Only VERIFIED opens the toggle window, and only for
+        1 to MAX_BUF characters; every other outcome leaves no record, and RESTORED and UNRECOVERED quarantine the
+        application like any incident. A manual conversion also ends any automatic snapshot: the field changed."""
+        if outcome not in OUTCOMES:
+            raise ValueError(outcome)
+        self._drop_snapshot()
+        if outcome == "VERIFIED" and 1 <= len(old) <= MAX_BUF and len(new) == len(old) and direction in ("en2ru", "ru2en"):
+            self.manual = ManualRecord(old, new, direction, now_ms)
+        if quarantine or outcome in INCIDENT_OUTCOMES:
+            self._quarantine()
+
+    def toggle(self, now_ms: int) -> Optional[Tuple[str, str]]:
+        """The hotkey pressed immediately after a VERIFIED manual conversion (13.3). Returns (expected, restore): the text
+        that must stand in the field now and the text to put back, for `run_manual_transaction(..., source="toggle")`.
+        None when no record is alive (the press is then an ordinary manual conversion). Nothing is committed here."""
+        self.tick(now_ms)
+        m = self.manual
+        if m is None or self.quarantined or self.gate != GATE_ALLOW:
+            return None
+        self.toggling = (m, now_ms)
+        return m.new, m.old
+
+    def toggle_outcome(self, outcome: str, quarantine: bool = False):
+        """VERIFIED: the typed text is back, a single word joins the exception list (a text with white space is not a
+        word), the run credit is lost and the cool-down starts. ABORTED: nothing is committed and the window stays until
+        its own end. RESTORED and UNRECOVERED are incidents: quarantine, record destroyed, nothing learned."""
+        if outcome not in OUTCOMES:
+            raise ValueError(outcome)
+        t, self.toggling = self.toggling, None
+        if t is None:
+            return
+        m, now_ms = t
+        if outcome == "VERIFIED":
+            word = m.old.casefold()
+            if word and not any(c.isspace() for c in word):
+                item = (m.direction, word)
+                self._exc_order.pop(item, None)
+                self._exc_order[item] = None
+                self.exceptions.add(item)
+                while len(self._exc_order) > MAX_EXCEPTIONS:
+                    oldest = next(iter(self._exc_order))
+                    del self._exc_order[oldest]
+                    self.exceptions.discard(oldest)
+            self.credit = 0
+            self.cool_words = COOLDOWN_WORDS
+            self.cool_until_ms = now_ms + COOLDOWN_MS
+            self.manual = None
+        elif outcome == "UNRECOVERED":
+            self.credit = 0
+            self.manual = None
+        if quarantine or outcome in INCIDENT_OUTCOMES:
+            self._quarantine()
+
     def _quarantine(self):
         self.quarantined = True
+        self._drop_manual()
         self._flush()
         self.skip, self.credit, self.after_switch = False, 0, False
         self._drop_snapshot()
@@ -605,6 +687,8 @@ class Engine:
         self.quarantined = False
 
     def on_event(self, ev: Event) -> Optional[Decision]:
+        if self.manual is not None:
+            self.manual = None                            # "immediately after": any user event ends the toggle window
         if self.gate != GATE_ALLOW or self.mode != "AUTO" or self.quarantined:
             return None                                   # not stored, not counted, not classified
         if ev.ts_ms:
@@ -1274,7 +1358,7 @@ def run_manual_transaction(ad: Adapter, old: str, new: str, *, source: str = "se
     n = len(old)
     if len(new) != n:
         raise ValueError("a replacement keeps the length")
-    if source not in ("selection", "last_word"):
+    if source not in ("selection", "last_word", "toggle"):
         raise ValueError(source)
     if mode not in ("AUTO", "MANUAL_ONLY"):
         return TxResult("ABORTED", "mode_off")
@@ -1298,7 +1382,14 @@ def run_manual_transaction(ad: Adapter, old: str, new: str, *, source: str = "se
         return TxResult("ABORTED", "gate_changed", method)
     try:
         s0, e0 = ad.selection()
-        if source == "selection":
+        if source == "toggle":                           # the field holds the converted text: still selected (M1) or caret behind it (M2)
+            if e0 - s0 == n:
+                start = s0
+            elif s0 == e0:
+                start = e0 - n
+            else:
+                return TxResult("ABORTED", "echo_mismatch", method)
+        elif source == "selection":
             if e0 - s0 != n:
                 return TxResult("ABORTED", "echo_mismatch", method)
             start = s0
@@ -1328,7 +1419,7 @@ def run_manual_transaction(ad: Adapter, old: str, new: str, *, source: str = "se
         if method == "M1":
             ad.replace(start, end, new)
         else:
-            if source == "last_word":
+            if s0 == e0:                                              # a caret behind the text: n Backspaces
                 ad.send([("bs", "")] * n + [("ch", ch) for ch in new])
             else:
                 ad.send([("bs", "")] + [("ch", ch) for ch in new])      # the first Backspace deletes the selection
