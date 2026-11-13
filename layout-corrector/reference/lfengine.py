@@ -1247,15 +1247,21 @@ TYPED_AHEAD_MAX = 3
 
 
 def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: str = "AUTO",
-                    context_break: bool = False, layout_changed: bool = False, element: object = None) -> TxResult:
+                    context_break: bool = False, layout_changed: bool = False, element: object = None,
+                    ahead_len: int = 0) -> TxResult:
     """The replacement transaction of 13.2 for the word `old` (as typed; the user's Space is already in the field),
     replaced by `new` of the same length. `ahead`: the characters typed after the Space that the engine recorded.
     The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys.
     `element`: the identity that the runtime took from the adapter when it saw the Space; when it is given, a different
-    focused element at the gate ends the transaction before anything is read (L9 F4)."""
+    focused element at the gate ends the transaction before anything is read (L9 F4).
+    `ahead_len` (the undo after further typing, U-1): the engine counted that many characters typed after the Space and
+    does not know them (it never keeps typed text). They are read from the field, must be exactly that many, and are
+    never written: only the word is replaced, so only M1 may do it, and at most UNDO_MAX_CHARS of them."""
     n = len(old)
     if len(new) != n:
         raise ValueError("a replacement keeps the length")
+    if not isinstance(ahead_len, int) or isinstance(ahead_len, bool) or ahead_len < 0 or (ahead_len and ahead):
+        raise ValueError("ahead_len")
     if mode not in ("AUTO", "MANUAL_ONLY"):
         return TxResult("ABORTED", "mode_off")
     if mode == "AUTO" and not AUTO_REQUIRES <= ad.caps:
@@ -1268,6 +1274,8 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
         return TxResult("ABORTED", "context_break", method)
     if len(ahead) > TYPED_AHEAD_MAX or (method == "M2" and ahead):
         return TxResult("ABORTED", "typed_ahead", method)
+    if ahead_len and (method != "M1" or ahead_len > UNDO_MAX_CHARS):
+        return TxResult("ABORTED", "typed_ahead", method)   # M2 would have to delete what the user typed since: never
     if method == "M2" and ad.modifier_down():            # SendInput: pressed keys "might interfere" (13.7)
         return TxResult("ABORTED", "modifier_down", method)
     try:
@@ -1288,7 +1296,7 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
     try:
         c = ad.caret()
         found = None
-        for a in range(len(ahead), -1, -1):
+        for a in ((ahead_len,) if ahead_len else range(len(ahead), -1, -1)):
             start = c - (n + 1 + a)
             if start < 0:
                 continue
@@ -1297,17 +1305,19 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
             if t is None:
                 continue
             h = start - lo
-            if t[h:h + n + 1 + a] == old + " " + ahead[:a] and (h == 0 or t[0].isspace()):
-                found = (start, a, t[:h], t[h + n + 1 + a:][:1])
+            frag = t[h:h + n + 1 + a]
+            tail_text = frag[n + 1:] if ahead_len else ahead[:a]            # read from the field, kept in this frame only
+            if frag == old + " " + tail_text and len(frag) == n + 1 + a and (h == 0 or t[0].isspace()):
+                found = (start, a, t[:h], t[h + n + 1 + a:][:1], tail_text)
                 break
     except Exception:
         return TxResult("ABORTED", "adapter_error", method)
     if found is None:
         return TxResult("ABORTED", "echo_mismatch", method)
-    start, a, head, tail = found
+    start, a, head, tail, ahead_text = found
     lo = max(start - 1, 0)
     end = start + n + 1 + a
-    before, after = old + " " + ahead[:a], new + " " + ahead[:a]
+    before, after = old + " " + ahead_text, new + " " + ahead_text
     # 3b the last look before the first write. A user input event since the freeze (a key, an arrow, a pointer button)
     # may have moved the caret before it was read, and in M2 it enters the sequence of events: nothing is written
     # (L9 F1, F2). The caret and the element are read again for the same reason (F1, F4).

@@ -1505,4 +1505,143 @@ T("ghbdtn" not in repr(L.Decision("CONVERT", "model", "привет", 1.0, 6)) a
 T("Key" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)) and "id=" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)),
   "P-1: an Event does not print its key")
 
+# Mutation survivors of run r11 (audit/L3), each a real gap of the tests: the timers, the toggle bookkeeping, the manual transaction's
+# rollback and verification, and the simulated field's own contract. Every check names what it pins.
+T(L.UNDO_OUTCOME_MS == 1_000 and L.UNDO_WINDOW_MS == 10_000 and L.MAX_EXCEPTIONS == 10_000, "G: the timer constants of 13.3")
+# the restoring transaction's outcome is accepted up to exactly 1,000 ms after the chord (inclusive), not after
+for dt, alive in ((1_000, True), (1_001, False)):
+    e = undoing_engine(); e.tick(2000 + dt)
+    T((e.undoing is not None) == alive, f"G: the in-flight undo record {dt} ms after the chord")
+for dt, alive in ((1_000, True), (1_001, False)):
+    e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.tick(1500 + dt)
+    T((e.toggling is not None) == alive, f"G: the toggle in flight {dt} ms after the press")
+# a clock that goes back ends the credit and the snapshot
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); e.credit = 3; e.tick(1500); e.tick(1400)
+T(e.credit == 0 and e.snapshot is None, "G: a clock that goes back drops the credit and the snapshot")
+# a key of an unknown layout, or without an id, ends the snapshot and keeps the undo in flight
+for what, ev in (("unknown layout", L.Event("key", L.Key(1), "de", 2100)), ("key without an id", L.Event("key", None, "en", 2100))):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); e.credit = 3
+    T(e.on_event(ev) is None and e.snapshot is None and e.credit == 0, f"G: {what}: snapshot and credit are gone")
+    e = undoing_engine(); e.on_event(ev)
+    T(e.undoing is not None, f"G: {what}: the in-flight undo record stays")
+e = undoing_engine()
+e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 2100)); e.on_event(L.Event("key", L.keys_from_text("п", "ru")[0], "ru", 2200))
+T(e.undoing is not None, "G: a layout change inside a word keeps the in-flight undo record")
+e = undoing_engine()
+for i in range(L.UNDO_MAX_CHARS + 1):
+    e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 2010 + i))
+T(e.snapshot is None and e.undoing is not None, "G: the 100-character limit ends the snapshot and keeps the undo in flight")
+# on_outcome of anything but VERIFIED loses the credit
+for oc in ("ABORTED", "RESTORED", "UNRECOVERED"):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); e.credit = 3; e.on_outcome(oc)
+    T(e.credit == 0 and e.snapshot is None, f"G: on_outcome {oc} loses the credit and the snapshot")
+# a manual conversion ends the automatic snapshot; the record exists for 1..MAX_BUF characters only
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); T(e.snapshot is not None, "G setup: a snapshot")
+e.manual_outcome("ghbdtn", "привет", "en2ru", "VERIFIED", 1100)
+T(e.snapshot is None and e.manual is not None, "G: a manual conversion ends the automatic snapshot")
+e = L.Engine(L.example_cal(), scorer, LEX); e.manual_outcome("g", "п", "en2ru", "VERIFIED", 1000)
+T(e.manual is not None, "G: a one-character manual conversion leaves a record")
+e = L.Engine(L.example_cal(), scorer, LEX); e.manual_outcome("", "", "en2ru", "VERIFIED", 1000)
+T(e.manual is None, "G: an empty conversion leaves no record")
+# toggle() needs both a live record and an open gate and no quarantine, each by itself
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.quarantined = True
+T(e.toggle(1200) is None, "G: a quarantined engine does not toggle (gate open)")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.gate = "DENY"
+T(e.toggle(1200) is None, "G: a closed gate does not toggle (no quarantine)")
+# toggle_outcome VERIFIED: credit lost, cool-down starts at the press, record gone, the exception list is a bounded LRU
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.credit = 4; e.toggle(1500); e.toggle_outcome("VERIFIED")
+T(e.credit == 0 and e.cool_until_ms == 1500 + 10_000 and e.cool_words == L.COOLDOWN_WORDS and e.manual is None, "G: toggle VERIFIED: credit, cool-down, record")
+e = L.Engine(L.example_cal(), scorer, LEX)
+for i in range(L.MAX_EXCEPTIONS + 3):
+    w = f"w{i}"; e.manual_outcome(w, w, "en2ru", "VERIFIED", 1000); e.toggle(1001); e.toggle_outcome("VERIFIED")
+T(len(e.exceptions) == L.MAX_EXCEPTIONS and ("en2ru", "w0") not in e.exceptions and ("en2ru", "w2") not in e.exceptions
+  and ("en2ru", "w3") in e.exceptions and ("en2ru", f"w{L.MAX_EXCEPTIONS + 2}") in e.exceptions, "G: exactly MAX_EXCEPTIONS words, the oldest evicted first")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.credit = 4; e.toggle(1500); e.toggle_outcome("UNRECOVERED")
+T(e.credit == 0 and e.manual is None and e.toggling is None and e.quarantined, "G: toggle UNRECOVERED: credit, record, quarantine")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e._quarantine()
+T(e.manual is None and e.toggling is None, "G: quarantine destroys the toggle record")
+# the simulated field's contract (13.7): a selection is a user event, M1 keeps it, a forward-faulted selection is shifted
+fld = L.SimField("say ghbdtn now", M1); m0 = fld.mark(); fld.select(4, 10)
+T(fld.keys_since(m0) == 1 and fld.selection() == (4, 10), "G: selecting is exactly one user event")
+fld.replace(4, 10, "abc"); T(fld.sel == (4, 7), "G: M1 keeps the selection of the replaced range, whatever the new length")
+fld.replace(0, 3, "SAY"); T(fld.sel is None, "G: a replacement elsewhere clears the selection")
+fld = L.SimField("say ghbdtn now", M1); fld.select(4, 10); fld.faults = {("selection", 1): "forward"}
+T(fld.selection() == (5, 11), "G: the forward fault shifts both ends by one")
+fld = L.SimField("say ghbdtn now", M1); fld.select(4, 10); fld.bound = "a"; fld.focus = "b"
+raises(L.AdapterError, fld.selection, "G: selection() on another element raises")
+m = L.HookHealth(canary=False)
+for t_ in (0, 1, 2, 3):
+    m.tap_disabled("timeout"); m.reinstalled(t_)
+T(m.sticky and m.reason == "tap_flapping", "G: the 4th re-enabling is sticky")
+m.reinstalled(500_000); T(not m.ok and m.sticky, "G: sticky: a much later enabling does not clear it, only the user does")
+# the manual transaction: capabilities, modifier, element, rollback and what is VERIFIED
+def mtx(caps, faults=None, mods=False, element=None, text="say ghbdtn now"):
+    f = L.SimField(text, caps); f.select(4, 10); f.faults = faults or {}; f.modifiers = mods
+    return L.run_manual_transaction(f, "ghbdtn", "привет", source="selection", element=element), f
+r, f = mtx({L.REPLACE_RANGE, L.ROLLBACK}); T(r.outcome == "ABORTED" and r.reason == "capability", "G: no READ_RANGE: capability")
+r, f = mtx({L.READ_RANGE, L.READBACK}); T(r.outcome == "ABORTED" and r.reason == "capability", "G: no way to write: capability")
+r, f = mtx(M1, mods=True); T(r.outcome == "VERIFIED", "G: a held modifier does not stop M1")
+r, f = mtx(M2, mods=True); T(r.outcome == "ABORTED" and r.reason == "modifier_down", "G: a held modifier stops M2")
+r, f = mtx(M1, element="other"); T(r.outcome == "ABORTED" and r.reason == "gate_changed" and f.text == "say ghbdtn now", "G: another element than the classified one")
+r, f = mtx(M1, element=None); T(r.outcome == "VERIFIED", "G: no element token required")
+f = L.SimField("say ghbdtn now", M1); f.select(4, 10)
+r = L.run_manual_transaction(f, "ghbdtn", "привет", source="selection", element=f.element()); T(r.outcome == "VERIFIED", "G: the right element token")
+r, f = mtx(M1, {("read", 2): "raise"})
+T(r.outcome == "RESTORED" and f.text == "say ghbdtn now" and r.quarantine, "G: a failed read-back is never VERIFIED: M1 rolls back")
+r, f = mtx(M1, {("read", 2): "stale"})
+T(r.outcome == "RESTORED" and f.text == "say ghbdtn now", "G: a stale read-back: M1 rolls back")
+r, f = mtx(M1_NOROLL, {("read", 2): "stale"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now" and r.quarantine, "G: M1 without ROLLBACK is not rolled back")
+r, f = mtx(M2, {("read", 2): "stale"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: M2 is never rolled back")
+r, f = mtx(M1_NOROLL, {("selection", 3): "forward"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: text right but the selection moved: not VERIFIED, and classified from what is read")
+r, f = mtx(M1, {("selection", 3): "forward"})
+T(r.outcome == "RESTORED" and f.text == "say ghbdtn now", "G: text right but the selection moved: M1 rolls back")
+r, f = mtx(M1, {("read", 2): "focus"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: the focus moved before the rollback: no write to the other element")
+
+# U-1 (audit/L3 run r12, RT-5): the undo after the user typed further. The engine counted `after` characters and knows none of
+# them; the transaction reads them from the field, never writes them, and only M1 may do it (M2 would delete the user's text).
+def undo_after(caps, typed_after, faults=None, text_before="say ", mods=False, n_claimed=None):
+    f = L.SimField(text_before + "привет " + typed_after, caps); f.faults = faults or {}; f.modifiers = mods
+    k = len(typed_after) if n_claimed is None else n_claimed
+    return L.run_transaction(f, "привет", "ghbdtn", "", mode="MANUAL_ONLY", ahead_len=k), f
+for k_ in (1, 3, 4, 50, 100):
+    r, f = undo_after(M1, "x" * k_)
+    T(r.outcome == "VERIFIED" and f.text == "say ghbdtn " + "x" * k_, f"U-1: undo after {k_} typed characters: only the word is replaced")
+r, f = undo_after(M1, "x" * 101); T(r.outcome == "ABORTED" and r.reason == "typed_ahead" and f.text == "say привет " + "x" * 101, "U-1: more than 100 characters: nothing is written")
+r, f = undo_after(M2, "xyz"); T(r.outcome == "ABORTED" and r.reason == "typed_ahead" and f.text == "say привет xyz", "U-1: M2 never undoes after typing")
+for what, kw in (("count too high", dict(n_claimed=5)), ("count too low", dict(n_claimed=1))):
+    r, f = undo_after(M1, "abc", **kw)
+    T(r.outcome == "ABORTED" and r.reason == "echo_mismatch" and f.text == "say привет abc", f"U-1: {what}: the word is not found at that place")
+r, f = undo_after(M1, "abc", text_before="say"); T(r.outcome == "ABORTED" and f.text == "sayпривет abc", "U-1: a head that is not white space is refused")
+r, f = undo_after(M1, "abc", text_before=""); T(r.outcome == "VERIFIED" and f.text == "ghbdtn abc", "U-1: the field may start at the word")
+f = L.SimField("say привеТ abc", M1)
+r = L.run_transaction(f, "привет", "ghbdtn", "", mode="MANUAL_ONLY", ahead_len=3)
+T(r.outcome == "ABORTED" and f.text == "say привеТ abc", "U-1: a word that the application changed is not overwritten")
+for bad in (-1, True, 1.5, "3"):
+    raises(ValueError, lambda b=bad: L.run_transaction(L.SimField("a b", M1), "a", "c", "", mode="MANUAL_ONLY", ahead_len=b), f"U-1: ahead_len {bad!r} is refused")
+raises(ValueError, lambda: L.run_transaction(L.SimField("a b x", M1), "a", "c", "x", mode="MANUAL_ONLY", ahead_len=1), "U-1: ahead and ahead_len together are refused")
+for fault in ("partial", "autocorrect", "spill", "ignored", "applied_error", "raise", "user:q", "key", "focus"):
+    r, f = undo_after(M1, "abc", {("replace", 1): fault})
+    T(r.outcome != "VERIFIED" or f.text in ("say ghbdtn abc", "say ghbdtn abcq"), f"U-1: replace fault {fault}: VERIFIED only with the restored text (and the key the user typed meanwhile), got {r.outcome}")
+    if fault not in ("spill", "user:q"):
+        T(f.text.endswith(" abc") or f.text.endswith("abc"), f"U-1: replace fault {fault}: the typed characters stay")
+    if r.outcome == "RESTORED":
+        T(f.text == "say привет abc" and r.incident and r.quarantine, f"U-1: replace fault {fault}: RESTORED leaves the converted text")
+for op_, fault in (("read", "stale"), ("read", "raise"), ("read", "none"), ("caret", "forward"), ("caret", "back"), ("read", "user:q")):
+    for n_ in (1, 2, 3):
+        r, f = undo_after(M1, "abc", {(op_, n_): fault})
+        T(r.outcome != "VERIFIED" or f.text in ("say ghbdtn abc", "say ghbdtn abcq"), f"U-1: {op_} #{n_} fault {fault}: never VERIFIED on a wrong field, got {r.outcome}")
+# end to end with the engine: the word is learned only by the VERIFIED undo, the credit is lost, the cool-down starts
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+for i in range(7):
+    e.on_event(L.Event("key" if i % 2 == 0 else "space", L.keys_from_text("a", "en")[0] if i % 2 == 0 else None, "en", 1100 + i))
+s_ = e.snapshot; T(s_ is not None and s_.after == 7, "U-1 setup: the engine counted 7 characters")
+typed_ = e.undo(3000); T(typed_ == "ghbdtn", "U-1: the engine returns the typed text")
+f = L.SimField("go привет " + "abababa", M1)
+r = L.run_transaction(f, "привет", typed_, "", mode="MANUAL_ONLY", ahead_len=s_.after); e.undo_outcome(r.outcome, r.quarantine)
+T(r.outcome == "VERIFIED" and ("en2ru", "ghbdtn") in e.exceptions and e.snapshot is None and f.text == "go ghbdtn abababa", "U-1: end to end: restored, learned")
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")

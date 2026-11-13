@@ -15,9 +15,8 @@ Contracts that this module enforces for the adapter (and that its tests check):
   * the mode of an application is a pure function of facts (`engine_mode`): an incident quarantines the application;
   * an automatic conversion runs only through `run_transaction`, with the element identity taken at the Space (L9 F4);
   * the user's undo and toggle hotkeys write only through a transaction and report its outcome to the engine.
-Known gap (U-1, open): the undo write path is implemented here only for the case that no key was typed after the
-replacement (`snapshot.after == 0`). 13.3 and 20.14 do not say how the restoring transaction treats characters typed
-after the converted word; until they do, an undo after further typing does nothing and says so (`UNDO_AFTER_TYPING`).
+U-1 (closed in the reference, 13.3 and 20.14): the undo after further typing passes `ahead_len=snapshot.after` to
+`run_transaction`: the characters typed since are read from the field, never written, and only M1 may do it.
 """
 import os
 import sys
@@ -25,7 +24,6 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "reference"))
 import lfengine as L  # noqa: E402
 
-UNDO_AFTER_TYPING = "undo_after_typing_unspecified"
 
 
 class AppState:
@@ -200,15 +198,12 @@ class Runtime:
         s = self.engine.snapshot
         if s is None or not s.confirmed:
             return None
-        if s.after != 0:
-            self.notices.append(("undo_unavailable", UNDO_AFTER_TYPING))   # U-1: see the module docstring
-            return None
         typed = self.engine.undo(now_ms)
         if typed is None:
             return None
         converted = L.render(s.keys, "ru" if s.direction == "en2ru" else "en")
         try:
-            res = L.run_transaction(self.ad, converted, typed, "", mode="MANUAL_ONLY", element=self.ad.element())
+            res = L.run_transaction(self.ad, converted, typed, "", mode="MANUAL_ONLY", element=self.ad.element(), ahead_len=s.after)
         except Exception:
             res = L.TxResult("UNRECOVERED", "adapter_exception", "", True, True)
         self.last_result = res

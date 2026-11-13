@@ -54,13 +54,13 @@ r = rt.hotkey_undo(2000)
 T(r is not None and r.outcome == "VERIFIED" and fld.text == "ghbdtn ", "undo restores the typed text")
 T(("en2ru", "ghbdtn") in rt.engine.exceptions and rt.engine.snapshot is None, "a VERIFIED undo learns the exception")
 
-# 2. undo after further typing is not carried out and says why (open item U-1), nothing is written
+# 2. undo after further typing (U-1): the word is restored, what the user typed since is untouched
 rt, fld = make()
 type_word(rt, fld, "ghbdtn", "en", 1000)
 fld.type_user("x"); rt.on_hook_event(L.Event("key", L.keys_from_text("x", "en")[0], "en", 1100), sig=("k", 1))
-before = fld.text
-T(rt.hotkey_undo(1200) is None and fld.text == before and ("undo_unavailable", R.UNDO_AFTER_TYPING) in rt.notices,
-  "U-1: undo after typing does nothing and records the reason")
+r = rt.hotkey_undo(1200)
+T(r is not None and r.outcome == "VERIFIED" and fld.text == "ghbdtn x" and ("en2ru", "ghbdtn") in rt.engine.exceptions,
+  "U-1: undo after typing restores the word and keeps the typed character")
 
 # 3. status UNKNOWN or MANUAL: no automatic conversion, no recording
 for st in ("UNKNOWN", "MANUAL"):

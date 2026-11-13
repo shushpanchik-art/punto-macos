@@ -1095,7 +1095,7 @@ A **context break** empties the word buffer, clears the drop flag (the next word
 
 - **Defaults and conflicts.** Proposed defaults, to be confirmed by the requester (16.3): Windows `Pause`, macOS `⌃⌥⌘Space`. The chord is registered through the OS hotkey interface (`RegisterHotKey` on Windows, `RegisterEventHotKey` on macOS), which keeps it from the application. If registration fails the tool tries the next chord of its fallback list (Windows `Ctrl+Alt+Pause`, `Ctrl+Alt+Space`; macOS `⌃⌥⌘L`, `⌃⌥⌘K`), tells the user which chord is active, and never binds silently to a chord the OS reports as taken. Esc is not bound by default, because it has its own meaning in many applications; "Esc also undoes" is an opt-in setting per application.
 - **Manual conversion of a selection** converts key for key, with no model and no threshold. Direction: a selection with more Cyrillic than Latin letters is read as Russian-layout text and converted to the English layout, otherwise the reverse; a selection with no letters is left unchanged and the user is told. Punctuation goes through the layout table as in 5.3 (`Ghbdtn? Rfr ltkf?` becomes `Привет, Как дела,`). A character that is not on the source layout (emoji, accented letters, other scripts) is copied unchanged, and the length never changes. At most 10,000 characters. The replacement is the manual form of the transaction of 13.2 (run\_manual\_transaction, 20.14), not the automatic one: the automatic transaction needs an empty selection and a fragment that ends with the Space the user typed, and a manual fragment has neither. For a selection the fragment is exactly the selected text, which must have the length that was read and the text that was converted; there is no Space and no typed-ahead key, any user input event since the freeze aborts with typed\_ahead, and the character before the selection is not constrained because the selection is the user's own statement of the range. For the last word the fragment is the word that ends at the caret of an empty selection, and the character before it must be white space or the field must start there. Both forms read the selection (a second adapter query next to the caret), compare the neighbours before and after the write, use M1 where the application has REPLACE\_RANGE and otherwise M2 (one Backspace deletes a selection, n Backspaces a last word, then the new text, in batches of at most 20 UTF-16 code units, an engineering limit that spike S-7 checks), and end in the outcomes, the rollback and the quarantine rule of 13.2, and afterwards the same range is selected again; if the selection cannot be restored, the caret is placed after the text. The reference function is in section 20.8.
-- **Undo window.** The undo snapshot (13.4) lives for at most 10 seconds and 100 further printable keys and Spaces, whichever comes first. Both limits are inclusive: the chord undoes at exactly 10,000 ms after the replacement and after exactly 100 further keys and Spaces, and does nothing at 10,001 ms or after the 101st (Backspaces are not counted). It is destroyed by every context break of 13.2, a manual layout change, a gap in the event stream, a change of the gate or of the mode, the undo itself and the timeout; after that the chord no longer undoes anything. Undo is a transaction like a conversion (13.2): the exception, the cool-down, the loss of the run credit and the end of the snapshot are committed only when the restoring transaction ends VERIFIED (Engine.undo\_outcome). After ABORTED the field still holds the converted text, nothing is committed and the snapshot lives to the end of its window, so the chord can be pressed again. RESTORED and UNRECOVERED are incidents like any other (13.2 step 6, 13.5 row 10): the application is quarantined and the snapshot is destroyed, and nothing is learned; after RESTORED the field holds the converted text, after UNRECOVERED its text is unknown. The engine takes the quarantine from the outcome itself, so the flag that the transaction returns cannot be forgotten (L9 F9, audit item 1). A chord pressed before the conversion itself ended VERIFIED does nothing. The restoring transaction accepts at most 3 typed-ahead keys: after more keys the undo ends ABORTED with typed\_ahead, so within the window of 100 further keys the undo is guaranteed only for the first 3, and the notice says that the undo is no longer possible.
+- **Undo window.** The undo snapshot (13.4) lives for at most 10 seconds and 100 further printable keys and Spaces, whichever comes first. Both limits are inclusive: the chord undoes at exactly 10,000 ms after the replacement and after exactly 100 further keys and Spaces, and does nothing at 10,001 ms or after the 101st (Backspaces are not counted). It is destroyed by every context break of 13.2, a manual layout change, a gap in the event stream, a change of the gate or of the mode, the undo itself and the timeout; after that the chord no longer undoes anything. Undo is a transaction like a conversion (13.2): the exception, the cool-down, the loss of the run credit and the end of the snapshot are committed only when the restoring transaction ends VERIFIED (Engine.undo\_outcome). The characters that the user typed after the replacement (the engine counts them, \`snapshot.after\`, and never keeps them) are not touched: the restoring transaction is run\_transaction with \`ahead\_len\` = that count (20.14). It reads the word, the Space and exactly that many characters back from the caret, finds the word only at that place and behind white space or at the start of the field, writes only the n characters of the word and verifies the whole fragment, so every other count or content ends ABORTED (echo\_mismatch) with nothing written. Only M1 may do it: M2 would have to delete what the user typed since, so with M2 the undo after further typing ends ABORTED (typed\_ahead) and nothing is written (RT-5). After ABORTED the field still holds the converted text, nothing is committed and the snapshot lives to the end of its window, so the chord can be pressed again. RESTORED and UNRECOVERED are incidents like any other (13.2 step 6, 13.5 row 10): the application is quarantined and the snapshot is destroyed, and nothing is learned; after RESTORED the field holds the converted text, after UNRECOVERED its text is unknown. The engine takes the quarantine from the outcome itself, so the flag that the transaction returns cannot be forgotten (L9 F9, audit item 1). A chord pressed before the conversion itself ended VERIFIED does nothing. The restoring transaction accepts at most 3 typed-ahead keys: after more keys the undo ends ABORTED with typed\_ahead, so within the window of 100 further keys the undo is guaranteed only for the first 3, and the notice says that the undo is no longer possible.
 - **Learned exceptions.** One undo of a word adds it (case-folded, with its direction) to a local exception list, as Rekey and KeyboardSwitcher do. Limit: 10,000 entries, least-recently-used eviction, encrypted at rest with the OS key store, with a "clear all" command and export.
 - **Adaptive thresholds.** Not part of the first release (10.6).
 
@@ -5605,6 +5605,145 @@ T("ghbdtn" not in repr(L.Decision("CONVERT", "model", "привет", 1.0, 6)) a
 T("Key" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)) and "id=" not in repr(L.Event("key", L.keys_from_text("g", "en")[0], "en", 3)),
   "P-1: an Event does not print its key")
 
+# Mutation survivors of run r11 (audit/L3), each a real gap of the tests: the timers, the toggle bookkeeping, the manual transaction's
+# rollback and verification, and the simulated field's own contract. Every check names what it pins.
+T(L.UNDO_OUTCOME_MS == 1_000 and L.UNDO_WINDOW_MS == 10_000 and L.MAX_EXCEPTIONS == 10_000, "G: the timer constants of 13.3")
+# the restoring transaction's outcome is accepted up to exactly 1,000 ms after the chord (inclusive), not after
+for dt, alive in ((1_000, True), (1_001, False)):
+    e = undoing_engine(); e.tick(2000 + dt)
+    T((e.undoing is not None) == alive, f"G: the in-flight undo record {dt} ms after the chord")
+for dt, alive in ((1_000, True), (1_001, False)):
+    e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.toggle(1500); e.tick(1500 + dt)
+    T((e.toggling is not None) == alive, f"G: the toggle in flight {dt} ms after the press")
+# a clock that goes back ends the credit and the snapshot
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); e.credit = 3; e.tick(1500); e.tick(1400)
+T(e.credit == 0 and e.snapshot is None, "G: a clock that goes back drops the credit and the snapshot")
+# a key of an unknown layout, or without an id, ends the snapshot and keeps the undo in flight
+for what, ev in (("unknown layout", L.Event("key", L.Key(1), "de", 2100)), ("key without an id", L.Event("key", None, "en", 2100))):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); e.credit = 3
+    T(e.on_event(ev) is None and e.snapshot is None and e.credit == 0, f"G: {what}: snapshot and credit are gone")
+    e = undoing_engine(); e.on_event(ev)
+    T(e.undoing is not None, f"G: {what}: the in-flight undo record stays")
+e = undoing_engine()
+e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 2100)); e.on_event(L.Event("key", L.keys_from_text("п", "ru")[0], "ru", 2200))
+T(e.undoing is not None, "G: a layout change inside a word keeps the in-flight undo record")
+e = undoing_engine()
+for i in range(L.UNDO_MAX_CHARS + 1):
+    e.on_event(L.Event("key", L.keys_from_text("a", "en")[0], "en", 2010 + i))
+T(e.snapshot is None and e.undoing is not None, "G: the 100-character limit ends the snapshot and keeps the undo in flight")
+# on_outcome of anything but VERIFIED loses the credit
+for oc in ("ABORTED", "RESTORED", "UNRECOVERED"):
+    e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); e.credit = 3; e.on_outcome(oc)
+    T(e.credit == 0 and e.snapshot is None, f"G: on_outcome {oc} loses the credit and the snapshot")
+# a manual conversion ends the automatic snapshot; the record exists for 1..MAX_BUF characters only
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000); T(e.snapshot is not None, "G setup: a snapshot")
+e.manual_outcome("ghbdtn", "привет", "en2ru", "VERIFIED", 1100)
+T(e.snapshot is None and e.manual is not None, "G: a manual conversion ends the automatic snapshot")
+e = L.Engine(L.example_cal(), scorer, LEX); e.manual_outcome("g", "п", "en2ru", "VERIFIED", 1000)
+T(e.manual is not None, "G: a one-character manual conversion leaves a record")
+e = L.Engine(L.example_cal(), scorer, LEX); e.manual_outcome("", "", "en2ru", "VERIFIED", 1000)
+T(e.manual is None, "G: an empty conversion leaves no record")
+# toggle() needs both a live record and an open gate and no quarantine, each by itself
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.quarantined = True
+T(e.toggle(1200) is None, "G: a quarantined engine does not toggle (gate open)")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.gate = "DENY"
+T(e.toggle(1200) is None, "G: a closed gate does not toggle (no quarantine)")
+# toggle_outcome VERIFIED: credit lost, cool-down starts at the press, record gone, the exception list is a bounded LRU
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.credit = 4; e.toggle(1500); e.toggle_outcome("VERIFIED")
+T(e.credit == 0 and e.cool_until_ms == 1500 + 10_000 and e.cool_words == L.COOLDOWN_WORDS and e.manual is None, "G: toggle VERIFIED: credit, cool-down, record")
+e = L.Engine(L.example_cal(), scorer, LEX)
+for i in range(L.MAX_EXCEPTIONS + 3):
+    w = f"w{i}"; e.manual_outcome(w, w, "en2ru", "VERIFIED", 1000); e.toggle(1001); e.toggle_outcome("VERIFIED")
+T(len(e.exceptions) == L.MAX_EXCEPTIONS and ("en2ru", "w0") not in e.exceptions and ("en2ru", "w2") not in e.exceptions
+  and ("en2ru", "w3") in e.exceptions and ("en2ru", f"w{L.MAX_EXCEPTIONS + 2}") in e.exceptions, "G: exactly MAX_EXCEPTIONS words, the oldest evicted first")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e.credit = 4; e.toggle(1500); e.toggle_outcome("UNRECOVERED")
+T(e.credit == 0 and e.manual is None and e.toggling is None and e.quarantined, "G: toggle UNRECOVERED: credit, record, quarantine")
+e, *_ = manual_then(M1, "say ghbdtn now", 4, 10, "selection"); e._quarantine()
+T(e.manual is None and e.toggling is None, "G: quarantine destroys the toggle record")
+# the simulated field's contract (13.7): a selection is a user event, M1 keeps it, a forward-faulted selection is shifted
+fld = L.SimField("say ghbdtn now", M1); m0 = fld.mark(); fld.select(4, 10)
+T(fld.keys_since(m0) == 1 and fld.selection() == (4, 10), "G: selecting is exactly one user event")
+fld.replace(4, 10, "abc"); T(fld.sel == (4, 7), "G: M1 keeps the selection of the replaced range, whatever the new length")
+fld.replace(0, 3, "SAY"); T(fld.sel is None, "G: a replacement elsewhere clears the selection")
+fld = L.SimField("say ghbdtn now", M1); fld.select(4, 10); fld.faults = {("selection", 1): "forward"}
+T(fld.selection() == (5, 11), "G: the forward fault shifts both ends by one")
+fld = L.SimField("say ghbdtn now", M1); fld.select(4, 10); fld.bound = "a"; fld.focus = "b"
+raises(L.AdapterError, fld.selection, "G: selection() on another element raises")
+m = L.HookHealth(canary=False)
+for t_ in (0, 1, 2, 3):
+    m.tap_disabled("timeout"); m.reinstalled(t_)
+T(m.sticky and m.reason == "tap_flapping", "G: the 4th re-enabling is sticky")
+m.reinstalled(500_000); T(not m.ok and m.sticky, "G: sticky: a much later enabling does not clear it, only the user does")
+# the manual transaction: capabilities, modifier, element, rollback and what is VERIFIED
+def mtx(caps, faults=None, mods=False, element=None, text="say ghbdtn now"):
+    f = L.SimField(text, caps); f.select(4, 10); f.faults = faults or {}; f.modifiers = mods
+    return L.run_manual_transaction(f, "ghbdtn", "привет", source="selection", element=element), f
+r, f = mtx({L.REPLACE_RANGE, L.ROLLBACK}); T(r.outcome == "ABORTED" and r.reason == "capability", "G: no READ_RANGE: capability")
+r, f = mtx({L.READ_RANGE, L.READBACK}); T(r.outcome == "ABORTED" and r.reason == "capability", "G: no way to write: capability")
+r, f = mtx(M1, mods=True); T(r.outcome == "VERIFIED", "G: a held modifier does not stop M1")
+r, f = mtx(M2, mods=True); T(r.outcome == "ABORTED" and r.reason == "modifier_down", "G: a held modifier stops M2")
+r, f = mtx(M1, element="other"); T(r.outcome == "ABORTED" and r.reason == "gate_changed" and f.text == "say ghbdtn now", "G: another element than the classified one")
+r, f = mtx(M1, element=None); T(r.outcome == "VERIFIED", "G: no element token required")
+f = L.SimField("say ghbdtn now", M1); f.select(4, 10)
+r = L.run_manual_transaction(f, "ghbdtn", "привет", source="selection", element=f.element()); T(r.outcome == "VERIFIED", "G: the right element token")
+r, f = mtx(M1, {("read", 2): "raise"})
+T(r.outcome == "RESTORED" and f.text == "say ghbdtn now" and r.quarantine, "G: a failed read-back is never VERIFIED: M1 rolls back")
+r, f = mtx(M1, {("read", 2): "stale"})
+T(r.outcome == "RESTORED" and f.text == "say ghbdtn now", "G: a stale read-back: M1 rolls back")
+r, f = mtx(M1_NOROLL, {("read", 2): "stale"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now" and r.quarantine, "G: M1 without ROLLBACK is not rolled back")
+r, f = mtx(M2, {("read", 2): "stale"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: M2 is never rolled back")
+r, f = mtx(M1_NOROLL, {("selection", 3): "forward"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: text right but the selection moved: not VERIFIED, and classified from what is read")
+r, f = mtx(M1, {("selection", 3): "forward"})
+T(r.outcome == "RESTORED" and f.text == "say ghbdtn now", "G: text right but the selection moved: M1 rolls back")
+r, f = mtx(M1, {("read", 2): "focus"})
+T(r.outcome == "UNRECOVERED" and f.text == "say привет now", "G: the focus moved before the rollback: no write to the other element")
+
+# U-1 (audit/L3 run r12, RT-5): the undo after the user typed further. The engine counted `after` characters and knows none of
+# them; the transaction reads them from the field, never writes them, and only M1 may do it (M2 would delete the user's text).
+def undo_after(caps, typed_after, faults=None, text_before="say ", mods=False, n_claimed=None):
+    f = L.SimField(text_before + "привет " + typed_after, caps); f.faults = faults or {}; f.modifiers = mods
+    k = len(typed_after) if n_claimed is None else n_claimed
+    return L.run_transaction(f, "привет", "ghbdtn", "", mode="MANUAL_ONLY", ahead_len=k), f
+for k_ in (1, 3, 4, 50, 100):
+    r, f = undo_after(M1, "x" * k_)
+    T(r.outcome == "VERIFIED" and f.text == "say ghbdtn " + "x" * k_, f"U-1: undo after {k_} typed characters: only the word is replaced")
+r, f = undo_after(M1, "x" * 101); T(r.outcome == "ABORTED" and r.reason == "typed_ahead" and f.text == "say привет " + "x" * 101, "U-1: more than 100 characters: nothing is written")
+r, f = undo_after(M2, "xyz"); T(r.outcome == "ABORTED" and r.reason == "typed_ahead" and f.text == "say привет xyz", "U-1: M2 never undoes after typing")
+for what, kw in (("count too high", dict(n_claimed=5)), ("count too low", dict(n_claimed=1))):
+    r, f = undo_after(M1, "abc", **kw)
+    T(r.outcome == "ABORTED" and r.reason == "echo_mismatch" and f.text == "say привет abc", f"U-1: {what}: the word is not found at that place")
+r, f = undo_after(M1, "abc", text_before="say"); T(r.outcome == "ABORTED" and f.text == "sayпривет abc", "U-1: a head that is not white space is refused")
+r, f = undo_after(M1, "abc", text_before=""); T(r.outcome == "VERIFIED" and f.text == "ghbdtn abc", "U-1: the field may start at the word")
+f = L.SimField("say привеТ abc", M1)
+r = L.run_transaction(f, "привет", "ghbdtn", "", mode="MANUAL_ONLY", ahead_len=3)
+T(r.outcome == "ABORTED" and f.text == "say привеТ abc", "U-1: a word that the application changed is not overwritten")
+for bad in (-1, True, 1.5, "3"):
+    raises(ValueError, lambda b=bad: L.run_transaction(L.SimField("a b", M1), "a", "c", "", mode="MANUAL_ONLY", ahead_len=b), f"U-1: ahead_len {bad!r} is refused")
+raises(ValueError, lambda: L.run_transaction(L.SimField("a b x", M1), "a", "c", "x", mode="MANUAL_ONLY", ahead_len=1), "U-1: ahead and ahead_len together are refused")
+for fault in ("partial", "autocorrect", "spill", "ignored", "applied_error", "raise", "user:q", "key", "focus"):
+    r, f = undo_after(M1, "abc", {("replace", 1): fault})
+    T(r.outcome != "VERIFIED" or f.text in ("say ghbdtn abc", "say ghbdtn abcq"), f"U-1: replace fault {fault}: VERIFIED only with the restored text (and the key the user typed meanwhile), got {r.outcome}")
+    if fault not in ("spill", "user:q"):
+        T(f.text.endswith(" abc") or f.text.endswith("abc"), f"U-1: replace fault {fault}: the typed characters stay")
+    if r.outcome == "RESTORED":
+        T(f.text == "say привет abc" and r.incident and r.quarantine, f"U-1: replace fault {fault}: RESTORED leaves the converted text")
+for op_, fault in (("read", "stale"), ("read", "raise"), ("read", "none"), ("caret", "forward"), ("caret", "back"), ("read", "user:q")):
+    for n_ in (1, 2, 3):
+        r, f = undo_after(M1, "abc", {(op_, n_): fault})
+        T(r.outcome != "VERIFIED" or f.text in ("say ghbdtn abc", "say ghbdtn abcq"), f"U-1: {op_} #{n_} fault {fault}: never VERIFIED on a wrong field, got {r.outcome}")
+# end to end with the engine: the word is learned only by the VERIFIED undo, the credit is lost, the cool-down starts
+e = L.Engine(L.example_cal(), scorer, LEX); feed(e, "ghbdtn", "en", 1000)
+for i in range(7):
+    e.on_event(L.Event("key" if i % 2 == 0 else "space", L.keys_from_text("a", "en")[0] if i % 2 == 0 else None, "en", 1100 + i))
+s_ = e.snapshot; T(s_ is not None and s_.after == 7, "U-1 setup: the engine counted 7 characters")
+typed_ = e.undo(3000); T(typed_ == "ghbdtn", "U-1: the engine returns the typed text")
+f = L.SimField("go привет " + "abababa", M1)
+r = L.run_transaction(f, "привет", typed_, "", mode="MANUAL_ONLY", ahead_len=s_.after); e.undo_outcome(r.outcome, r.quarantine)
+T(r.outcome == "VERIFIED" and ("en2ru", "ghbdtn") in e.exceptions and e.snapshot is None and f.text == "go ghbdtn abababa", "U-1: end to end: restored, learned")
+
 print(f"OK ({CHECKS} checks, {sweep} single and double faults, {conv} fuzz conversions, {checked_undo} fuzz undos)")
 ```
 
@@ -5704,15 +5843,21 @@ TYPED_AHEAD_MAX = 3
 
 
 def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: str = "AUTO",
-                    context_break: bool = False, layout_changed: bool = False, element: object = None) -> TxResult:
+                    context_break: bool = False, layout_changed: bool = False, element: object = None,
+                    ahead_len: int = 0) -> TxResult:
     """The replacement transaction of 13.2 for the word `old` (as typed; the user's Space is already in the field),
     replaced by `new` of the same length. `ahead`: the characters typed after the Space that the engine recorded.
     The range that is read, verified and rolled back is always the whole fragment: word, Space, typed-ahead keys.
     `element`: the identity that the runtime took from the adapter when it saw the Space; when it is given, a different
-    focused element at the gate ends the transaction before anything is read (L9 F4)."""
+    focused element at the gate ends the transaction before anything is read (L9 F4).
+    `ahead_len` (the undo after further typing, U-1): the engine counted that many characters typed after the Space and
+    does not know them (it never keeps typed text). They are read from the field, must be exactly that many, and are
+    never written: only the word is replaced, so only M1 may do it, and at most UNDO_MAX_CHARS of them."""
     n = len(old)
     if len(new) != n:
         raise ValueError("a replacement keeps the length")
+    if not isinstance(ahead_len, int) or isinstance(ahead_len, bool) or ahead_len < 0 or (ahead_len and ahead):
+        raise ValueError("ahead_len")
     if mode not in ("AUTO", "MANUAL_ONLY"):
         return TxResult("ABORTED", "mode_off")
     if mode == "AUTO" and not AUTO_REQUIRES <= ad.caps:
@@ -5725,6 +5870,8 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
         return TxResult("ABORTED", "context_break", method)
     if len(ahead) > TYPED_AHEAD_MAX or (method == "M2" and ahead):
         return TxResult("ABORTED", "typed_ahead", method)
+    if ahead_len and (method != "M1" or ahead_len > UNDO_MAX_CHARS):
+        return TxResult("ABORTED", "typed_ahead", method)   # M2 would have to delete what the user typed since: never
     if method == "M2" and ad.modifier_down():            # SendInput: pressed keys "might interfere" (13.7)
         return TxResult("ABORTED", "modifier_down", method)
     try:
@@ -5745,7 +5892,7 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
     try:
         c = ad.caret()
         found = None
-        for a in range(len(ahead), -1, -1):
+        for a in ((ahead_len,) if ahead_len else range(len(ahead), -1, -1)):
             start = c - (n + 1 + a)
             if start < 0:
                 continue
@@ -5754,17 +5901,19 @@ def run_transaction(ad: Adapter, old: str, new: str, ahead: str = "", *, mode: s
             if t is None:
                 continue
             h = start - lo
-            if t[h:h + n + 1 + a] == old + " " + ahead[:a] and (h == 0 or t[0].isspace()):
-                found = (start, a, t[:h], t[h + n + 1 + a:][:1])
+            frag = t[h:h + n + 1 + a]
+            tail_text = frag[n + 1:] if ahead_len else ahead[:a]            # read from the field, kept in this frame only
+            if frag == old + " " + tail_text and len(frag) == n + 1 + a and (h == 0 or t[0].isspace()):
+                found = (start, a, t[:h], t[h + n + 1 + a:][:1], tail_text)
                 break
     except Exception:
         return TxResult("ABORTED", "adapter_error", method)
     if found is None:
         return TxResult("ABORTED", "echo_mismatch", method)
-    start, a, head, tail = found
+    start, a, head, tail, ahead_text = found
     lo = max(start - 1, 0)
     end = start + n + 1 + a
-    before, after = old + " " + ahead[:a], new + " " + ahead[:a]
+    before, after = old + " " + ahead_text, new + " " + ahead_text
     # 3b the last look before the first write. A user input event since the freeze (a key, an arrow, a pointer button)
     # may have moved the caret before it was read, and in M2 it enters the sequence of events: nothing is written
     # (L9 F1, F2). The caret and the element are read again for the same reason (F1, F4).
