@@ -152,16 +152,27 @@ class Runtime:
 
     # -- the hotkeys ---------------------------------------------------------------------------------------------------
     def hotkey_convert(self, now_ms: int) -> "L.TxResult":
-        """Convert the selection (13.3, manual transaction). Any mode except OFF allows it. A last-word conversion with an
-        empty selection is not implemented here (open item U-2: the adapter has to supply the word before the caret)."""
+        """Convert the selection, or with an empty selection the last whitespace-delimited token before the caret (13.3,
+        manual transaction; U-2). The token is read through the adapter in growing windows, so that a field of any length
+        costs one short read in the common case. Any mode except OFF allows it. The 13.3 shortcut "the last run still in
+        the buffer" is not used: the field text is the single source and gives the same word."""
         mode = self.engine.mode
         if mode == "OFF" or self.ad is None:
             return L.TxResult("ABORTED", "mode_off")
+        source = "selection"
         try:
             s, e = self.ad.selection()
             if s == e:
-                return L.TxResult("ABORTED", "no_selection")
-            old = self.ad.read(s, e)
+                source = "last_word"
+                old = self._word_before(s)
+                if old is None:
+                    return L.TxResult("ABORTED", "not_readable")
+                if old == "":
+                    return L.TxResult("ABORTED", "no_word")
+                if len(old) > L.MANUAL_MAX:
+                    return L.TxResult("ABORTED", "length")
+            else:
+                old = self.ad.read(s, e)
         except Exception:
             return L.TxResult("ABORTED", "adapter_error")
         if old is None:
@@ -170,13 +181,29 @@ class Runtime:
         if direction is None or new == old:
             return L.TxResult("ABORTED", "nothing_to_convert")
         try:
-            res = L.run_manual_transaction(self.ad, old, new, source="selection", mode="MANUAL_ONLY", element=self.ad.element())
+            res = L.run_manual_transaction(self.ad, old, new, source=source, mode="MANUAL_ONLY", element=self.ad.element())
         except Exception:
             res = L.TxResult("UNRECOVERED", "adapter_exception", "", True, True)
         self.last_result = res
         self.engine.manual_outcome(old, new, direction, res.outcome, now_ms, res.quarantine)
         self._after(res)
         return res
+
+    def _word_before(self, caret: int):
+        """The whitespace-delimited token that ends at `caret`: "" when the character before the caret is white space or
+        the field is empty there, None when the text is not readable. Reads at most MANUAL_MAX + 2 characters."""
+        w = 64
+        while True:
+            lo = max(caret - w, 0)
+            t = self.ad.read(lo, caret)
+            if t is None:
+                return None
+            i = len(t)
+            while i > 0 and not t[i - 1].isspace():
+                i -= 1
+            if i > 0 or lo == 0 or w > L.MANUAL_MAX + 1:
+                return t[i:]
+            w *= 4
 
     def hotkey_toggle(self, now_ms: int):
         """Convert back what a manual conversion just wrote (13.3). None when there is nothing to toggle."""

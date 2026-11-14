@@ -109,7 +109,7 @@ T(not rt.health.ok and rt.engine.mode == "MANUAL_ONLY" and rt.engine.run == [] a
   "canary: a missing hook event drops to MANUAL_ONLY and discards the word")
 fld.type_user(" ")
 T(rt.on_hook_event(L.Event("space", None, "en", 2000)) is None and fld.text == "ghbdtn ", "no conversion while the stream is not trusted")
-T(rt.hotkey_convert(2100).reason == "no_selection", "the hotkey still works, here it has no selection")
+T(rt.hotkey_convert(2100).reason == "no_word" and fld.text == "ghbdtn ", "the hotkey still works; the caret is behind a Space, so there is no word")
 
 # 8. macOS: tap disabled -> MANUAL_ONLY; trusted again after enabling, 4th time in 60 s stays MANUAL_ONLY
 rt, fld = make(canary=False)
@@ -142,5 +142,28 @@ T(rt.engine.mode == "MANUAL_ONLY", "M2 alone is MANUAL_ONLY at best")
 fld.select(0, 6)
 r = rt.hotkey_convert(10)
 T(r.outcome == "VERIFIED" and fld.text == "привет", "M2 hotkey converts the selection")
+
+# 12. U-2: an empty selection converts the last token before the caret, only through the manual transaction
+for caps in (M1, M2):
+    rt, fld = make(caps=caps, support="MANUAL", text="say ghbdtn")
+    r = rt.hotkey_convert(10)
+    T(r.outcome == "VERIFIED" and fld.text == "say привет" and fld.selection() == (10, 10), f"U-2: last word converted, {sorted(caps)[0]}")
+    T(rt.hotkey_toggle(20).outcome == "VERIFIED" and fld.text == "say ghbdtn", "U-2: the toggle brings the last word back")
+rt, fld = make(support="MANUAL", text="ghbdtn ")
+T(rt.hotkey_convert(10).reason == "no_word" and fld.text == "ghbdtn ", "U-2: the caret behind a space has no word")
+rt, fld = make(support="MANUAL", text="")
+T(rt.hotkey_convert(10).reason == "no_word", "U-2: an empty field")
+rt, fld = make(support="MANUAL", text="a " + "x" * 300)          # longer than the first read window
+r = rt.hotkey_convert(10)
+T(r.outcome == "VERIFIED" and fld.text == "a " + "ч" * 300, "U-2: a token longer than the first window")
+rt, fld = make(support="MANUAL", text="x" * 10_001)
+T(rt.hotkey_convert(10).reason == "length" and fld.text == "x" * 10_001, "U-2: more than 10,000 characters writes nothing")
+rt, fld = make(support="UNKNOWN", text="ghbdtn")
+T(rt.hotkey_convert(10).reason == "mode_off" and fld.text == "ghbdtn", "U-2: mode OFF writes nothing")
+rt, fld = make(support="MANUAL", text="ghbdtn", faults={("read", 1): "none"})
+T(rt.hotkey_convert(10).reason == "not_readable" and fld.text == "ghbdtn", "U-2: an unreadable field writes nothing")
+rt, fld = make(support="MANUAL", text="ghbdtn", faults={("read", 2): "user:q"})
+r = rt.hotkey_convert(10)
+T(r.outcome != "VERIFIED" or fld.text != "привет", "U-2: a user key during the transaction is never VERIFIED over it")
 
 print(f"OK ({CHECKS} runtime checks)")

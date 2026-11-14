@@ -125,3 +125,9 @@
 * Found and fixed: the S-1 validator accepted 100,000 events; RT-16 requires 1,000,000 compared one by one by signature, a named physical generator, and slow-hook detection within 300 ms. S-3 now needs 100 elevated events and consistent counts.
 * New: `spikes/streams.py` (signature comparison), `control_probe.py` (the five S-4 tests as one routine), `merge_s4.py`, programs `windows/s1_s3_capture.py`, `windows/s4_edit_control.py`; tests `test_streams.py`, `test_probe.py`, `test_capture.py`; S-6 logic tests added to `test_measure.py` (S-6 had none).
 * Still not done and not claimed: no spike was run; S-4 UI Automation and macOS AX bindings; the product observer that measures slow-hook detection.
+
+## 2026-11-14 (third part)
+* U-2 closed in the portable runtime (`hotkey_convert`, empty selection: last token before the caret, `source="last_word"`); 11 new runtime checks (45), normal and -O.
+* New `app/adapter_contract.py` (checks every adapter must pass; run against `SimDriver`) and `app/test_adapter_contract.py` (3 capability sets pass, 7 broken adapters must fail). Reference double only; no OS adapter exists.
+* New `spikes/slowhook.py` (replay of recorded streams through `HookHealth`), `s1slow` mode of the capture program (compiled, not run), `backend_control.py`, UIA and AX bindings of S-4 (compiled, not run), tests `test_slowhook.py`, `test_bindings.py`.
+* Found: RT-16 "within 300 ms" cannot be met by `HookHealth` (300 to about 400 ms from the first lost key). Recorded as open item RT-16-VS-HOOKHEALTH; the validator was NOT loosened; `lfengine.py` and `conformance.py` unchanged, so mutation run r13 (950 KILLED + 1 TIMEOUT, 40 SURVIVED) stays bound to the same source and test SHA.

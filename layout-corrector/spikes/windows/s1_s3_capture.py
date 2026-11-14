@@ -4,6 +4,8 @@
 PROTOCOL (the program only records; the keystrokes come from a physical generator that is NOT this tool's injection, for example
 a USB HID keystroke generator or a person typing; LLKHF_INJECTED events are dropped from the hook stream and Raw Input never
 reports injected events):
+  S-1 slow hook: python s1_s3_capture.py s1slow out.json [--hook-delay-ms 1500] [--events-before 50] [--seconds 20]
+        (replays both streams through the product's HookHealth, spikes/slowhook.py; use its detect_ms as --slow-hook-ms below)
   S-1:  python s1_s3_capture.py s1 out.json --generator "name of the device" --events 1000000 [--slow-hook-ms 120]
         Records until `--events` Raw Input key events were seen, compares both streams (streams.compare, window 300 ms) and
         writes lost_by_hook, extra_in_hook and the counts. `--slow-hook-ms` is the time in which the PRODUCT's observer detected a
@@ -26,6 +28,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import common  # noqa: E402
 import streams  # noqa: E402
+import slowhook  # noqa: E402
 
 
 def finish_s1(raw, hook, generator, slow_hook_ms=None, hook_removed=False):
@@ -59,6 +62,7 @@ class Capture:
         self.u, self.k = ctypes.windll.user32, ctypes.windll.kernel32
         self.raw, self.hook = [], []
         self.hook_removed = False
+        self.delay_ms = 0                                    # s1slow: the hook callback sleeps this long (a deliberately slowed hook)
         self.t0 = time.perf_counter()
         self._ready = [threading.Event(), threading.Event()]
         threading.Thread(target=self._raw_thread, daemon=True).start()
@@ -81,6 +85,8 @@ class Capture:
 
         def cb(n, wp, lp):
             if n >= 0:
+                if self.delay_ms:
+                    time.sleep(self.delay_ms / 1000.0)
                 k = lp.contents
                 if not (k.flags & 0x10):                                 # LLKHF_INJECTED: not compared
                     self.hook.append((self.now_ms(), k.scanCode, 1 if k.flags & 1 else 0, 1 if k.flags & 0x80 else 0))
@@ -177,6 +183,23 @@ class Capture:
 
 def main(argv):
     arg = lambda k, d=None: argv[argv.index(k) + 1] if k in argv else d
+    if len(argv) >= 3 and argv[1] == "s1slow":
+        # a hook slowed beyond LowLevelHooksTimeout: the OS stops calling it; the replay of both streams through HookHealth gives the time
+        cap = Capture()
+        before, delay = int(arg("--events-before", 50)), int(arg("--hook-delay-ms", 1500))
+        input(f"Type {before}+ keys with the generator, then keep typing: the hook is slowed after {before} events. Press Enter to start. ")
+        while len(cap.raw) < before:
+            time.sleep(0.2)
+        cap.delay_ms = delay
+        t_end = time.time() + float(arg("--seconds", 20))
+        while time.time() < t_end:
+            time.sleep(0.2)
+        cap.delay_ms = 0
+        r = slowhook.replay(list(cap.raw), list(cap.hook))
+        r.update({"hook_delay_ms": delay, "raw_events": len(cap.raw), "hook_events": len(cap.hook), "hook_removed_by_os": cap.hook_removed})
+        common.write(r, common.main_out(argv, "s1_slowhook.json"))
+        print(r)
+        return
     if len(argv) < 3 or argv[1] not in ("s1", "s3"):
         raise SystemExit(__doc__)
     gen = arg("--generator")

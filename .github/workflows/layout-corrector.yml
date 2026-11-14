@@ -53,6 +53,7 @@ jobs:
         run: |
           python test_runtime.py
           python -O test_runtime.py
+          python test_adapter_contract.py
       - name: Spike result validator (synthetic files only; it proves the decision rules, not a platform fact)
         working-directory: layout-corrector/spikes
         run: |
@@ -61,6 +62,8 @@ jobs:
           python test_streams.py
           python test_probe.py
           python test_capture.py
+          python test_slowhook.py
+          python test_bindings.py
       - name: L9 attack scripts, with the negative control of the runner (this does not replace a second independent review)
         working-directory: layout-corrector/audit/L9_independent
         run: |
