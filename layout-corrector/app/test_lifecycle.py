@@ -228,4 +228,69 @@ rt2 = new_rt(); f2 = L.SimField("", M1); rt2.on_focus("A", f2, "AUTO"); rt2.on_g
 sd2 = tempfile.mkdtemp(); st2 = S.Store(os.path.join(sd2, "s.json"), Locked()); 
 T(K.stop(rt2, st2, S.StoreState()) is False and os.listdir(sd2) == [] and rt2.engine.mode == "OFF" and not reaches(rt2, MARKERS), "an unavailable key store: nothing written, no clear text, the wipe still happens")
 T(K.stop(new_rt()) is None, "stop without a store only wipes")
+# ---- the wipe must happen when saving fails, in every place it can fail; the failure is raised, not hidden (isolated temporary directories)
+import builtins
+def live_rt():
+    r = new_rt(); f = L.SimField("", M1); r.on_focus("A", f, "AUTO"); r.on_gate(L.GATE_ALLOW)
+    typed(r, f, "ghbdtn")
+    for i, (ch, k) in enumerate(zip("ghb", L.keys_from_text("ghb", "en"))):
+        f.type_user(ch); r.on_hook_event(L.Event("key", k, "en", 300 + i), sig=("q", i))
+    T(r.engine.snapshot is not None and reaches(r, MARKERS), "setup: live snapshot, markers reachable")
+    return r
+class Boom(Exception): pass
+def inject(path):
+    """Returns (apply, restore) that make exactly one step of Store.save fail with Boom."""
+    real = {"open": getattr(S, "open", None), "fsync": os.fsync, "replace": os.replace, "dump": S.json.dump}
+    def apply():
+        if path == "open":
+            def bad(name, *a, **k):
+                if str(name).endswith(".tmp"): raise Boom("open")
+                return builtins.open(name, *a, **k)
+            S.open = bad
+        elif path == "write":
+            def bad(*a, **k): raise Boom("write")
+            S.json.dump = bad
+        elif path == "fsync": os.fsync = lambda fd: (_ for _ in ()).throw(Boom("fsync"))
+        elif path == "replace": os.replace = lambda a, b: (_ for _ in ()).throw(Boom("replace"))
+    def restore():
+        if real["open"] is None and hasattr(S, "open"): del S.open
+        elif real["open"] is not None: S.open = real["open"]
+        os.fsync, os.replace, S.json.dump = real["fsync"], real["replace"], real["dump"]
+    return apply, restore
+for path in ("open", "write", "fsync", "replace"):
+    rt = live_rt(); sd = tempfile.mkdtemp(prefix="lfstopfail_")
+    st = S.Store(os.path.join(sd, "settings.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True); state = st.load(); st.save(state)
+    before = open(st.path, "rb").read(); names = sorted(os.listdir(sd))
+    ap, rs = inject(path); got = None
+    try:
+        ap()
+        try: K.stop(rt, st, state)
+        except BaseException as e: got = e
+    finally: rs()
+    T(isinstance(got, Boom) and str(got) == path, f"save failure at {path}: the error is raised, not hidden ({got!r})")
+    T(rt.engine.snapshot is None and rt.engine.mode == "OFF" and rt.ad is None and not reaches(rt, MARKERS), f"save failure at {path}: the wipe still happened, no marker reachable")
+    T(open(st.path, "rb").read() == before and sorted(os.listdir(sd)) == names and occurrences(sd) == 0, f"save failure at {path}: the earlier file is untouched, no temporary file left, 0 occurrences in the directory")
+# a cipher error that is not CipherUnavailable, and a failing sync
+class BadCipher(S.Cipher):
+    def encrypt(self, d): raise Boom("cipher")
+    def decrypt(self, d): return d
+rt = live_rt(); sd = tempfile.mkdtemp(prefix="lfstopfail_"); st = S.Store(os.path.join(sd, "s.json"), BadCipher()); got = None
+try: K.stop(rt, st, S.StoreState())
+except BaseException as e: got = e
+T(isinstance(got, Boom) and rt.engine.snapshot is None and not reaches(rt, MARKERS) and os.listdir(sd) == [], "an encrypt failure: raised, wiped, nothing written")
+rt = live_rt(); real_sync = S.sync_from_engine; S.sync_from_engine = lambda e, s: (_ for _ in ()).throw(Boom("sync")); got = None
+try:
+    try: K.stop(rt, S.Store(os.path.join(tempfile.mkdtemp(), "s.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True), S.StoreState())
+    except BaseException as e: got = e
+finally: S.sync_from_engine = real_sync
+T(isinstance(got, Boom) and rt.engine.snapshot is None and not reaches(rt, MARKERS), "a failing sync: raised, wiped")
+# the wipe fails too: that error is raised and the save error stays attached
+rt = live_rt(); sd = tempfile.mkdtemp(); st = S.Store(os.path.join(sd, "s.json"), BadCipher()); real_sd = rt.shutdown
+class Boom2(Exception): pass
+def bad_wipe(): raise Boom2("wipe")
+rt.shutdown = bad_wipe; got = None
+try: K.stop(rt, st, S.StoreState())
+except BaseException as e: got = e
+T(isinstance(got, Boom2) and isinstance(got.__context__, Boom), "wipe failure on top of a save failure: both are visible (wipe raised, save error as context)")
+real_sd()
 print(f"OK ({CHECKS} lifecycle and crash checks; simulated failures and child processes on Linux; no OS crash reporter, no supervisor process)")

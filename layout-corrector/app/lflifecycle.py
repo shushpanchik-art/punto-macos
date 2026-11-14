@@ -218,11 +218,15 @@ def start_manual_only(runtime):
 
 
 def stop(runtime, store=None, state=None):
-    """Orderly end: save the exception list first (when a store is given), then wipe what is derived from typed text."""
+    """Orderly end: save the exception list first (when a store is given), then wipe what is derived from typed text.
+    The wipe runs even when syncing or saving fails (open, write, fsync, replace, cipher): the failure is NOT hidden, it is raised after the wipe.
+    If the wipe itself fails too, that error is raised and the first one stays attached as its __context__."""
     saved = None
-    if store is not None and state is not None:
-        import lfstore as S
-        S.sync_from_engine(runtime.engine, state)
-        saved = store.save(state)
-    runtime.shutdown()
+    try:
+        if store is not None and state is not None:
+            import lfstore as S
+            S.sync_from_engine(runtime.engine, state)
+            saved = store.save(state)
+    finally:
+        runtime.shutdown()
     return saved

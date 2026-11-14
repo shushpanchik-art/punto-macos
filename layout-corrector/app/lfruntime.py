@@ -52,6 +52,7 @@ class Runtime:
         self.permission_ok = permission_ok
         self.layout_ok = True
         self.watchdog_ok = True
+        self.instance_ok = True                  # False when this process is not THE instance (RT-19: lock not held or not establishable); memory only
         self.worker_ok = True                    # False after two worker failures within 60 s (failure row 11); memory only
         self.notices = []                        # (kind, reason): what the user would be told; never text
         self.last_result = None
@@ -59,7 +60,7 @@ class Runtime:
     # -- facts -> mode ---------------------------------------------------------------------------------------------
     def _mode(self) -> str:
         app = self.apps.get(self.app_id)
-        if app is None or self.ad is None or app.blacklisted:
+        if not self.instance_ok or app is None or self.ad is None or app.blacklisted:
             return "OFF"
         return L.engine_mode(self.ad.caps, app.support, models_ok=self.models_ok, layout_ok=self.layout_ok,
                              permission_ok=self.permission_ok, hook_ok=self.health.ok and not self.health.sticky,
@@ -104,8 +105,10 @@ class Runtime:
     # -- the application list (AP-4) ----------------------------------------------------------------------------------
     def explain(self, app_id: str):
         """(mode, reasons) of one application, derived from the same facts as `_mode` and in the order of `engine_mode`.
-        Reasons: blacklist, quarantine, permission, layout, support_unknown, no_write_capability (all give OFF);
+        Reasons: instance (RT-19: no instance lock), blacklist, quarantine, permission, layout, support_unknown, no_write_capability (all give OFF);
         support_manual, no_auto_capability, models, stream, watchdog, worker (MANUAL_ONLY); an empty list is AUTO. A name only, never text."""
+        if not self.instance_ok:
+            return "OFF", ["instance"]
         a = self.apps.get(app_id)
         if a is None:
             return "OFF", ["support_unknown"]

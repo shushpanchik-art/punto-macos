@@ -166,3 +166,9 @@
 * New `app/lfautostart.py`: launchd agent plist and Windows Run value descriptions; `$` in a regex let "label\n" pass, replaced by fullmatch. Writes only into a directory the caller names; real launchd directories refused; removal only of exact own file/value. `app/device_check_autostart.py` (dry run by default) NOT RUN here.
 * `lfengine.py` and `conformance.py` unchanged.
 
+## 2026-11-14 (tenth part)
+* Two defects confirmed on f6fbda6 and fixed. (1) `audit/make_manifest.sh` omitted `app/` and `spikes/`: the scope is now one file, `audit/manifest_scope.sh` (every tracked file under `layout-corrector/` and the workflow, minus explicit exclusions: the manifest, WORKLOG.md, README.md, experiments/, inputs/); new `audit/check_manifest_coverage.sh` (CI step) fails on a tracked file missing from the manifest, a listed file not in scope, or a missing required file; negative controls run by hand (new untracked-then-added file, a deleted line). (2) `lflifecycle.stop` called `runtime.shutdown()` after `store.save` without `finally`: now `try/finally`; the save error is raised after the wipe, a wipe error keeps it as `__context__`. `Store._write` removes its own `.tmp` on failure. `test_lifecycle.py` 94 checks: failures injected at open, write, fsync, replace, encrypt and sync, a live snapshot with the marker, the earlier file untouched, no `.tmp` left, normal and `-O`; 3 hand mutants killed.
+* New `app/lfinstance.py` + `app/test_instance.py` (RT-19, 26 checks), `Runtime.instance_ok`.
+* New `audit/AP7_RT19_readings.md`: exact clauses, gaps, options and consequences for the supervisor readings, the autostart mechanism and the instance lock. NOT agreed.
+* `lfengine.py` and `conformance.py` unchanged.
+

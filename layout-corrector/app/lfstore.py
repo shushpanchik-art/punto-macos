@@ -113,11 +113,19 @@ class Store:
 
     def _write(self, doc):
         tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(doc, f, ensure_ascii=False, indent=1)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, self.path)
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False, indent=1)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.path)
+        except BaseException:
+            try:
+                if os.path.isfile(tmp) and not os.path.islink(tmp):
+                    os.remove(tmp)                    # our own temporary file only; the error itself is raised below
+            except OSError:
+                pass
+            raise
 
     def _encode(self, st: StoreState):
         ex = [[d, w] for d, w in st.exceptions]
