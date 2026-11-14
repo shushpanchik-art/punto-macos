@@ -57,6 +57,7 @@ jobs:
           python test_store.py
           python test_apps.py
           python test_crypto.py
+          python test_lifecycle.py
           python -O test_apps.py
       - name: Spike result validator (synthetic files only; it proves the decision rules, not a platform fact)
         working-directory: layout-corrector/spikes

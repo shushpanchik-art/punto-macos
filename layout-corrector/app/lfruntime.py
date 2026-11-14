@@ -52,6 +52,7 @@ class Runtime:
         self.permission_ok = permission_ok
         self.layout_ok = True
         self.watchdog_ok = True
+        self.worker_ok = True                    # False after two worker failures within 60 s (failure row 11); memory only
         self.notices = []                        # (kind, reason): what the user would be told; never text
         self.last_result = None
 
@@ -62,7 +63,7 @@ class Runtime:
             return "OFF"
         return L.engine_mode(self.ad.caps, app.support, models_ok=self.models_ok, layout_ok=self.layout_ok,
                              permission_ok=self.permission_ok, hook_ok=self.health.ok and not self.health.sticky,
-                             watchdog_ok=self.watchdog_ok, quarantined=app.quarantined)
+                             watchdog_ok=self.watchdog_ok and self.worker_ok, quarantined=app.quarantined)
 
     def apply_mode(self):
         app = self.apps.get(self.app_id)
@@ -104,7 +105,7 @@ class Runtime:
     def explain(self, app_id: str):
         """(mode, reasons) of one application, derived from the same facts as `_mode` and in the order of `engine_mode`.
         Reasons: blacklist, quarantine, permission, layout, support_unknown, no_write_capability (all give OFF);
-        support_manual, no_auto_capability, models, stream, watchdog (MANUAL_ONLY); an empty list is AUTO. A name only, never text."""
+        support_manual, no_auto_capability, models, stream, watchdog, worker (MANUAL_ONLY); an empty list is AUTO. A name only, never text."""
         a = self.apps.get(app_id)
         if a is None:
             return "OFF", ["support_unknown"]
@@ -124,6 +125,7 @@ class Runtime:
         if not self.models_ok: r.append("models")
         if not (self.health.ok and not self.health.sticky): r.append("stream")
         if not self.watchdog_ok: r.append("watchdog")
+        if not self.worker_ok: r.append("worker")
         return ("MANUAL_ONLY" if r else "AUTO"), r
 
     def app_list(self):
@@ -290,6 +292,16 @@ class Runtime:
             if i > 0 or lo == 0 or w >= cap:
                 return t[i:]
             w *= 4
+
+    def shutdown(self):
+        """The end of the process or of a session (AP-6, RT-6): nothing derived from typed text stays reachable. The engine is put to OFF
+        (its buffer, run credit, snapshot, undo record and toggle record are destroyed), the gate closes, the stream-health queues are emptied
+        and the adapter is let go. The exception list is NOT touched here: it is saved by the caller before this (lflifecycle.stop)."""
+        self.engine.on_event(L.Event("break"))
+        self.engine.set_gate(L.GATE_UNKNOWN)
+        self.engine.set_mode("OFF")
+        self.health.set_gate_open(False)
+        self.ad, self.app_id = None, None
 
     def hotkey_toggle(self, now_ms: int):
         """Convert back what a manual conversion just wrote (13.3). None when there is nothing to toggle."""

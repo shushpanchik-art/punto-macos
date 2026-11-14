@@ -13,10 +13,16 @@ Rules kept here:
     by this program under its own service name; a key or item of any other name is never read.
 
 Windows DPAPI: CryptProtectData / CryptUnprotectData of the current user, flag CRYPTPROTECT_UI_FORBIDDEN (no dialog), optional entropy as a
-domain label (not a secret). Envelope: b"DP1" + the DPAPI blob.
+domain label (not a secret). Envelope: b"DP2" + SHA-256(blob) + the DPAPI blob.
 macOS: the master key from a generic-password Keychain item (user interaction forbidden); AES-256-CBC with PKCS#7 from CommonCrypto
 (`CCCrypt`, public API) under a key derived as HMAC-SHA256(master, b"enc"), authenticated by HMAC-SHA256 under HMAC-SHA256(master, b"mac")
 over header, IV and ciphertext (encrypt-then-MAC, the tag is checked before anything is decrypted). Envelope: b"KC1" + IV(16) + ciphertext + tag(32).
+Checked against the documentation (reading only, 2026-11-14): the parameter order of CryptProtectData/CryptUnprotectData (learn.microsoft.com);
+the caller frees pbData with LocalFree; the docs name ERROR_PASSWORD_RESTRICTION for UI_FORBIDDEN and tell callers not to rely on a code to
+detect tampering (hence the own checksum); the numeric value 0x1 of CRYPTPROTECT_UI_FORBIDDEN is NOT on that page (it is from dpapi.h, not
+re-checked). CommonCrypto status values -4300 to -4311 and the SecKeychain* and SecBase.h declarations and constants -25300, -25299, -25308,
+-25315, -25293, -128 (opensource.apple.com) match the code. The same documentation does not say when the Keychain answers "not found", and a
+developer-forum thread reports errSecItemNotFound for an item that exists, so "not found" is never a verdict on the file.
 The unverified parts, on purpose listed: the ctypes signatures, the OSStatus and Win32 error-code mapping, and whether the Keychain
 item is created with the access control that the product wants."""
 import hashlib
@@ -29,7 +35,6 @@ from lfstore import Cipher, CipherUnavailable
 SERVICE = "layout-corrector"
 ACCOUNT = "exception-list-key"
 DPAPI_ENTROPY = b"layout-corrector/exception-list/v1"
-_DPAPI_UNDECRYPTABLE = {13, 0x80090005, -2146893819}       # ERROR_INVALID_DATA, NTE_BAD_DATA: the blob is not ours / damaged
 _KC_NOT_FOUND = -25300                                      # errSecItemNotFound
 _KC_DUPLICATE = -25299                                      # errSecDuplicateItem
 
@@ -40,37 +45,40 @@ class DecryptError(ValueError):
 
 # ----------------------------------------------------------------------------------------------------------------------------
 class DpapiCipher(Cipher):
-    """backend: protect(data, entropy) -> bytes, unprotect(blob, entropy) -> bytes. A backend raises DecryptError for "not
-    decryptable" and OSError (with `.winerror` or `.errno`) for anything else."""
-    HEADER = b"DP1"
+    """backend: protect(data, entropy) -> bytes, unprotect(blob, entropy) -> bytes; any exception of a backend means "cannot do it now".
+    The documentation of CryptUnprotectData says that "applications should not rely on a specific error code to detect data tampering"
+    (ERROR_INVALID_DATA and ERROR_INVALID_PARAMETER are only named as possible), so NO Win32 code decides here whether a file is damaged.
+    What decides is our own SHA-256 over the DPAPI blob, kept next to it: a mismatch is damage that no OS state can explain (ValueError).
+    A matching checksum with a failing unprotect (another user or profile, a lost master key, ERROR_PASSWORD_RESTRICTION, anything)
+    is CipherUnavailable: the file is kept, never set aside on a guess. The user's way out is "Delete all data"."""
+    HEADER = b"DP2"
 
     def __init__(self, backend=None):
         self.b = backend if backend is not None else _WinDpapi()
 
     def encrypt(self, data: bytes) -> bytes:
         try:
-            return self.HEADER + self.b.protect(bytes(data), DPAPI_ENTROPY)
+            blob = self.b.protect(bytes(data), DPAPI_ENTROPY)
         except CipherUnavailable:
             raise
         except Exception as e:
             raise CipherUnavailable(f"DPAPI protect failed: {type(e).__name__}") from None
+        return self.HEADER + hashlib.sha256(blob).digest() + blob
 
     def decrypt(self, data: bytes) -> bytes:
-        if not data.startswith(self.HEADER) or len(data) <= len(self.HEADER):
+        n = len(self.HEADER) + 32
+        if not data.startswith(self.HEADER) or len(data) <= n:
             raise ValueError("not a DPAPI envelope")
+        blob = data[n:]
+        if not hmac.compare_digest(hashlib.sha256(blob).digest(), data[len(self.HEADER):n]):
+            raise ValueError("the DPAPI envelope is damaged")
         try:
-            return self.b.unprotect(bytes(data[len(self.HEADER):]), DPAPI_ENTROPY)
-        except DecryptError:
-            raise
+            return self.b.unprotect(bytes(blob), DPAPI_ENTROPY)
         except CipherUnavailable:
             raise
-        except OSError as e:
-            code = getattr(e, "winerror", None)
-            if code in _DPAPI_UNDECRYPTABLE:
-                raise DecryptError("DPAPI: data not decryptable") from None
-            raise CipherUnavailable(f"DPAPI unprotect failed: {code}") from None
         except Exception as e:
-            raise CipherUnavailable(f"DPAPI unprotect failed: {type(e).__name__}") from None
+            code = getattr(e, "winerror", None)
+            raise CipherUnavailable(f"DPAPI unprotect failed: {type(e).__name__} {code}") from None
 
 
 class KeychainCipher(Cipher):
@@ -110,7 +118,8 @@ class KeychainCipher(Cipher):
         try:
             master = self.b.get_master(False)
             if master is None:
-                raise DecryptError("the master key is not in the key store")
+                # errSecItemNotFound can also be an access-control effect, so "not found" proves nothing about a lost key: keep the file
+                raise CipherUnavailable("the master key was not found in the key store; the file is kept")
             ek, mk = self._keys(master)
             body, tag = data[:-self.TAG], data[-self.TAG:]
             if not hmac.compare_digest(hmac.new(mk, body, hashlib.sha256).digest(), tag):

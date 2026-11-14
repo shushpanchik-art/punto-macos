@@ -41,21 +41,29 @@ class FakeDpapi:
 b = FakeDpapi(); c = C.DpapiCipher(b)
 msg = json.dumps([["en2ru", "ghbdtn"]]).encode()
 env = c.encrypt(msg)
-T(env.startswith(b"DP1") and b"ghbdtn" not in env and c.decrypt(env) == msg, "DPAPI: round trip, header, the words are not in the envelope")
+T(env.startswith(b"DP2") and b"ghbdtn" not in env and c.decrypt(env) == msg, "DPAPI: round trip, header, the words are not in the envelope")
 T(b.calls[0] == ("protect", C.DPAPI_ENTROPY) and b.calls[1] == ("unprotect", C.DPAPI_ENTROPY), "DPAPI: the domain label is passed both ways")
 T(c.decrypt(c.encrypt(b"")) == b"", "DPAPI: empty data")
-for label, bad in (("no header", b"XX1abc"), ("only the header", b"DP1"), ("empty", b""), ("wrong header", b"KC1" + env[3:])):
+for label, bad in (("no header", b"XX2abc"), ("only the header", b"DP2"), ("empty", b""), ("wrong header", b"KC1" + env[3:])):
     T(issubclass(raises(lambda: c.decrypt(bad), BaseException), ValueError), f"DPAPI: {label} is a ValueError, not an availability error")
 flipped = bytearray(env); flipped[-1] ^= 1
 T(issubclass(raises(lambda: c.decrypt(bytes(flipped)), BaseException), ValueError), "DPAPI: a damaged blob is a ValueError")
-T(issubclass(raises(lambda: C.DpapiCipher(FakeDpapi("bob")).decrypt(env), BaseException), ValueError), "DPAPI: another user's blob is a ValueError")
+T(raises(lambda: C.DpapiCipher(FakeDpapi("bob")).decrypt(env), BaseException) is S.CipherUnavailable, "DPAPI: another user's blob (checksum fine, unprotect fails) is CipherUnavailable: no guess, the file is kept")
 T(raises(lambda: C.DpapiCipher(FakeDpapi(fail="protect")).encrypt(b"x"), S.CipherUnavailable) is S.CipherUnavailable, "DPAPI: an API error on protect is CipherUnavailable")
 T(raises(lambda: C.DpapiCipher(FakeDpapi(fail="unprotect")).decrypt(env), S.CipherUnavailable) is S.CipherUnavailable, "DPAPI: an API error on unprotect is CipherUnavailable")
 T(raises(lambda: C.DpapiCipher(FakeDpapi(fail="api5")).decrypt(env), S.CipherUnavailable) is S.CipherUnavailable, "DPAPI: access denied (5) is CipherUnavailable, not 'damaged'")
 class InvalidData(FakeDpapi):
     def unprotect(self, blob, entropy):
         e = OSError("invalid"); e.winerror = 13; raise e
-T(issubclass(raises(lambda: C.DpapiCipher(InvalidData()).decrypt(env), BaseException), ValueError), "DPAPI: ERROR_INVALID_DATA (13) is 'not decryptable'")
+T(raises(lambda: C.DpapiCipher(InvalidData()).decrypt(env), BaseException) is S.CipherUnavailable, "DPAPI: ERROR_INVALID_DATA (13) with a good checksum is CipherUnavailable: the docs say not to rely on a code")
+for code in (13, 87, 0x80090005, 5, 1168, 0x800706BE):
+    class Coded(FakeDpapi):
+        def unprotect(self, blob, entropy, _c=code):
+            e = OSError("x"); e.winerror = _c; raise e
+    T(raises(lambda: C.DpapiCipher(Coded()).decrypt(env), BaseException) is S.CipherUnavailable, f"DPAPI: no Win32 code ({code}) turns a good envelope into 'damaged'")
+head = bytearray(env); head[4] ^= 1
+T(issubclass(raises(lambda: c.decrypt(bytes(head)), BaseException), ValueError), "DPAPI: a changed checksum byte is a ValueError")
+T(issubclass(raises(lambda: c.decrypt(env + b"x"), BaseException), ValueError), "DPAPI: appended bytes are a ValueError")
 
 # ---------------------------------------------------------------- fake Keychain + fake AES (a keystream; NOT AES)
 class FakeKeychain:
@@ -93,14 +101,13 @@ for pos in (0, 5, 3 + 16 + 2, len(env) - 40, len(env) - 1):
     r = raises(lambda: kc.decrypt(bytes(t)), BaseException)
     T(r is not None and issubclass(r, ValueError), f"Keychain: a bit flipped at {pos} is a ValueError")
     T(k.aes_calls == [], f"Keychain: a bit flipped at {pos}: nothing was decrypted before the tag was checked")
-for label, bad in (("truncated", env[:-1]), ("short", env[:20]), ("empty", b""), ("wrong header", b"DP1" + env[3:]), ("not a block multiple", env + b"x")):
+for label, bad in (("truncated", env[:-1]), ("short", env[:20]), ("empty", b""), ("wrong header", b"DP2" + env[3:]), ("not a block multiple", env + b"x")):
     r = raises(lambda: kc.decrypt(bad), BaseException)
     T(r is not None and issubclass(r, ValueError), f"Keychain: {label} is a ValueError")
 r = raises(lambda: C.KeychainCipher(FakeKeychain(master=bytes(32))).decrypt(env), BaseException)
 T(r is not None and issubclass(r, ValueError), "Keychain: another master key fails the tag: ValueError")
 nokey = FakeKeychain()
-r = raises(lambda: C.KeychainCipher(nokey).decrypt(env), BaseException)
-T(r is not None and issubclass(r, ValueError) and nokey.created == 0, "Keychain: a missing master on decrypt is 'not decryptable' and creates NOTHING")
+T(raises(lambda: C.KeychainCipher(nokey).decrypt(env), BaseException) is S.CipherUnavailable and nokey.created == 0, "Keychain: a missing master on decrypt is CipherUnavailable (not found can be an access effect) and creates NOTHING")
 for fail in ("keychain", "aes"):
     T(raises(lambda: C.KeychainCipher(FakeKeychain(fail=fail)).encrypt(b"x"), S.CipherUnavailable) is S.CipherUnavailable, f"Keychain: an API error ({fail}) on encrypt is CipherUnavailable")
 T(raises(lambda: C.KeychainCipher(FakeKeychain(fail="keychain")).decrypt(env), S.CipherUnavailable) is S.CipherUnavailable, "Keychain: a locked keychain on decrypt is CipherUnavailable")
@@ -142,6 +149,13 @@ for name, cipher in (("DPAPI", C.DpapiCipher(FakeDpapi())), ("Keychain", C.Keych
     json.dump(doc, open(st.path, "w", encoding="utf-8"))
     s2 = S.Store(st.path, cipher); r = s2.load()
     T(r.exceptions == [] and "file_unreadable_defaults" in s2.notices and any(n.startswith("settings.json.corrupt-") for n in os.listdir(d)), f"{name}: a damaged ciphertext sets the file aside")
+# another user's DPAPI file and a Keychain without its master key: the file is KEPT
+d, st = mk_store(C.DpapiCipher(FakeDpapi("alice"))); state = st.load(); state.exceptions = [("en2ru", "abc")]; st.save(state); before = open(st.path, "rb").read()
+s2 = S.Store(st.path, C.DpapiCipher(FakeDpapi("bob"))); r = s2.load()
+T(r.exceptions == [] and s2.read_only and "cipher_unavailable" in s2.notices and os.listdir(d) == ["settings.json"] and open(st.path, "rb").read() == before, "DPAPI: a file of another user is kept, nothing is set aside")
+d, st = mk_store(C.KeychainCipher(FakeKeychain())); state = st.load(); state.exceptions = [("en2ru", "abc")]; st.save(state); before = open(st.path, "rb").read()
+s2 = S.Store(st.path, C.KeychainCipher(FakeKeychain())); r = s2.load()
+T(r.exceptions == [] and s2.read_only and "cipher_unavailable" in s2.notices and os.listdir(d) == ["settings.json"] and open(st.path, "rb").read() == before, "Keychain: a missing master key keeps the file and never creates a new key over it")
 # an unavailable key store: the file stays exactly as it is
 for name, good, bad in (("DPAPI", C.DpapiCipher(FakeDpapi()), C.DpapiCipher(FakeDpapi(fail="unprotect"))),
                         ("Keychain", C.KeychainCipher(FakeKeychain()), C.KeychainCipher(FakeKeychain(fail="keychain")))):
