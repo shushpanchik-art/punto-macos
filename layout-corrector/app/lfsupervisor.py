@@ -43,6 +43,7 @@ class ProcessSupervisor:
         self.spawn, self.clock, self.sleep = spawn, clock_ms, sleep_ms
         self.max_crashes, self.loop_window, self.min_delay, self.term_timeout = max_crashes, loop_window_ms, min_delay_ms, term_timeout_ms
         self.on_event = on_event or (lambda name: None)        # names only, never text
+        self._escalating = False
         self.window = K.CrashWindow()
         self.crash_times = []
         self.starts = 0
@@ -55,13 +56,29 @@ class ProcessSupervisor:
         self.window.reset()
 
     def stop(self):
-        """The user quits: the child gets terminate, then kill after term_timeout_ms; no restart follows."""
+        """The user quits: the child gets terminate; if it is still alive after term_timeout_ms it is killed (by a watchdog thread started here, because
+        `run` is blocked in `proc.wait()` and cannot do it); no restart follows. Safe to call from any thread, more than once, before, during or after a start."""
         with self._lock:
             self._stop = True
             p = self._proc
+            first = p is not None and not self._escalating
+            if first:
+                self._escalating = True
         if p is not None:
             try:
                 p.terminate()
+            except Exception:
+                pass
+        if first:
+            t = threading.Thread(target=self._escalate, args=(p,), name="lf-stop-watchdog", daemon=True)
+            t.start()
+
+    def _escalate(self, proc):
+        try:
+            proc.wait_timeout(self.term_timeout)          # RealChild: waits, then kills; a handle that cannot wait is killed at once
+        except Exception:
+            try:
+                proc.kill()
             except Exception:
                 pass
 

@@ -52,6 +52,7 @@ class Runtime:
         self.permission_ok = permission_ok
         self.layout_ok = True
         self.watchdog_ok = True
+        self.auto_enabled = True                 # AP-4 "automatic correction on or off": off gives MANUAL_ONLY, never OFF; memory only (persisted by lfsettings)
         self.instance_ok = True                  # False when this process is not THE instance (RT-19: lock not held or not establishable); memory only
         self.worker_ok = True                    # False after two worker failures within 60 s (failure row 11); memory only
         self.notices = []                        # (kind, reason): what the user would be told; never text
@@ -62,9 +63,10 @@ class Runtime:
         app = self.apps.get(self.app_id)
         if not self.instance_ok or app is None or self.ad is None or app.blacklisted:
             return "OFF"
-        return L.engine_mode(self.ad.caps, app.support, models_ok=self.models_ok, layout_ok=self.layout_ok,
-                             permission_ok=self.permission_ok, hook_ok=self.health.ok and not self.health.sticky,
-                             watchdog_ok=self.watchdog_ok and self.worker_ok, quarantined=app.quarantined)
+        m = L.engine_mode(self.ad.caps, app.support, models_ok=self.models_ok, layout_ok=self.layout_ok,
+                          permission_ok=self.permission_ok, hook_ok=self.health.ok and not self.health.sticky,
+                          watchdog_ok=self.watchdog_ok and self.worker_ok, quarantined=app.quarantined)
+        return "MANUAL_ONLY" if m == "AUTO" and not self.auto_enabled else m
 
     def apply_mode(self):
         app = self.apps.get(self.app_id)
@@ -106,7 +108,7 @@ class Runtime:
     def explain(self, app_id: str):
         """(mode, reasons) of one application, derived from the same facts as `_mode` and in the order of `engine_mode`.
         Reasons: instance (RT-19: no instance lock), blacklist, quarantine, permission, layout, support_unknown, no_write_capability (all give OFF);
-        support_manual, no_auto_capability, models, stream, watchdog, worker (MANUAL_ONLY); an empty list is AUTO. A name only, never text."""
+        support_manual, no_auto_capability, models, stream, watchdog, worker, auto_off (the user's setting) (MANUAL_ONLY); an empty list is AUTO. A name only, never text."""
         if not self.instance_ok:
             return "OFF", ["instance"]
         a = self.apps.get(app_id)
@@ -129,6 +131,7 @@ class Runtime:
         if not (self.health.ok and not self.health.sticky): r.append("stream")
         if not self.watchdog_ok: r.append("watchdog")
         if not self.worker_ok: r.append("worker")
+        if not self.auto_enabled: r.append("auto_off")
         return ("MANUAL_ONLY" if r else "AUTO"), r
 
     def app_list(self):

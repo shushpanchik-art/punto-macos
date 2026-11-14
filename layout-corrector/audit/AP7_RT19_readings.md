@@ -43,3 +43,13 @@ Clause: "The tool MUST run as at most one instance per user session. A second st
 * The second start exits with status 0 (not an error). The text says "exit at once" only.
 * Several supervisors: a second supervisor's engine exits at once with status 0, which the supervisor treats as a clean exit, so it ends too. If the first engine crashes and the second supervisor's restart wins the lock first, the first supervisor's restart ends: one instance remains in either case.
 * The 1,000-word test on two real instances is NOT RUN (needs a real OS and a real hook); the portable tests check the lock, the decision and that the engine without the lock converts nothing.
+
+## 6. AP-4 settings (portable part, `app/lfsettings.py`): my readings, not agreed
+Clause AP-4: "Automatic correction on or off; hotkey (with the conflict procedure of 13.3); "Esc also undoes" per application; application list with the reason for each entry (blacklist, quarantine) and a re-enable button; exception list (view, delete one entry, clear all, export); start at login; diagnostics opt-in; update channel; reset".
+* Automatic correction off = MANUAL_ONLY (reason `auto_off`), never OFF: the clause says nothing about the hotkey; MANUAL_ONLY keeps it.
+* Hotkey chords: the defaults and fallback lists are copied from 13.3, where they are "proposed ... to be confirmed by the requester (16.3)": still OPEN. Chord names are ASCII (`Ctrl+Alt+Cmd+Space`); the symbols of the text are not stored. The order tried is: the user's chord, the default, the fallbacks (the text names the fallback list only). A bare key that types or edits (a letter, Space, Esc, ...) is refused as a chord because registering it would swallow typing (RT-11 "MUST NOT reach the application"): this refusal is mine.
+* Update channel: the specification names the setting but no values (AP-9 mentions a staged rollout). Only the shape is checked (`[a-z][a-z0-9_-]{0,31}`), no list of channels.
+* Start at login: the stored value changes only after the OS adapter's registration succeeded; without an adapter a change is refused. Nothing is registered here.
+* Reset keeps the exception list (as in the matrix); "Delete all data" empties settings, exceptions and the store's own files and nothing is written back at shutdown until the user chooses something again.
+* Not written (needs the user interface / OS): the screens, the view of the application list, the real hotkey registration, the "which chord is active" notice display, the real start-at-login registration.
+

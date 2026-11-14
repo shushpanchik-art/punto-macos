@@ -117,6 +117,83 @@ deadline = time.time() + 5
 while not os.path.exists(log) and time.time() < deadline: time.sleep(0.05)
 time.sleep(0.2); sup.stop(); th.join(10)
 T(res == [0] and len(list(open(log))) == 1, "stop terminates a real child and does not restart it")
+# ---- stop must work against a child that IGNORES terminate (confirmed defect of e3efd04: run blocked in proc.wait(), nothing killed the child)
+IGN = textwrap.dedent('''
+    import sys, os, signal, time, json
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    d = {d!r}
+    with open(os.path.join(d, "starts"), "a") as f: f.write(str(os.getpid()) + "\\n")
+    open(os.path.join(d, "ready"), "w").write("1")
+    print("TYPED ghbdtn привет", flush=True)
+    time.sleep(120)
+''')
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    try:                                   # a zombie that nobody waits for would still answer kill 0
+        with open(f"/proc/{pid}/stat") as f: return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
+def ignoring_run(stop_calls=1, term_ms=400):
+    d = tempfile.mkdtemp(prefix="lfign_"); script = os.path.join(d, "c.py"); open(script, "w", encoding="utf-8").write(IGN.format(d=d))
+    sup = P.ProcessSupervisor(P.make_spawn([sys.executable, script]), lambda: int(time.monotonic() * 1000), lambda ms: time.sleep(ms / 1000.0), term_timeout_ms=term_ms)
+    res = []; th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start()
+    pids = []
+    try:
+        end = time.time() + 10
+        while not os.path.exists(os.path.join(d, "ready")) and time.time() < end: time.sleep(0.02)
+        T(os.path.exists(os.path.join(d, "ready")), "the SIGTERM-ignoring child started")
+        pids = [int(x) for x in open(os.path.join(d, "starts")).read().split()]
+        t0 = time.time()
+        for _ in range(stop_calls): sup.stop()
+        T(sum(1 for t in threading.enumerate() if t.name == "lf-stop-watchdog" and t.is_alive()) <= 1, "repeated stop: at most one watchdog thread")
+        th.join(8)
+        took = time.time() - t0
+        T(not th.is_alive() and res == [0], f"stop against a child that ignores SIGTERM: run returned {res} after {took:.1f} s")
+        T(took < 6, f"within the term timeout plus a margin ({took:.1f} s)")
+        T(not any(pid_alive(p) for p in pids), "the child was killed, no process left")
+        T(len(open(os.path.join(d, "starts")).read().split()) == 1 and sup.starts == 1, "no second start after stop")
+        T(sum(1 for t in threading.enumerate() if t.name == "lf-stop-watchdog" and t.is_alive()) == 0, "the watchdog thread has ended")
+    finally:
+        for p in pids:
+            try: os.kill(p, signal.SIGKILL)
+            except OSError: pass
+        sup.stop()
+ignoring_run(1); ignoring_run(3)                   # a repeated stop starts one watchdog and still ends cleanly
+# the same with fake handles: terminate does nothing, wait ends only after kill; kill is reached through the watchdog
+class Stubborn(FakeProc):
+    def __init__(self): super().__init__(0, []); self.ev = threading.Event()
+    def wait(self): self.ev.wait(8); return -9
+    def terminate(self): self.terminated += 1
+    def kill(self): self.killed += 1; self.ev.set()
+sp = Stubborn(); sup = P.ProcessSupervisor(lambda a: sp, lambda: 0, lambda ms: None, term_timeout_ms=100); res = []
+th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start(); time.sleep(0.1); sup.stop(); sup.stop(); th.join(5)
+T(res == [0] and sp.terminated >= 1 and sp.killed >= 1 and sup.starts == 1, "fake child that ignores terminate: killed, run returns 0, one start")
+# stop DURING the start: spawn is still running when stop arrives
+gate, started = threading.Event(), threading.Event(); kids = []
+def slow_spawn(args):
+    started.set(); gate.wait(5); k = Blocking(); kids.append(k); return k
+sup = P.ProcessSupervisor(slow_spawn, lambda: 0, lambda ms: None, term_timeout_ms=100); res = []
+th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start(); started.wait(5); sup.stop(); gate.set(); th.join(5)
+T(res == [0] and len(kids) == 1 and kids[0].terminated >= 1 and sup.starts == 1, "stop while the child is being started: the child that appears is ended, no restart")
+# stop during the pause between restarts
+def stop_in_sleep(ms): sup2.stop()
+cnt = []
+sup2 = P.ProcessSupervisor(lambda a: (cnt.append(a), FakeProc(1, []))[1], lambda: 0, stop_in_sleep)
+T(sup2.run() == 0 and len(cnt) == 1, "stop during the pause after a crash: no further start")
+# stop after the end and stop twice are harmless
+sup2.stop(); sup2.stop(); T(sup2.run() == 0 and len(cnt) == 1, "run after stop never starts a child")
+# a child that ends by itself just as stop arrives
+sup3 = P.ProcessSupervisor(lambda a: FakeProc(1, []), lambda: 0, lambda ms: None)
+class Stops(FakeProc):
+    def wait(self): sup3.stop(); return 1
+sup3.spawn = lambda a: Stops(1, [])
+T(sup3.run() == 0 and sup3.starts == 1, "a crash exit that races with stop is not restarted")
+
 # make_spawn refuses a flag outside the allow-list
 spawn = P.make_spawn([sys.executable, "-c", "pass"])
 T(raises(lambda: spawn(["--engine", "/etc/passwd"]), ValueError), "make_spawn passes only allow-listed flags")
