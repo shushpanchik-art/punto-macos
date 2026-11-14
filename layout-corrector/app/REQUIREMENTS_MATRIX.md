@@ -8,8 +8,8 @@ Environment of this session: a Linux container without macOS, Windows, a display
 
 | Layer | State | Evidence |
 |---|---|---|
-| Engine, scorer, guards, undo, toggle, transaction (`reference/lfengine.py`) | done as reference | `REFERENCE_VERIFIED` (conformance 1,863,506 checks, `-O` identical, vectors, test_ref, L7 4/4 identical; mutation run r11 in progress, see `audit/L3/`) |
-| Portable runtime (`app/lfruntime.py`): gate -> HookHealth, gap -> mode, incident -> quarantine, hotkeys, per-application state | written | `SIM_TESTED` (34 checks, python and `-O`) |
+| Engine, scorer, guards, undo, toggle, transaction (`reference/lfengine.py`) | done as reference | `REFERENCE_VERIFIED` (conformance 1,863,620 checks, `-O` identical, vectors, test_ref, L7 4/4 identical; mutation run r13 on the final code and tests: 950 KILLED + 1 TIMEOUT of 991, 40 SURVIVED, 0 GAP, see `audit/L3/`; bound to the SHA of `lfengine.py` and `conformance.py`) |
+| Portable runtime (`app/lfruntime.py`): gate -> HookHealth, gap -> mode, incident -> quarantine, hotkeys, per-application state | written | `SIM_TESTED` (45 checks, python and `-O`; U-2 closed) |
 | Windows adapter (hook, Raw Input, UI Automation, `SendInput`, `RegisterHotKey`) | `NOT_STARTED` | `BLOCKED` (no Windows) |
 | macOS adapter (`CGEventTap`, Accessibility, hotkey) | `NOT_STARTED` | `BLOCKED` (no macOS) |
 | Models and calibration on real data (R-CAL, R-ACC) | `NOT_STARTED` | `BLOCKED` (no corpora and no acceptance data in this repository) |
@@ -18,7 +18,7 @@ Environment of this session: a Linux container without macOS, Windows, a display
 
 ## Spikes S-1 to S-7 (13.7): each needs a real OS, none was run
 
-For all seven the JSON result format and the decision rule (CONFIRMED / REFUTED / INCOMPLETE / INVALID, synthetic data never evidence) are in `spikes/spikes.py` and tested by `spikes/test_spikes.py`. The measuring programs are not written and no spike was run: every row stays `BLOCKED`.
+For all seven the JSON result format and the decision rule (CONFIRMED / REFUTED / INCOMPLETE / INVALID, synthetic data never evidence) are in `spikes/spikes.py` and tested by `spikes/test_spikes.py`. The measuring programs are written (compiled, never run on their OS) and no spike was run: every row stays `BLOCKED`.
 
 | Spike | Question | State |
 |---|---|---|
@@ -39,7 +39,8 @@ For all seven the JSON result format and the decision rule (CONFIRMED / REFUTED 
 | RT-3 | Guards before the model | `REFERENCE_VERIFIED` | n/a | n/a |
 | RT-4 | Every replacement follows the transaction, one outcome | `REFERENCE_VERIFIED` (1,821 faults) | `SIM_TESTED` (incident -> quarantine, exception -> incident) | `BLOCKED` (real frequency of the M2 race is measured on a device) |
 | RT-5 | Undo restores the recorded keys | `REFERENCE_VERIFIED` | `SIM_TESTED` (also after further typing: U-1 closed, `ahead_len`, M1 only) | `BLOCKED` |
-| RT-6, RT-17 | Nothing persisted or logged; crash handler | `REFERENCE_VERIFIED` for reprs (L9 P-1) | n/a | `NOT_STARTED` (adapter and crash handler) |
+| RT-6, RT-17 | Nothing persisted or logged; crash handler | `REFERENCE_VERIFIED` for reprs (L9 P-1); the portable store (`app/lfstore.py`, 28 checks) keeps no typed text, no quarantine, no incident counter | `SIM_TESTED` (store) | `NOT_STARTED` (adapter and crash handler) |
+| AP-4, AP-5 | Settings and exception list: one versioned file, migration with a backup, unreadable file renamed and replaced by defaults, newer file never written, exception list through a cipher, order kept, view/delete/clear/export, Reset, Delete all data | `TEXT_FIXED` | `SIM_TESTED` (`app/lfstore.py`, `app/test_store.py`, 28 checks; temporary files, a test cipher that is NOT encryption) | the OS key store (DPAPI, Keychain), the application-data directory, the settings screen and the application list with reasons: `BLOCKED` / not written. Two readings of mine for the requester: Reset keeps the exceptions; a newer file is kept untouched and not migrated down |
 | RT-7 | An error before step 4 changes nothing | `REFERENCE_VERIFIED` | `SIM_TESTED` (adapter exception = incident, no crash) | `BLOCKED` |
 | RT-8 | The hook never delays or drops a key | `REFERENCE_VERIFIED` (invariant I1) | `SIM_TESTED` (runtime has no path that holds a key) | `BLOCKED` (RT-16 measurement) |
 | RT-9 | Gate defaults to deny | `REFERENCE_VERIFIED` | `SIM_TESTED` (focus -> UNKNOWN) | `BLOCKED` |
@@ -62,7 +63,7 @@ For all seven the JSON result format and the decision rule (CONFIRMED / REFUTED 
 
 * **U-1** (closed in the reference, rev 501) The undo after further typing runs `run_transaction(..., ahead_len=snapshot.after)`: the typed characters are read, never written, only M1. Covered by conformance group U-1 and `test_runtime.py`; the adapter must still show it on a real application.
 * **U-2** (closed in the portable runtime, `SIM_TESTED`) `hotkey_convert` with an empty selection reads the last whitespace-delimited token before the caret through `Adapter.read` and converts it with `source="last_word"`. The "last run still in the buffer" shortcut of 13.3 is not used (the field text gives the same word). A real adapter must still pass RT-26 on a device: `BLOCKED`.
-* **RT-16-VS-HOOKHEALTH** (open, needs the requester) RT-16 says a slowed hook must be "detected within 300 ms"; `HookHealth` declares a loss only when the oldest unmatched event is older than 300 ms, so detection is always between 300 and about 400 ms after the first lost key (pinned in `spikes/test_slowhook.py`). The S-1 validator keeps the strict 300 ms and would say REFUTED. Either the requirement is restated (for example "300 ms of silence plus one timer tick") or `CANARY_MS` is lowered; that changes `lfengine.py` and needs a new full mutation run. Not decided here.
+* **RT-16-VS-HOOKHEALTH** (open, needs the requester; options, false-loss cost and bounds: `audit/RT16_vs_HookHealth.md`) RT-16 says a slowed hook must be "detected within 300 ms"; `HookHealth` declares a loss only when the oldest unmatched event is older than 300 ms, so detection is always between 300 and about 400 ms after the first lost key (pinned in `spikes/test_slowhook.py`). The S-1 validator keeps the strict 300 ms and would say REFUTED. Either the requirement is restated (for example "300 ms of silence plus one timer tick") or `CANARY_MS` is lowered; that changes `lfengine.py` and needs a new full mutation run. Not decided here.
 * The state that the runtime keeps per application (support status, quarantine, incident counter) is memory only. Persistence of the support matrix and the exception list is the adapter's work (13.7).
 
 ## Next step that does not need an OS

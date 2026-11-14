@@ -131,3 +131,8 @@
 * New `app/adapter_contract.py` (checks every adapter must pass; run against `SimDriver`) and `app/test_adapter_contract.py` (3 capability sets pass, 7 broken adapters must fail). Reference double only; no OS adapter exists.
 * New `spikes/slowhook.py` (replay of recorded streams through `HookHealth`), `s1slow` mode of the capture program (compiled, not run), `backend_control.py`, UIA and AX bindings of S-4 (compiled, not run), tests `test_slowhook.py`, `test_bindings.py`.
 * Found: RT-16 "within 300 ms" cannot be met by `HookHealth` (300 to about 400 ms from the first lost key). Recorded as open item RT-16-VS-HOOKHEALTH; the validator was NOT loosened; `lfengine.py` and `conformance.py` unchanged, so mutation run r13 (950 KILLED + 1 TIMEOUT, 40 SURVIVED) stays bound to the same source and test SHA.
+
+## 2026-11-14 (fourth part)
+* New `app/lfstore.py` + `app/test_store.py` (28 checks): AP-4/AP-5 storage; quarantine, incident counter and support status are deliberately not persisted. Real OS key store BLOCKED.
+* New `audit/RT16_vs_HookHealth.md` and `spikes/rt16_options.py`: requirement against implementation, options A to D, false-loss cost, timer bounds. Nothing normative changed; RT-16 not weakened.
+* Matrix: stale r11 / 1,863,506 / 34 checks / "programs not written" lines corrected; AP-4/AP-5 row added.
