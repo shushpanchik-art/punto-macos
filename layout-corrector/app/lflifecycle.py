@@ -210,6 +210,13 @@ class Supervisor:
         self.rt.apply_mode()
 
 
+def start_manual_only(runtime):
+    """The engine was started with `--manual-only` by the process supervisor after two crashes within 60 s (AP-7): MANUAL_ONLY with a notice."""
+    runtime.worker_ok = False
+    runtime.notices.append(("manual_only_after_crashes", ""))
+    runtime.apply_mode()
+
+
 def stop(runtime, store=None, state=None):
     """Orderly end: save the exception list first (when a store is given), then wipe what is derived from typed text."""
     saved = None
