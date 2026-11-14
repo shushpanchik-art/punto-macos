@@ -32,6 +32,12 @@ _SETTING_TYPES = {"auto_correction": bool, "start_at_login": bool, "diagnostics_
 DIRECTIONS = ("en2ru", "ru2en")
 
 
+class CipherUnavailable(RuntimeError):
+    """The key store cannot be used NOW or here (no backend on this system, locked, access refused, an API error). It is NOT a
+    verdict on the file: the store keeps the file as it is, runs on defaults in memory and does not write. Data that the key store
+    answers with "this is not decryptable" (a damaged ciphertext, a lost or different key) is a ValueError instead."""
+
+
 class Cipher:
     def encrypt(self, data: bytes) -> bytes: raise NotImplementedError
     def decrypt(self, data: bytes) -> bytes: raise NotImplementedError      # must raise on a wrong key or damaged data
@@ -156,19 +162,31 @@ class Store:
                     doc = self.migrations[doc["schema_version"]](doc)
                 migrated = True
             st = self._decode(doc)
+        except CipherUnavailable:
+            self.read_only = True                    # the file is intact: never rename it, never write over it
+            self.notices.append("cipher_unavailable")
+            return StoreState()
         except Exception:
             os.replace(self.path, self._aside("corrupt"))
             self.notices.append("file_unreadable_defaults")
             return StoreState()
         if migrated:
-            self._write(self._encode(st))
-            self.notices.append("migrated")
+            try:
+                self._write(self._encode(st))
+                self.notices.append("migrated")
+            except CipherUnavailable:
+                self.notices.append("cipher_unavailable")
         return st
 
     def save(self, st: StoreState) -> bool:
         if self.read_only:
             return False
-        self._write(self._encode(st))
+        try:
+            doc = self._encode(st)
+        except CipherUnavailable:
+            self.notices.append("cipher_unavailable")
+            return False                             # nothing written: the file on disk is as it was, nothing in clear
+        self._write(doc)
         return True
 
     # -- the user's commands (AP-4) ----------------------------------------------------------------------------------
