@@ -1,6 +1,6 @@
 # L3 mutation report: lfengine.py (reference engine), mutants from line 173 (`# ==== 20.5`) to line 1788
 
-Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-256 e83eccdacfa3574ddd9b2d1a936057b0e4f1da916129256754d61420fbc03e30; conformance.py 0f83060f0116dc7f50df406281188892ecb5d55a826d9b211bdeb6e2c7d9e4a1). Baseline: `python3 conformance.py 20000` prints OK; `vectors.py` matches `vectors_out.json`; `test_ref.py` passes. Each mutant runs `timeout 150 python3 conformance.py 20000` in its own directory.
+Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-256 e83eccdacfa3574ddd9b2d1a936057b0e4f1da916129256754d61420fbc03e30; conformance.py 2c0239795d96be69d82094724377037531c8c5814ebc090d339fcc7e4a0b56b9). Baseline: `python3 conformance.py 20000` prints OK; `vectors.py` matches `vectors_out.json`; `test_ref.py` passes. Each mutant runs `timeout 150 python3 conformance.py 20000` in its own directory.
 
 ## Counts
 
@@ -10,12 +10,12 @@ Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-25
 | did not compile (discarded) | 0 |
 | valid mutants | 991 |
 | run | 991 (sampled: no, all valid mutants) |
-| killed (incl. timeouts) | 950 |
+| killed (incl. timeouts) | 951 |
 | of which TIMEOUT | 1 |
-| survived | 41 |
+| survived | 40 |
 | survived-but-vectors-differ (subset of survived) | 0 |
 | survivors where test_ref.py also fails | 0 |
-| **kill rate = killed / run** | **95.9%** (950/991) |
+| **kill rate = killed / run** | **96.0%** (951/991) |
 
 ## Per operator
 
@@ -23,7 +23,7 @@ Source: `reference/lfengine.py` of the audited commit, copied to `base/` (SHA-25
 |---|---|---|---|---|---|---|---|
 | a | comparison | 193 | 0 | 193 | 193 | 187 | 6 |
 | b | boolean | 166 | 0 | 166 | 166 | 166 | 0 |
-| c | integer literal | 318 | 0 | 318 | 318 | 310 | 8 |
+| c | integer literal | 318 | 0 | 318 | 318 | 311 | 7 |
 | d | float literal | 80 | 0 | 80 | 80 | 59 | 21 |
 | e | statement deletion | 142 | 0 | 142 | 142 | 136 | 6 |
 | f | True/False | 92 | 0 | 92 | 92 | 92 | 0 |
@@ -131,12 +131,6 @@ Flags: `VECTORS_DIFFER` = vectors.py output differs from vectors_out.json (label
 | L1151_a01 | 1151 | a | `row.append(s if s > 0 else 0.0)` | `row.append(s if s >= 0 else 0.0)` |  |
 | L1151_d01 | 1151 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0*2))` |  |
 | L1151_d02 | 1151 | d | `row.append(s if s > 0 else 0.0)` | `row.append(s if s > 0 else (0.0/2))` |  |
-
-### `run_manual_transaction` (1)
-
-| id | line | op | original | mutated | flags |
-|---|---|---|---|---|---|
-| L1431_c01 | 1431 | c | `t = ad.read(lo, start + n + 1)` | `t = ad.read(lo, start + n + (1+1))` |  |
 
 ## Notes on how mutants were built
 

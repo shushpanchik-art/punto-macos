@@ -23,12 +23,12 @@ For all seven the JSON result format and the decision rule (CONFIRMED / REFUTED 
 | Spike | Question | State |
 |---|---|---|
 | S-1 | Is Raw Input the primary event source or only the canary (Windows)? | `BLOCKED`: result format and decision rule exist (`spikes/spikes.py`, tested with synthetic files only); the measuring program does not |
-| S-2 | Does `GetKeyboardLayout` for another process's thread work and does `ToUnicodeEx` accept that HKL? If not the pair stays OFF | `BLOCKED` |
+| S-2 | Does `GetKeyboardLayout` for another process's thread work and does `ToUnicodeEx` accept that HKL? If not the pair stays OFF | `BLOCKED`. Measuring program written (`spikes/windows/s2_layout_fingerprint.py`), NOT run on Windows; logic tested only with a fake binding (`spikes/test_measure.py`). The real measurement is `BLOCKED` (needs Windows). |
 | S-3 | The hotkey conflict rule; is input of an elevated window delivered to a non-elevated hook? Key auto-repeat agreement of the two sources | `BLOCKED` |
 | S-4 | Write results by control class across processes (the five tests per class) | `BLOCKED` |
-| S-5 | Does the hotkey API withhold the key from the application? Registration, conflict and release per release version | `BLOCKED` |
-| S-6 | Key codes independent of the input source (Russian - PC); the macOS call that builds the layout fingerprint | `BLOCKED` |
-| S-7 | The engineering limit of 20 UTF-16 code units per synthetic batch (M2) | `BLOCKED` |
+| S-5 | Does the hotkey API withhold the key from the application? Registration, conflict and release per release version | `BLOCKED`. Measuring program written (`spikes/windows/s5_hotkey.py`), NOT run on Windows; logic tested only with a fake binding (`spikes/test_measure.py`). The real measurement is `BLOCKED` (needs Windows). |
+| S-6 | Key codes independent of the input source (Russian - PC); the macOS call that builds the layout fingerprint | `BLOCKED`. Measuring program written (`spikes/macos/s6_keycodes_and_fingerprint.py`), NOT run on macOS; logic tested only with a fake binding (`spikes/test_measure.py`). The real measurement is `BLOCKED` (needs macOS). |
+| S-7 | The engineering limit of 20 UTF-16 code units per synthetic batch (M2) | `BLOCKED`. Measuring program written (`spikes/macos/s7_tag_and_batch.py`), NOT run on macOS; logic tested only with a fake binding (`spikes/test_measure.py`). The real measurement is `BLOCKED` (needs macOS). |
 
 ## Requirements RT-1 to RT-27 (section 13.6): what can be said now
 
@@ -68,4 +68,4 @@ For all seven the JSON result format and the decision rule (CONFIRMED / REFUTED 
 
 1. (done) U-1.
 2. Write the adapter contract tests as a reusable suite (`SimField` already follows `Adapter`), so that a Windows or macOS adapter can be plugged in and run against the same cases on a device.
-3. (format done) Write the measuring programs of S-1 to S-7 for Windows (C#/C++) and macOS (Swift); they cannot be compiled or run in this Linux container, so they stay `BLOCKED` until they run on devices.
+3. (format done; programs for S-2, S-5, S-6, S-7 written in Python, ctypes and PyObjC, not run) Still to write: the programs of S-1 (100,000 physical key events typed by a person, hook against Raw Input), S-3 (elevated windows, auto-repeat) and S-4 (write results per control class across real applications; needs UI automation of each application). All stay `BLOCKED` until they run on devices.

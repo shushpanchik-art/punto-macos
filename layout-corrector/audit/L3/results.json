@@ -4,7 +4,7 @@
    "id": "base",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)"
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)"
   },
   "vectors_test_ref": {
    "id": "base",
@@ -108,7 +108,7 @@
    "id": "L0212_c01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -117,7 +117,7 @@
    "id": "L0212_c02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -132,7 +132,7 @@
    "id": "L0212_c04",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -315,7 +315,7 @@
    "id": "L0267_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -324,7 +324,7 @@
    "id": "L0267_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -435,7 +435,7 @@
    "id": "L0275_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -444,7 +444,7 @@
    "id": "L0275_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -489,7 +489,7 @@
    "id": "L0278_a01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -522,7 +522,7 @@
    "id": "L0280_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -531,7 +531,7 @@
    "id": "L0280_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -540,7 +540,7 @@
    "id": "L0280_d03",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -1527,7 +1527,7 @@
    "id": "L0628_e01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -1536,7 +1536,7 @@
    "id": "L0629_e01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -1755,7 +1755,7 @@
    "id": "L0686_e01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -1764,7 +1764,7 @@
    "id": "L0687_e01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -1797,7 +1797,7 @@
    "id": "L0693_e01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -1998,7 +1998,7 @@
    "id": "L0725_e01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2577,7 +2577,7 @@
    "id": "L0841_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2586,7 +2586,7 @@
    "id": "L0841_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2631,7 +2631,7 @@
    "id": "L0847_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2640,7 +2640,7 @@
    "id": "L0847_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2649,7 +2649,7 @@
    "id": "L0847_d03",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2658,7 +2658,7 @@
    "id": "L0847_d04",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2667,7 +2667,7 @@
    "id": "L0847_d05",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2676,7 +2676,7 @@
    "id": "L0847_d06",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2685,7 +2685,7 @@
    "id": "L0848_a01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2706,7 +2706,7 @@
    "id": "L0849_c01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2721,7 +2721,7 @@
    "id": "L0850_c01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2730,7 +2730,7 @@
    "id": "L0850_c02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2751,7 +2751,7 @@
    "id": "L0852_a01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -2892,7 +2892,7 @@
    "id": "L0876_a01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3039,7 +3039,7 @@
    "id": "L0911_a01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3054,7 +3054,7 @@
    "id": "L0911_c02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3081,7 +3081,7 @@
    "id": "L0922_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3090,7 +3090,7 @@
    "id": "L0922_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3327,7 +3327,7 @@
    "id": "L1029_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3336,7 +3336,7 @@
    "id": "L1029_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3723,7 +3723,7 @@
    "id": "L1151_a01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3732,7 +3732,7 @@
    "id": "L1151_d01",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -3741,7 +3741,7 @@
    "id": "L1151_d02",
    "status": "SURVIVED",
    "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
+   "conf_head": "OK (207976 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
    "vec_rc": 0,
    "vec_differs": false,
    "test_ref_rc": 0
@@ -4840,12 +4840,9 @@
   },
   {
    "id": "L1431_c01",
-   "status": "SURVIVED",
-   "conf_rc": 0,
-   "conf_head": "OK (207973 checks, 1821 single and double faults, 60 fuzz conversions, 20 fuzz undos)",
-   "vec_rc": 0,
-   "vec_differs": false,
-   "test_ref_rc": 0
+   "status": "KILLED",
+   "conf_rc": 1,
+   "conf_head": ""
   },
   {
    "id": "L1431_c02",

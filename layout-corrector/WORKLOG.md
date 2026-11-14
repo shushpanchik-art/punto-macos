@@ -116,3 +116,7 @@
 * r12 fresh full run (991 mutants, 950 killed = 95.9%); the evidence script found one GAP (L1431_c01), closed by three checks (spec rev 502, L7 4/4 IDENTICAL).
 * `spikes/`: result format and decision rules of S-1..S-7 with synthetic-only tests; no spike was run (needs Windows and macOS).
 * Not done and not claimed: blind L1, independent second L9 review (no independent executor), LocLLM (not available in this container), OS adapters, real applications, calibration/latency on devices.
+
+## 2026-11-14
+* r13: fresh full mutation run, final code and final tests: 991 mutants, 951 killed = 96.0%, 40 survivors, all classified, 0 GAP. r12 is history.
+* Measuring programs written, not run: S-2, S-5 (Windows, ctypes), S-6, S-7 (macOS, PyObjC/ctypes); `spikes/test_measure.py` tests their logic with fake bindings. S-1, S-3, S-4: not written. No spike result exists.

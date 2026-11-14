@@ -8,16 +8,15 @@ physical events by a real hook or Raw Input (that needs `INTEGRATION_VERIFIED`, 
 | item | value |
 |---|---|
 | code under test | `layout-corrector/reference/lfengine.py`, git blob `aa34f7e5fe506a02ea6d6db4f4d70061c9a59e9d`, SHA-256 `e83eccdacfa3574ddd9b2d1a936057b0e4f1da916129256754d61420fbc03e30` |
-| tests during the run | `conformance.py` with SHA-256 `0f83060f0116dc7f50df406281188892ecb5d55a826d9b211bdeb6e2c7d9e4a1` (copied to `base/` of the run) |
-| tests after the run | `conformance.py` blob `e8459a21933dca7251e733e9b63bf4dbf0dcf0d9`, SHA-256 `2c0239795d96be69d82094724377037531c8c5814ebc090d339fcc7e4a0b56b9`: only three checks appended after the run (see "One gap found by the evidence") |
+| tests during the run | `conformance.py` with SHA-256 `2c0239795d96be69d82094724377037531c8c...` (the final file, including the three checks for `L1431_c01`; copied to `base/` of the run) |
 | specification | rev 502; its code blocks of section 20 are byte-identical to the files (`audit/L7_check_spec_blocks.py`, 4 of 4 IDENTICAL, run after the last edit) |
-| run | `r12`, 2026-11-13, all 991 valid mutants, no sampling, **one stage, one oracle** (no shortcut as in r10) |
+| run | `r13`, 2026-11-13/14, all 991 valid mutants against the final code AND the final tests, no sampling, **one stage, one oracle** (no shortcut as in r10). It follows r12 (950 killed = 95.9%, run before the three `L1431_c01` checks; kept in this history only) |
 
-r12 is a fresh full run on the code after the toggle, the selection contract, the P3 fixes and the U-1 change (`ahead_len`). The earlier run r10 (795 mutants) was on older
+r13 is a fresh full run on the code after the toggle, the selection contract, the P3 fixes and the U-1 change (`ahead_len`). The earlier run r10 (795 mutants) was on older
 code and is void; r11 (977 mutants, same code except U-1, 91.9%: 79 survivors) was the first run on the new code and showed the test holes that the block `G` of
-`conformance.py` closes; it is kept in this history only. If the code changes again, r12 is void and must be run again.
+`conformance.py` closes; it is kept in this history only. If the code or the tests change again, r13 is void and must be run again.
 
-The run was interrupted once (the container paused at 240 of 991) and resumed with `resume_run.py`, which skips finished mutants; the results file holds one line per mutant.
+The run was interrupted twice (the container paused at 81 of 991 and once more) and resumed with `resume_run.py`, which skips finished mutants; the results file holds one line per mutant.
 
 ## What was run
 
@@ -33,20 +32,20 @@ The run was interrupted once (the container paused at 240 of 991) and resumed wi
 
 ## Result
 
-| quantity | r12, final code |
+| quantity | r13, final code and tests |
 |---|---|
 | mutants generated, valid, run | 991, 991, 991 |
-| killed (one of them by timeout) | **950** |
-| survived | 41 |
+| killed (one of them by timeout) | **951** |
+| survived | 40 |
 | survived and `vectors.py` output differs | 0 |
 | survived and `test_ref.py` fails | 0 |
-| **kill rate on all mutants** | **95.9%** (950 / 991) |
-| kill rate without the timeout | 95.8% (949 / 991) |
+| **kill rate on all mutants** | **96.0%** (951 / 991) |
+| kill rate without the timeout | 95.9% (950 / 991) |
 
-**The plan's criterion ("at least 95% of mutants killed") is met literally, with a margin of 0.9 percentage points.** Per operator: comparison 193 (6 survived),
+**The plan's criterion ("at least 95% of mutants killed") is met literally, with a margin of 1.0 percentage point.** Per operator: comparison 193 (6 survived),
 boolean 166 (0), integer literal 318 (8), float literal 80 (21), statement deletion 142 (6), True/False 92 (0).
 
-## The 41 survivors of r12
+## The 40 survivors of r13
 
 Each was run against the original on a stated set of inputs by `L3_equivalence_evidence.py` (fixed seeds). Classes:
 
@@ -62,16 +61,15 @@ Each was run against the original on a stated set of inputs by `L3_equivalence_e
 * DIFFERENTIAL: equal on a large stated set of inputs up to rounding (the normaliser of `score` cancels; the start, factor and iteration count of the `poisson_upper` search; `s >= 0` in the ReLU; the unreachable `_drop_snapshot()` of line 725).
 * TIE_IMPOSSIBLE: differs only when two floats are exactly equal and the script shows that cannot happen (`L0278_a01`, `L0876_a01`).
 * REDUNDANT: another statement does the same: after `UNRECOVERED` the very next statement calls `_quarantine()` (`L0628`, `L0629`, `L0686`, `L0687`, `L0693`: 10,864 random operations on two engines, the whole state compared after each); `L0280_d03` and `L0911_*` as in r10.
-* GAP: **one**, see below.
+* GAP: none in r13 (r12 had one, `L1431_c01`, see below).
 
 An equivalence argument is an argument, not a proof. Each can be re-checked by running `m/<id>/lfengine.py` against the tests.
 
-## One gap found by the evidence
+## The gap that r12's evidence found, and its closure
 
 `L1431_c01` (`ad.read(lo, start + n + 1)` read as `start + n + 2` in `run_manual_transaction`) was classified GAP, not equivalent: with the fault "stale" on the first
 read the original does not accept the damaged character behind the word and ends RESTORED (M1), UNRECOVERED (M1 without ROLLBACK, M2), while the mutant ends VERIFIED. Three
-checks were appended to `conformance.py` after the run (`G: a damaged first read`); the mutant was then run alone against the new tests and is KILLED, and the file
-passes normal and `-O`. This is a re-measurement of that one mutant, not of the other 990; the three checks only append, so a mutant killed by the earlier tests stays killed.
+checks were appended to `conformance.py` (`G: a damaged first read`); run r13 then repeated all 991 mutants against the final tests and `L1431_c01` is KILLED.
 
 ## What r11 taught (fixed by tests, not by code)
 

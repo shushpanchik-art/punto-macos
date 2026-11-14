@@ -1,11 +1,10 @@
 {
- "survivors": 41,
+ "survivors": 40,
  "classes": {
   "DIFFERENTIAL": 14,
   "IDENTICAL": 16,
   "TIE_IMPOSSIBLE": 2,
-  "REDUNDANT": 8,
-  "GAP": 1
+  "REDUNDANT": 8
  },
  "rows": [
   {
@@ -287,13 +286,6 @@
    "change": "0.0 -> 0.0/2",
    "class": "IDENTICAL",
    "evidence": "`0.0` and `0.0/2` evaluate to the same number"
-  },
-  {
-   "id": "L1431_c01",
-   "line": 1431,
-   "change": "1 -> 1+1",
-   "class": "GAP",
-   "evidence": "2520 field texts x capability sets x fault kinds x call numbers: 6 differences in outcome, reason, quarantine or final text"
   }
  ]
 }
