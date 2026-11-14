@@ -176,7 +176,7 @@ CHILD = textwrap.dedent('''
     for i, (ch, k) in enumerate(zip(w, L.keys_from_text(w, "en"))):
         fld.type_user(ch); rt.on_hook_event(L.Event("key", k, "en", 100 + i), sig=("k", i))
     fld.type_user(" "); d = rt.on_hook_event(L.Event("space", None, "en", 110))
-    print("snapshot_alive", rt.engine.snapshot is not None, "faulthandler", faulthandler.is_enabled())
+    print("snapshot_alive", rt.engine.snapshot is not None, "faulthandler", faulthandler.is_enabled(), flush=True)
     K.CrashReporter({dir!r}, "1.0.0", lambda: {{"crashes": 1}}).install()
     mode = sys.argv[1]
     secret = "ghbdtn привет"
