@@ -136,3 +136,9 @@
 * New `app/lfstore.py` + `app/test_store.py` (28 checks): AP-4/AP-5 storage; quarantine, incident counter and support status are deliberately not persisted. Real OS key store BLOCKED.
 * New `audit/RT16_vs_HookHealth.md` and `spikes/rt16_options.py`: requirement against implementation, options A to D, false-loss cost, timer bounds. Nothing normative changed; RT-16 not weakened.
 * Matrix: stale r11 / 1,863,506 / 34 checks / "programs not written" lines corrected; AP-4/AP-5 row added.
+
+## 2026-11-14 (fifth part)
+* `_word_before` read more than its stated bound (10,003 for a token of 10,001; the window went on to 16,384): window now 64, 256, 1024, 4096, capped at MANUAL_MAX + 2; boundary tests 9,999 / 10,000 / 10,001 / 20,000; the new test fails on the old code.
+* Bug found by test: the quarantine of one application stayed in the engine after the focus moved, so the next application was AUTO but silent. `apply_mode` now releases the engine's flag when the focused application is not quarantined; the new test fails on the old code.
+* AP-4: `explain`, `app_list`, `blacklist`, `reenable`, `prefs`/`load_prefs`, `on_esc` in `lfruntime.py`; `test_apps.py` (794 checks). Quarantine and incidents are not persisted. `Store` refuses `TestOnlyCipher` unless `allow_test_cipher=True` (tests only).
+* `lfengine.py` and `conformance.py` unchanged.

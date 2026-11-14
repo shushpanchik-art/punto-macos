@@ -11,7 +11,7 @@ def T(c, w):
 
 def fresh():
     d = tempfile.mkdtemp(prefix="lfstore_")
-    return d, S.Store(os.path.join(d, "settings.json"), S.TestOnlyCipher(b"key"))
+    return d, S.Store(os.path.join(d, "settings.json"), S.TestOnlyCipher(b"key"), allow_test_cipher=True)
 
 d, s = fresh()
 st = s.load()
@@ -22,7 +22,7 @@ st.exceptions = [("en2ru", "ghbdtn"), ("ru2en", "руддщ")]
 T(s.save(st) and not os.path.exists(s.path + ".tmp"), "save is atomic: no temp file is left")
 raw = open(s.path, encoding="utf-8").read()
 T("ghbdtn" not in raw and "руддщ" not in raw, "the exception words are not in the file in clear (they go through the Cipher)")
-st2 = S.Store(s.path, S.TestOnlyCipher(b"key")).load()
+st2 = S.Store(s.path, S.TestOnlyCipher(b"key"), allow_test_cipher=True).load()
 T(st2.settings["auto_correction"] is False and st2.apps == st.apps and st2.exceptions == st.exceptions, "round trip keeps settings, apps and the exception order")
 T("quarantine" not in raw and "incident" not in raw and "support" not in raw, "quarantine, incidents and support status are not stored")
 
@@ -36,7 +36,7 @@ def bad(mut, label, cipher=None):
         json.dump(doc, open(s.path, "w", encoding="utf-8"))
     else:
         open(s.path, "w").write("{not json")
-    s2 = S.Store(s.path, cipher or S.TestOnlyCipher(b"key"))
+    s2 = S.Store(s.path, cipher or S.TestOnlyCipher(b"key"), allow_test_cipher=True)
     r = s2.load()
     names = os.listdir(d)
     T(r.settings == S.DEFAULT_SETTINGS and r.exceptions == [] and "file_unreadable_defaults" in s2.notices
@@ -49,19 +49,19 @@ bad(lambda x: x["apps"].update({"a": {"blacklist": 1, "esc_undoes": False}}), "a
 bad(lambda x: x.update(schema_version=True), "schema_version bool")
 bad(lambda x: x.update(schema_version=0), "older version without a migration")
 d, s = fresh(); st = S.StoreState(); st.exceptions = [("en2ru", "abc")]; s.save(st)
-s3 = S.Store(s.path, S.TestOnlyCipher(b"other")); r = s3.load()
+s3 = S.Store(s.path, S.TestOnlyCipher(b"other"), allow_test_cipher=True); r = s3.load()
 T(r.exceptions == [] and "file_unreadable_defaults" in s3.notices, "a wrong key makes the file unreadable, never half-read")
 d, s = fresh(); st = S.StoreState(); st.exceptions = [("xx", "abc")]; s.save(st)
-r = S.Store(s.path, S.TestOnlyCipher(b"key")).load()
+r = S.Store(s.path, S.TestOnlyCipher(b"key"), allow_test_cipher=True).load()
 T(r.exceptions == [], "an exception with an unknown direction makes the file unreadable")
 d, s = fresh(); st = S.StoreState(); st.exceptions = [("en2ru", "a b")]; s.save(st)
-T(S.Store(s.path, S.TestOnlyCipher(b"key")).load().exceptions == [], "an exception with white space makes the file unreadable")
+T(S.Store(s.path, S.TestOnlyCipher(b"key"), allow_test_cipher=True).load().exceptions == [], "an exception with white space makes the file unreadable")
 
 # newer file: kept, never written
 d, s = fresh(); st = S.StoreState(); s.save(st)
 doc = json.load(open(s.path, encoding="utf-8")); doc["schema_version"] = 99; json.dump(doc, open(s.path, "w", encoding="utf-8"))
 before = open(s.path, encoding="utf-8").read()
-s2 = S.Store(s.path, S.TestOnlyCipher(b"key")); r = s2.load()
+s2 = S.Store(s.path, S.TestOnlyCipher(b"key"), allow_test_cipher=True); r = s2.load()
 T(r.settings == S.DEFAULT_SETTINGS and s2.read_only and "newer_file_kept" in s2.notices and s2.save(r) is False
   and open(s.path, encoding="utf-8").read() == before and os.listdir(d) == ["settings.json"], "a newer file is kept untouched and never written")
 
@@ -70,10 +70,10 @@ d, s = fresh(); st = S.StoreState(); st.exceptions = [("en2ru", "abc")]; s.save(
 doc = json.load(open(s.path, encoding="utf-8")); doc["schema_version"] = 0; doc["old"] = 1; json.dump(doc, open(s.path, "w", encoding="utf-8"))
 def mig(doc):
     doc = dict(doc); doc.pop("old"); doc["schema_version"] = 1; return doc
-s2 = S.Store(s.path, S.TestOnlyCipher(b"key"), {0: mig}); r = s2.load()
+s2 = S.Store(s.path, S.TestOnlyCipher(b"key"), {0: mig}, allow_test_cipher=True); r = s2.load()
 T(r.exceptions == [("en2ru", "abc")] and "migrated" in s2.notices and any(n.startswith("settings.json.backup-v0-") for n in os.listdir(d))
   and json.load(open(s.path, encoding="utf-8"))["schema_version"] == 1, "an older file is migrated forward after a backup copy")
-s2 = S.Store(s.path, S.TestOnlyCipher(b"key"), {0: lambda d: 1 / 0})
+s2 = S.Store(s.path, S.TestOnlyCipher(b"key"), {0: lambda d: 1 / 0}, allow_test_cipher=True)
 doc = json.load(open(s.path, encoding="utf-8")); doc["schema_version"] = 0; json.dump(doc, open(s.path, "w", encoding="utf-8"))
 r = s2.load()
 T(r.exceptions == [] and "file_unreadable_defaults" in s2.notices, "a failing migration ends as an unreadable file; the backup stays")
@@ -94,7 +94,7 @@ T(os.listdir(d) == [], "Delete all data also removes the copies the module made"
 
 # the limit and the order
 d, s = fresh(); st = S.StoreState(); st.exceptions = [("en2ru", f"w{i}") for i in range(L.MAX_EXCEPTIONS + 5)]; s.save(st)
-r = S.Store(s.path, S.TestOnlyCipher(b"key")).load()
+r = S.Store(s.path, S.TestOnlyCipher(b"key"), allow_test_cipher=True).load()
 T(len(r.exceptions) == L.MAX_EXCEPTIONS and r.exceptions[0] == ("en2ru", "w5"), "more than 10,000 entries: the oldest leave first")
 
 # the engine: the order survives a restart, the next undo evicts the OLDEST stored word
@@ -116,4 +116,9 @@ T(r is not None and r.outcome == "VERIFIED" and ("en2ru", "w0") not in e.excepti
   and ("en2ru", "ghbdtn") in e.exceptions, "after a restart the least recently undone stored word is evicted first")
 st2 = S.StoreState(); S.sync_from_engine(e, st2)
 T(st2.exceptions[-1] == ("en2ru", "ghbdtn") and len(st2.exceptions) == L.MAX_EXCEPTIONS, "the engine's list is copied back, newest last")
+for bad_c in (S.TestOnlyCipher(b"k"), object(), None):
+    try:
+        S.Store(os.path.join(tempfile.mkdtemp(), "f.json"), bad_c); T(False, "a test cipher or a non-cipher must be refused")
+    except (ValueError, TypeError):
+        T(True, "the test double and non-ciphers are refused for a real store")
 print(f"OK ({CHECKS} storage checks; test cipher only, no OS key store, files in a temporary directory)")

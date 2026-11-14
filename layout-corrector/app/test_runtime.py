@@ -166,4 +166,29 @@ rt, fld = make(support="MANUAL", text="ghbdtn", faults={("read", 2): "user:q"})
 r = rt.hotkey_convert(10)
 T(r.outcome != "VERIFIED" or fld.text != "привет", "U-2: a user key during the transaction is never VERIFIED over it")
 
+# 13. _word_before: the largest read is MANUAL_MAX + 2 and the window grows 64, 256, 1024, 4096, 10002
+class CountRead(L.SimField):
+    sizes = None
+    def read(self, a, b):
+        self.sizes.append(b - a)
+        return super().read(a, b)
+for n, want_ok in ((9_999, True), (10_000, True), (10_001, False), (20_000, False)):
+    fld = CountRead("a " + "x" * n, M1); fld.sizes = []
+    rt = R.Runtime(L.Engine(L.example_cal(), scorer, {}), L.HookHealth(canary=False)); rt.on_focus("app.t", fld, "MANUAL"); rt.on_gate(L.GATE_ALLOW)
+    fld.sizes.clear()
+    w = rt._word_before(len(fld.text))
+    T(max(fld.sizes) <= L.MANUAL_MAX + 2, f"U-2: no read longer than MANUAL_MAX + 2 for a token of {n}: {fld.sizes}")
+    T(len(w) == n if n <= L.MANUAL_MAX else len(w) > L.MANUAL_MAX, f"U-2: the token of {n} is found whole or refused as too long")
+    fld.sizes.clear()
+    r = rt.hotkey_convert(5)
+    T((r.outcome == "VERIFIED") == want_ok and (want_ok or r.reason == "length"), f"U-2: boundary, token of {n}: {r.outcome} {r.reason}")
+fld = CountRead("a " + "x" * 5000, M1); fld.sizes = []
+rt = R.Runtime(L.Engine(L.example_cal(), scorer, {}), L.HookHealth(canary=False)); rt.on_focus("app.t", fld, "MANUAL"); rt.on_gate(L.GATE_ALLOW)
+rt._word_before(len(fld.text))
+T(fld.sizes == [64, 256, 1024, 4096, 5002], f"U-2: the window grows 64, 256, 1024, 4096 and stops at the start of the field: {fld.sizes}")
+fld = CountRead("a " + "x" * 20_000, M1); fld.sizes = []
+rt = R.Runtime(L.Engine(L.example_cal(), scorer, {}), L.HookHealth(canary=False)); rt.on_focus("app.t", fld, "MANUAL"); rt.on_gate(L.GATE_ALLOW)
+fld.sizes.clear(); rt._word_before(len(fld.text))
+T(fld.sizes == [64, 256, 1024, 4096, 10002], f"U-2: a very long token stops at MANUAL_MAX + 2: {fld.sizes}")
+
 print(f"OK ({CHECKS} runtime checks)")

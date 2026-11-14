@@ -35,7 +35,10 @@ class AppState:
             raise ValueError(support)
         self.support = support
         self.quarantined = False
-        self.incidents = 0                       # a counter, never text (13.2 step 6)
+        self.incidents = 0                       # a counter, never text (13.2 step 6); memory only, like the quarantine
+        self.blacklisted = False                 # the user switched the application off (AP-4); persisted by lfstore
+        self.esc_undoes = False                  # "Esc also undoes", opt-in per application (AP-4); persisted by lfstore
+        self.caps = None                         # the capabilities its adapter reported at the last focus; memory only
 
 
 class Runtime:
@@ -55,19 +58,22 @@ class Runtime:
     # -- facts -> mode ---------------------------------------------------------------------------------------------
     def _mode(self) -> str:
         app = self.apps.get(self.app_id)
-        if app is None or self.ad is None:
+        if app is None or self.ad is None or app.blacklisted:
             return "OFF"
         return L.engine_mode(self.ad.caps, app.support, models_ok=self.models_ok, layout_ok=self.layout_ok,
                              permission_ok=self.permission_ok, hook_ok=self.health.ok and not self.health.sticky,
                              watchdog_ok=self.watchdog_ok, quarantined=app.quarantined)
 
     def apply_mode(self):
+        app = self.apps.get(self.app_id)
+        if app is not None and not app.quarantined and self.engine.quarantined:
+            self.engine.release_quarantine()      # the quarantine belongs to ONE application; it never follows the focus (found by test)
         self.engine.set_mode(self._mode())
 
     # -- focus, gate -----------------------------------------------------------------------------------------------
     def on_focus(self, app_id: str, adapter, support: str = "UNKNOWN"):
         """Another element or application has the focus: nothing of the old one survives (RT-20, 13.2 step 1)."""
-        self.apps.setdefault(app_id, AppState(support))
+        self.apps.setdefault(app_id, AppState(support)).caps = frozenset(adapter.caps)
         self.app_id, self.ad = app_id, adapter
         self.engine.on_event(L.Event("break"))
         self.engine.set_gate(L.GATE_UNKNOWN)
@@ -86,12 +92,88 @@ class Runtime:
         self.apply_mode()
 
     def release_quarantine(self, app_id: str):
-        """An explicit user action or a restart (13.2 step 6)."""
+        """An explicit user action or a restart (13.2 step 6). Prefer `reenable`, which also reports what the mode is now."""
         a = self.apps.get(app_id)
         if a is not None:
             a.quarantined = False
-        self.engine.release_quarantine()
+        if app_id == self.app_id:
+            self.engine.release_quarantine()
         self.apply_mode()
+
+    # -- the application list (AP-4) ----------------------------------------------------------------------------------
+    def explain(self, app_id: str):
+        """(mode, reasons) of one application, derived from the same facts as `_mode` and in the order of `engine_mode`.
+        Reasons: blacklist, quarantine, permission, layout, support_unknown, no_write_capability (all give OFF);
+        support_manual, no_auto_capability, models, stream, watchdog (MANUAL_ONLY); an empty list is AUTO. A name only, never text."""
+        a = self.apps.get(app_id)
+        if a is None:
+            return "OFF", ["support_unknown"]
+        if a.caps is None:                       # never focused: its capabilities are not known
+            return "OFF", (["blacklist"] if a.blacklisted else []) + ["support_unknown"]
+        r = []
+        if a.blacklisted: r.append("blacklist")
+        if a.quarantined: r.append("quarantine")
+        if not self.permission_ok: r.append("permission")
+        if not self.layout_ok: r.append("layout")
+        if a.support == "UNKNOWN": r.append("support_unknown")
+        if L.REPLACE_RANGE not in a.caps and L.SYNTHETIC_INPUT not in a.caps: r.append("no_write_capability")
+        if r:
+            return "OFF", r
+        if a.support != "AUTO": r.append("support_manual")
+        if not L.AUTO_REQUIRES <= a.caps: r.append("no_auto_capability")
+        if not self.models_ok: r.append("models")
+        if not (self.health.ok and not self.health.sticky): r.append("stream")
+        if not self.watchdog_ok: r.append("watchdog")
+        return ("MANUAL_ONLY" if r else "AUTO"), r
+
+    def app_list(self):
+        """One row per application seen: id, support status, mode, reasons, incident count (AP-4). Sorted by id."""
+        out = []
+        for k in sorted(self.apps):
+            mode, why = self.explain(k)
+            out.append({"app": k, "support": self.apps[k].support, "mode": mode, "reasons": why, "incidents": self.apps[k].incidents,
+                        "can_reenable": self.apps[k].quarantined or self.apps[k].blacklisted})
+        return out
+
+    def blacklist(self, app_id: str, on: bool = True):
+        """The user switches an application off (or removes it from the list). Only `reenable` or this undoes it."""
+        self.apps.setdefault(app_id, AppState("UNKNOWN")).blacklisted = bool(on)
+        if app_id == self.app_id:
+            self.engine.on_event(L.Event("break"))
+        self.apply_mode()
+
+    def reenable(self, app_id: str):
+        """The re-enable button (13.5 row 10, AP-4). It clears the blacklist and the quarantine of that application and nothing
+        else: the support status is never changed, AUTO is returned only when every fact still allows it (`explain`), the
+        incident counter stays, the focused application starts from a clean state (no word, no snapshot) and the next incident
+        quarantines it again. Returns (mode, reasons), or None for an unknown application."""
+        a = self.apps.get(app_id)
+        if a is None:
+            return None
+        a.quarantined = a.blacklisted = False
+        if app_id == self.app_id:
+            self.engine.release_quarantine()
+            self.engine.on_event(L.Event("break"))
+        self.apply_mode()
+        self.notices.append(("reenabled", app_id))
+        return self.explain(app_id)
+
+    def prefs(self):
+        """What is persisted per application (lfstore `apps`): the user's two choices, nothing else."""
+        return {k: {"blacklist": v.blacklisted, "esc_undoes": v.esc_undoes} for k, v in self.apps.items() if v.blacklisted or v.esc_undoes}
+
+    def load_prefs(self, apps: dict):
+        for k, v in apps.items():
+            a = self.apps.setdefault(k, AppState("UNKNOWN"))
+            a.blacklisted, a.esc_undoes = bool(v["blacklist"]), bool(v["esc_undoes"])
+        self.apply_mode()
+
+    def on_esc(self, now_ms: int):
+        """Esc pressed (it always passes through to the application): undo only where the user opted in (AP-4)."""
+        a = self.apps.get(self.app_id)
+        if a is None or not a.esc_undoes:
+            return None
+        return self.hotkey_undo(now_ms)
 
     # -- event stream health ----------------------------------------------------------------------------------------
     def _health_gap(self, reason_hint: str = ""):
@@ -191,9 +273,13 @@ class Runtime:
 
     def _word_before(self, caret: int):
         """The whitespace-delimited token that ends at `caret`: "" when the character before the caret is white space or
-        the field is empty there, None when the text is not readable. Reads at most MANUAL_MAX + 2 characters."""
+        the field is empty there, None when the text is not readable. No read is longer than MANUAL_MAX + 2 characters: the
+        window grows 64, 256, 1024, 4096, then is capped at that size. A token of more than MANUAL_MAX characters is
+        returned as it is found (at least MANUAL_MAX + 1 of them), and the caller refuses it as too long."""
+        cap = L.MANUAL_MAX + 2
         w = 64
         while True:
+            w = min(w, cap)
             lo = max(caret - w, 0)
             t = self.ad.read(lo, caret)
             if t is None:
@@ -201,7 +287,7 @@ class Runtime:
             i = len(t)
             while i > 0 and not t[i - 1].isspace():
                 i -= 1
-            if i > 0 or lo == 0 or w > L.MANUAL_MAX + 1:
+            if i > 0 or lo == 0 or w >= cap:
                 return t[i:]
             w *= 4
 

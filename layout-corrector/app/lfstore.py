@@ -86,7 +86,11 @@ def _valid(doc):
 
 
 class Store:
-    def __init__(self, path, cipher: Cipher, migrations=None):
+    def __init__(self, path, cipher: Cipher, migrations=None, *, allow_test_cipher: bool = False):
+        if not isinstance(cipher, Cipher):
+            raise TypeError("cipher must be a Cipher")
+        if isinstance(cipher, TestOnlyCipher) and not allow_test_cipher:
+            raise ValueError("TestOnlyCipher is a test double, not encryption: it cannot be used for a real file")
         self.path, self.cipher = path, cipher
         self.migrations = dict(migrations or {})      # {from_version: fn(doc) -> doc of the next version}
         self.read_only = False                        # a newer file: never written
