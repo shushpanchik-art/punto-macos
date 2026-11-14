@@ -11,7 +11,7 @@ must differ between sources, and for U.S. and Russian - PC they must equal the s
 Run on macOS:  python3 s6_keycodes_and_fingerprint.py out.json          (pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa)
 It selects input sources with TISSelectInputSource and restores the one that was active; it asks for no permission itself and
 changes no setting beyond that temporary selection.
-STATE: written here, NOT RUN on macOS. Logic tested with a fake binding (test_measure.py), which proves nothing about macOS."""
+STATE: written here, NOT RUN on macOS; the PyObjC/ctypes glue (`sources`, `uc_char`, `select`) was written without a Mac and is the least certain part, expect to fix it on first run. Logic tested with a fake binding (test_measure.py), which proves nothing about macOS."""
 import ctypes
 import hashlib
 import os

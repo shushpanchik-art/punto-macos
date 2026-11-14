@@ -58,6 +58,9 @@ jobs:
         run: |
           python test_spikes.py
           python test_measure.py
+          python test_streams.py
+          python test_probe.py
+          python test_capture.py
       - name: L9 attack scripts, with the negative control of the runner (this does not replace a second independent review)
         working-directory: layout-corrector/audit/L9_independent
         run: |

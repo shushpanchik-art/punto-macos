@@ -81,6 +81,32 @@ b = s7.measure(FakeMac(), 1000); T(b["max_units_delivered_whole"] == 40 and S.RU
 b = s7.measure(FakeMac(cut=12), 1000); T(b["max_units_delivered_whole"] == 12 and S.RULES["S-7"](b)[0] == "REFUTED", "S-7 fake: batches above 12 are cut")
 T(S.RULES["S-7"](s7.measure(FakeMac(tag=False), 1000))[0] == "REFUTED", "S-7 fake: tag unseen")
 
+# ---- S-6 with a fake Mac: the keycodes against the reference tables
+s6 = load("macos/s6_keycodes_and_fingerprint.py")
+T(s6.KEYCODE[0] == 50 and s6.KEYCODE[13] == 12 and s6.KEYCODE[26] == 0 and s6.KEYCODE[37] == 6 and s6.KEYCODE[46] == 44 and len(set(s6.KEYCODE)) == 47, "S-6: the key code map (grave, q, a, z, slash)")
+SUP = {"U.S.": E.layout_fingerprint(E.table_entries(E.EN)), "Russian - PC": E.layout_fingerprint(E.table_entries(E.RU))}
+class FakeMac6:
+    def __init__(self, names=("U.S.", "Russian - PC"), typed_wrong=False, same=False, dead=False):
+        self.names, self.cur, self.tw, self.same, self.dead = names, None, typed_wrong, same, dead
+    def sources(self): return list(self.names)
+    def select(self, n): self.cur = n
+    def _table(self): return E.EN if self.cur == "U.S." or self.same else E.RU
+    def uc_char(self, kc, shift):
+        if self.dead and kc == 50: return "\x00"
+        return E.table_entries(self._table())[2 * s6.KEYCODE.index(kc) + shift]
+    def typed_char(self, kc, shift):
+        c = self.uc_char(kc, shift)
+        if self.tw and self.cur == "Russian - PC" and kc == 12: return "x"
+        return "" if c == "\x00" else c
+b = s6.measure(FakeMac6(), SUP)
+T(b["keycodes_equal_on_all"] and b["fingerprint_distinct"] and S.RULES["S-6"](b)[0] == "CONFIRMED", "S-6 fake: good")
+T(b["fingerprints"]["U.S."] == SUP["U.S."] and b["fingerprints"]["Russian - PC"] == SUP["Russian - PC"], "S-6: the fingerprints are the reference engine's")
+b = s6.measure(FakeMac6(typed_wrong=True), SUP); T(not b["keycodes_equal_on_all"] and S.RULES["S-6"](b)[0] == "REFUTED", "S-6 fake: a key code that depends on the source")
+b = s6.measure(FakeMac6(same=True), SUP); T(not b["fingerprint_distinct"] and S.RULES["S-6"](b)[0] == "REFUTED", "S-6 fake: two sources with one fingerprint")
+b = s6.measure(FakeMac6(names=("U.S.",)), SUP); T(S.RULES["S-6"](b)[0] == "INCOMPLETE", "S-6 fake: Russian - PC missing")
+b = s6.measure(FakeMac6(), {"U.S.": "0" * 64, "Russian - PC": SUP["Russian - PC"]}); T(not b["matches_supported_fingerprints"] and S.RULES["S-6"](b)[0] == "REFUTED", "S-6 fake: a fingerprint other than the supported one")
+b = s6.measure(FakeMac6(dead=True), SUP); T(b["keycodes_equal_on_all"] and s6.entries(lambda kc, sh: "\x00" if kc == 50 else "a")[0] == "\x00", "S-6: a dead key is the entry NUL and typed nothing agrees")
+
 # ---- a file written by the programs without a real machine is never evidence
 h = common.header("S-7", "macos", "x", synthetic=True)
 T(S.evaluate({**h, **b})[0] == "INVALID", "a synthetic header is INVALID")

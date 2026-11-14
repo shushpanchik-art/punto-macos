@@ -120,3 +120,8 @@
 ## 2026-11-14
 * r13: fresh full mutation run, final code and final tests: 991 mutants, 951 killed = 96.0%, 40 survivors, all classified, 0 GAP. r12 is history.
 * Measuring programs written, not run: S-2, S-5 (Windows, ctypes), S-6, S-7 (macOS, PyObjC/ctypes); `spikes/test_measure.py` tests their logic with fake bindings. S-1, S-3, S-4: not written. No spike result exists.
+
+## 2026-11-14 (second part)
+* Found and fixed: the S-1 validator accepted 100,000 events; RT-16 requires 1,000,000 compared one by one by signature, a named physical generator, and slow-hook detection within 300 ms. S-3 now needs 100 elevated events and consistent counts.
+* New: `spikes/streams.py` (signature comparison), `control_probe.py` (the five S-4 tests as one routine), `merge_s4.py`, programs `windows/s1_s3_capture.py`, `windows/s4_edit_control.py`; tests `test_streams.py`, `test_probe.py`, `test_capture.py`; S-6 logic tests added to `test_measure.py` (S-6 had none).
+* Still not done and not claimed: no spike was run; S-4 UI Automation and macOS AX bindings; the product observer that measures slow-hook detection.

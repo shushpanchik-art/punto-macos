@@ -23,18 +23,26 @@ def _num(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
-def _s1(r):                                    # Raw Input is the canary or the primary source? (Windows)
-    need = ("events_total", "matched", "raw_only", "hook_only", "hook_removed_by_os")
+def _s1(r):                                    # RT-16: the hook against the independent Raw Input observer, one by one by signature
+    need = ("events_total", "matched", "lost_by_hook", "extra_in_hook", "hook_removed_by_os", "generator",
+            "generator_is_tool_injection", "slow_hook_detect_ms")
     miss = [k for k in need if k not in r]
     if miss:
         return "INCOMPLETE", [f"missing {miss}"]
-    if r["events_total"] < 100_000:
-        return "INCOMPLETE", ["fewer than 100,000 physical key events"]
-    if r["matched"] + r["raw_only"] != r["events_total"] or r["hook_only"] < 0:
+    if r["generator_is_tool_injection"] is not False or not isinstance(r["generator"], str) or not r["generator"].strip():
+        return "INVALID", ["the keystrokes must come from a physical generator that is not the tool's own injection, and it must be named"]
+    if r["matched"] + r["lost_by_hook"] != r["events_total"] or min(r["matched"], r["lost_by_hook"], r["extra_in_hook"]) < 0:
         return "INVALID", ["counts do not add up"]
-    if r["raw_only"] == 0 and r["hook_only"] == 0 and not r["hook_removed_by_os"]:
-        return "CONFIRMED", ["the hook saw every key the Raw Input saw, no extra key"]
-    return "REFUTED", [f"raw_only={r['raw_only']} hook_only={r['hook_only']} hook_removed_by_os={r['hook_removed_by_os']}"]
+    if r["events_total"] < 1_000_000:
+        return "INCOMPLETE", ["fewer than 1,000,000 physical key events (RT-16)"]
+    if r["slow_hook_detect_ms"] is None:
+        return "INCOMPLETE", ["the deliberately slowed hook was not measured"]
+    bad = []
+    if r["lost_by_hook"] or r["extra_in_hook"] or r["hook_removed_by_os"]:
+        bad.append(f"lost_by_hook={r['lost_by_hook']} extra_in_hook={r['extra_in_hook']} hook_removed_by_os={r['hook_removed_by_os']}")
+    if not _num(r["slow_hook_detect_ms"]) or r["slow_hook_detect_ms"] > 300:
+        bad.append(f"a slowed hook was detected after {r['slow_hook_detect_ms']} ms, the limit is 300 ms")
+    return ("REFUTED", bad) if bad else ("CONFIRMED", ["0 lost, 0 extra, slowed hook detected within 300 ms"])
 
 
 def _s2(r):                                    # layout identity of another process's thread (Windows)
@@ -52,19 +60,24 @@ def _s2(r):                                    # layout identity of another proc
 
 
 def _s3(r):                                    # hotkey conflicts, elevated windows, auto-repeat agreement
-    need = ("elevated_input_reaches_hook", "autorepeat_events", "autorepeat_mismatches", "conflict_reported_by_os")
+    need = ("elevated_input_reaches_hook", "elevated_events_raw", "elevated_events_hook", "autorepeat_events",
+            "autorepeat_mismatches", "conflict_reported_by_os")
     miss = [k for k in need if k not in r]
     if miss:
         return "INCOMPLETE", [f"missing {miss}"]
+    if r["elevated_events_raw"] < 100:
+        return "INCOMPLETE", ["fewer than 100 key events into an elevated window"]
     if r["autorepeat_events"] < 1_000:
         return "INCOMPLETE", ["fewer than 1,000 auto-repeat events"]
+    if r["elevated_input_reaches_hook"] is not (r["elevated_events_hook"] == r["elevated_events_raw"]):
+        return "INVALID", ["elevated_input_reaches_hook does not follow from the two counts"]
     bad = []
     if r["autorepeat_mismatches"]:
         bad.append(f"{r['autorepeat_mismatches']} auto-repeat mismatches between the two sources")
     if not r["conflict_reported_by_os"]:
         bad.append("a taken hotkey was not reported")
     if not r["elevated_input_reaches_hook"]:
-        bad.append("elevated input is invisible: such windows are UNKNOWN (13.5)")
+        bad.append("elevated input is invisible to the hook: such windows are UNKNOWN (13.5)")
     return ("REFUTED", bad) if bad else ("CONFIRMED", ["all three"])
 
 
@@ -84,6 +97,10 @@ def _s4(r):                                    # write results by control class 
             return "INCOMPLETE", [f"{row['application']}/{row['control_class']}: fewer than 100 trials"]
         if row["range_replace"] and not (row["caret_kept"] and row.get("rollback_verified")):
             return "INVALID", [f"{row['application']}: REPLACE_RANGE claimed without caret kept and a verified rollback"]
+        if row["unsupported"] and (row["full_value"] or row["range_replace"] or row["read_only"]):
+            return "INVALID", [f"{row['application']}: unsupported cannot come with any other result"]
+        if row["read_only"] and (row["full_value"] or row["range_replace"]):
+            return "INVALID", [f"{row['application']}: read only cannot come with a successful write"]
         cap = "REPLACE_RANGE" if row["range_replace"] else ("READ_RANGE" if row["read_only"] else "NONE")
         out.append(f"{row['application']}/{row['control_class']}: {cap}")
     return "CONFIRMED", out                    # the table of capabilities is the result, not a pass/fail
