@@ -121,4 +121,50 @@ for bad_c in (S.TestOnlyCipher(b"k"), object(), None):
         S.Store(os.path.join(tempfile.mkdtemp(), "f.json"), bad_c); T(False, "a test cipher or a non-cipher must be refused")
     except (ValueError, TypeError):
         T(True, "the test double and non-ciphers are refused for a real store")
+# delete_all removes only what this store owns (regression: a prefix test used to delete neighbours)
+import re as _re
+def make_tree(base="settings.json"):
+    d = tempfile.mkdtemp(prefix="lfdel_")
+    outside = tempfile.mkdtemp(prefix="lfout_")
+    mk = lambda n, c="x": open(os.path.join(d, n), "w").write(c)
+    owned = [base, base + ".tmp", base + ".corrupt-0", base + ".corrupt-12", base + ".backup-v0-0", base + ".backup-v3-7"]
+    for n in owned: mk(n)
+    foreign = [base + ".old", base + ".bak", base + ".corrupt-x", base + ".corrupt-", base + ".backup-v0", base + ".backup-v-1", base + ".tmp2",
+               base + "X", "my." + base, base + ".json", base[:-1], "other.json", base + ".corrupt-0.keep", base + " copy", base + ".tmp.bak", base.upper()]
+    for n in foreign: mk(n, "keep")
+    os.mkdir(os.path.join(d, base + ".corrupt-5")); open(os.path.join(d, base + ".corrupt-5", "inner"), "w").write("keep")
+    target = os.path.join(outside, "victim"); open(target, "w").write("victim")
+    os.symlink(target, os.path.join(d, base + ".backup-v1-0"))
+    os.symlink(outside, os.path.join(d, base + ".corrupt-9"))
+    return d, outside, target, owned, foreign
+d, outside, target, owned, foreign = make_tree()
+s = S.Store(os.path.join(d, "settings.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True)
+T(s.owned_names()[1] == sorted(owned + ["settings.json.backup-v1-0", "settings.json.corrupt-5", "settings.json.corrupt-9"]), "owned_names: only the exact patterns, links and a directory included in the CANDIDATES")
+deleted, skipped = s.delete_all()
+T(sorted(deleted) == sorted(owned), f"only the owned regular files are deleted: {sorted(deleted)}")
+T(sorted(skipped) == ["settings.json.backup-v1-0", "settings.json.corrupt-5", "settings.json.corrupt-9"], f"links and a directory are skipped, reported: {skipped}")
+left = sorted(os.listdir(d))
+T(all(n in left for n in foreign), "every foreign file with a similar name is still there")
+T(not any(n in left for n in owned), "no owned file is left")
+T(open(os.path.join(d, "settings.json.corrupt-5", "inner")).read() == "keep", "the directory and its content are untouched")
+T(os.path.islink(os.path.join(d, "settings.json.backup-v1-0")) and open(target).read() == "victim" and os.listdir(outside) == ["victim"], "a link is not followed: its target is intact, the link stays")
+# the store file itself is a symlink: never followed, never removed
+d2 = tempfile.mkdtemp(); out2 = tempfile.mkdtemp(); tg = os.path.join(out2, "t"); open(tg, "w").write("t")
+os.symlink(tg, os.path.join(d2, "settings.json"))
+s2 = S.Store(os.path.join(d2, "settings.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True)
+T(s2.delete_all() == ([], ["settings.json"]) and open(tg).read() == "t" and os.path.islink(os.path.join(d2, "settings.json")), "a symbolic link as the store file is skipped")
+# names with regular-expression characters; an empty or missing directory entry
+d3 = tempfile.mkdtemp(); base = "a+b(1).json"
+for n in (base, base + ".tmp", "aab(1)xjson", "a+b(1).jsonX"): open(os.path.join(d3, n), "w").write("x")
+s3 = S.Store(os.path.join(d3, base), S.TestOnlyCipher(b"k"), allow_test_cipher=True)
+dd, sk = s3.delete_all()
+T(sorted(dd) == sorted([base, base + ".tmp"]) and sorted(os.listdir(d3)) == ["a+b(1).jsonX", "aab(1)xjson"], "regular-expression characters in the file name are literal")
+T(S.Store(os.path.join(tempfile.mkdtemp(), "none.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True).delete_all() == ([], []), "nothing to delete")
+# the names this module itself creates are exactly the owned ones
+d4 = tempfile.mkdtemp(); s4 = S.Store(os.path.join(d4, "s.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True)
+st4 = S.StoreState(); s4.save(st4); open(s4.path, "w").write("{bad"); s4.load(); s4.save(st4)
+doc = json.load(open(s4.path, encoding="utf-8")); doc["schema_version"] = 0; json.dump(doc, open(s4.path, "w", encoding="utf-8"))
+S.Store(s4.path, S.TestOnlyCipher(b"k"), {0: lambda x: {**x, "schema_version": 1}}, allow_test_cipher=True).load()
+names = sorted(os.listdir(d4)); T(len(names) >= 3 and s4.owned_names()[1] == names, f"everything the module creates is owned: {names}")
+dd, sk = s4.delete_all(); T(sorted(dd) == names and sk == [] and os.listdir(d4) == [], "and delete_all removes all of it")
 print(f"OK ({CHECKS} storage checks; test cipher only, no OS key store, files in a temporary directory)")

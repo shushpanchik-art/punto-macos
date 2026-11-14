@@ -142,3 +142,8 @@
 * Bug found by test: the quarantine of one application stayed in the engine after the focus moved, so the next application was AUTO but silent. `apply_mode` now releases the engine's flag when the focused application is not quarantined; the new test fails on the old code.
 * AP-4: `explain`, `app_list`, `blacklist`, `reenable`, `prefs`/`load_prefs`, `on_esc` in `lfruntime.py`; `test_apps.py` (794 checks). Quarantine and incidents are not persisted. `Store` refuses `TestOnlyCipher` unless `allow_test_cipher=True` (tests only).
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-14 (sixth part)
+* `audit/RT16_vs_HookHealth.md` rewritten: the "294 ms, 6 ms to spare" figures were sample maxima and are withdrawn. New `spikes/rt16_bounds.py` + `test_rt16_bounds.py` (75 checks): exhaustive over every integer timer phase with the real `HookHealth`: W + 1 <= D <= W + P + L, both ends reached; strict boundary pinned (age W healthy, W + 1 lost); W = 200, P = 100 is exactly 300 ms with no margin. Guarantee (under assumptions A1 to A3), sample, and measured (none) are separated. Nothing normative changed.
+* `Store.delete_all` used a prefix test and could remove neighbouring files. Now it removes only regular files named exactly like the store's own names (file, `.tmp`, `.corrupt-N`, `.backup-vK-N`); directories and links are skipped and reported, never followed. 12 new regression checks (foreign look-alike names, a directory, links with outside targets, regular-expression characters in the name); isolated temporary directories only.
+* `lfengine.py` and `conformance.py` unchanged.

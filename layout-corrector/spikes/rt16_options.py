@@ -1,6 +1,6 @@
 """Reproducible sweep behind audit/RT16_vs_HookHealth.md: for a window CANARY_MS and a timer tick, the shortest and the longest time from
 the first physical key that the hook did not report to the moment HookHealth declares the loss (300 random streams, key gaps of
-30 to 120 ms, random phase). It changes the class constant only inside this process; it never edits lfengine.py. Generated streams only."""
+30 to 120 ms, random phase). It changes the class constant only inside this process; it never edits lfengine.py. Generated streams only. THIS IS A SAMPLE (300 random streams): its maxima are not bounds; the exact bounds are in rt16_bounds.py."""
 import os, random, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slowhook as S

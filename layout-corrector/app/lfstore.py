@@ -18,6 +18,8 @@ format check, NOT encryption."""
 import base64
 import json
 import os
+import re
+import stat
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "reference"))
@@ -174,12 +176,29 @@ class Store:
         st.settings, st.apps = dict(DEFAULT_SETTINGS), {}
         return self.save(st)
 
-    def delete_all(self):
+    def owned_names(self):
+        """The names in the store's directory that THIS module creates for this store, nothing else: the file itself, its temp file,
+        `.corrupt-N` (an unreadable file set aside) and `.backup-vK-N` (a copy made before a migration)."""
         d, base = os.path.dirname(os.path.abspath(self.path)), os.path.basename(self.path)
-        for n in os.listdir(d):
-            if n == base or n.startswith(base + "."):
-                os.remove(os.path.join(d, n))
+        pat = re.compile(re.escape(base) + r"(\.tmp|\.corrupt-[0-9]+|\.backup-v[0-9]+-[0-9]+)?\Z")
+        return d, [n for n in sorted(os.listdir(d)) if pat.match(n)]
+
+    def delete_all(self):
+        """"Delete all data" (AP-5) for the settings and the exceptions. Removes only the regular files of `owned_names`. A directory or a
+        symbolic link with such a name is NOT touched (a link is never followed, its target is never read or removed); it is returned in
+        `skipped` so that the caller can tell the user. Returns (deleted, skipped), names only."""
+        d, names = self.owned_names()
+        deleted, skipped = [], []
+        for n in names:
+            full = os.path.join(d, n)
+            st = os.lstat(full)
+            if stat.S_ISREG(st.st_mode):
+                os.remove(full)
+                deleted.append(n)
+            else:
+                skipped.append(n)
         self.read_only = False
+        return deleted, skipped
 
     @staticmethod
     def delete_exception(st: StoreState, direction, word):

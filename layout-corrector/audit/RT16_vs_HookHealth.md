@@ -1,8 +1,12 @@
 # RT-16-VS-HOOKHEALTH: requirement against implementation, and the ways to close it
 
 Status: **open, undecided.** No normative constant and no text of the specification was changed for this note. `lfengine.py` and
-`conformance.py` are unchanged (mutation run r13 stays bound to their SHA). The numbers below come from generated streams
-(`spikes/rt16_options.py`), not from a device.
+`conformance.py` are unchanged (mutation run r13 stays bound to their SHA). Every figure is labelled with how it was obtained:
+
+* **GUARANTEE** = follows from the strict comparison in `HookHealth.check` under the assumptions of section 2, and was also checked
+  exhaustively over every integer timer phase with the real class (`spikes/rt16_bounds.py`, `spikes/test_rt16_bounds.py`, 75 checks).
+* **SAMPLE** = a maximum seen on generated random streams (`spikes/rt16_options.py`). A sample maximum is not a bound.
+* **MEASURED** = taken on a real operating system. Nothing in this note is of that kind.
 
 ## 1. What the three places say
 
@@ -10,46 +14,68 @@ Status: **open, undecided.** No normative constant and no text of the specificat
 |---|---|---|
 | RT-16 | "A hook deliberately made slower than `LowLevelHooksTimeout` ... MUST be detected within 300 ms and answered as in row 13" | a bound on the DETECTION time. The start of the clock is not named |
 | 13.5 row 13 | "an event without its counterpart within 300 ms is a loss" | a bound on the MATCHING window: the counterpart may arrive up to 300 ms later and still counts |
-| `HookHealth` (`CANARY_MS = 300`) | declares the loss when the oldest unmatched event is OLDER than 300 ms, at a timer tick (at most every 100 ms, `Runtime.on_tick`) or at the next event of the same side | implements row 13 literally |
+| `HookHealth` (`CANARY_MS = 300`) | `check(now)` declares the loss when `now - ts > CANARY_MS` (strict), at a timer tick or at the next event of the same side | implements row 13 literally |
 
-The two 300 ms are one number used for two things. If the matching window is 300 ms, a loss cannot be known earlier than 300 ms after
-the key, so the detection time from the first lost key is always above 300 ms: 301 ms at best, 399 ms at worst with a 100 ms tick
-(pinned in `spikes/test_slowhook.py`). The S-1 validator keeps the strict limit of 300 ms and would say REFUTED for any figure from the
-current code. RT-16 is not weakened by this note.
+One number (300 ms) is used for two things. The strict comparison is pinned in both directions (`rt16_bounds.boundary`): an event of
+age W is healthy, an event of age W + 1 is lost.
 
-## 2. The options (detection time = from the first key the hook did not report to the declaration)
+## 2. The guarantee, with its assumptions
 
-| Option | Change | Detection time (generated streams) | Meets "within 300 ms" from the first lost key | Touches |
-|---|---|---|---|---|
-| A. Restate RT-16 | "detected within the matching window plus one timer tick (at most 400 ms)"; clock start named: the first physical key without a counterpart | 301 to 399 ms | by redefinition, not by a faster detection | specification text only (RT-16, S-1 rule in 13.7, the glossary line of `HookHealth`) |
-| B. Smaller window | `CANARY_MS` 200 and row 13 "within 200 ms", tick stays 100 ms | 201 to 294 ms | yes, with 6 ms to spare at the worst phase | `lfengine.py`, `conformance.py` (literals 300 and 350 in the canary tests), row 13, new FULL mutation run |
-| B'. Window 290, tick 10 ms | `CANARY_MS` 290, runtime timer 10 ms | 291 to 300 ms | yes, with no margin (a scheduling delay breaks it) | as B, plus the runtime timer rate |
-| C. Faster timer only | tick 10 ms, `CANARY_MS` 300 | 301 to 310 ms | no, never within 300 | runtime and text only |
-| D. Window kept, bound moved to the OS removal | "detected within 300 ms after the OS removed the hook", clock start = the removal | needs a way to observe the removal time (the hook thread ends: `hook_removed_by_os` is already recorded) | by redefinition; measurable only if the removal instant is observable | specification text, S-1 program |
+Let W = `CANARY_MS`. A1: both sources use one monotonic integer-millisecond clock. A2: the runtime timer calls `check` with a gap of at
+most P ms between consecutive calls, and the call that decides is delayed by at most L ms (scheduler delay). A3: the observer saw
+the first key the hook did not report at time 0 (the observer's own latency is not counted). No further key arrives (a later event can only
+declare the loss earlier). D = the time of the first `check` that finds the loss.
 
-## 3. Cost of a smaller window (B, B'): false loss
+**GUARANTEE: W + 1 <= D <= W + P + L, and both ends are reached** (every phase 0..P-1 and L in {0, 10, 50, 150} were enumerated
+for W in {300, 250, 200, 150} and P in {100, 50, 10, 1}; the largest D equals W + P + L in every case).
 
-A smaller window turns a late counterpart into a loss, and a loss means MANUAL_ONLY until 3 matched pairs after the hook is
-installed again (row 13). The window must therefore exceed the largest normal skew between the Raw Input observer and the hook for the
-SAME physical key. That skew is a quantity this repository does not have: it is the distribution measured by S-1 on a real machine,
-also under CPU load (the three load levels of the end-to-end suite). Rule for the decision: the window has to be above the observed
-skew at the 99.99th percentile plus a margin. Until S-1 has run, a smaller window cannot be shown safe, and the loss of a window of
-300 ms against the Windows default `LowLevelHooksTimeout` of 300 ms is the reason the current value was chosen: a hook that answers
-later than 300 ms is removed by the system anyway. A window below the OS timeout declares a loss on a hook that the system still keeps.
+Consequences, each exact and not sampled:
 
-Timer bounds: the runtime timer is "at most every 100 ms"; the worst detection is `window + tick`. A tick below 10 ms costs CPU
-for no gain, and a tick that is late (a busy worker) adds its lateness; B' has no room for that.
+* With the current W = 300, D is at least 301 ms for every timer and every phase, so a strict "within 300 ms from the first lost key" can never be met.
+* With a 100 ms tick (the stated maximum of `Runtime.on_tick`), D ranges over 301..400 ms, not "301 to 399". (An earlier version of this note said 399 and
+  "201 to 294 ms, 6 ms to spare" for W = 200: those were sample maxima and were wrong as bounds. The exact worst case for W = 200, P = 100 is
+  **300 ms with an ideal timer and no margin at all**, 301 ms with 1 ms of scheduler delay.)
+* To meet 300 ms with a margin m you need W + P + L <= 300 - m.
 
-## 4. What each option does to the evidence
+| W | P (max gap) | L | D range (GUARANTEE) | meets "<= 300" | margin |
+|---|---|---|---|---|---|
+| 300 (now) | 100 | 0 | 301 .. 400 | no | -100 |
+| 300 | 10 | 0 | 301 .. 310 | no | -10 |
+| 290 | 10 | 0 | 291 .. 300 | exactly | 0 |
+| 250 | 50 | 0 | 251 .. 300 | exactly | 0 |
+| 200 | 100 | 0 | 201 .. 300 | exactly | 0 |
+| 200 | 100 | 10 | 211 .. 310 | no | -10 |
+| 200 | 50 | 10 | 211 .. 260 | yes | 40 |
+| 150 | 100 | 50 | 201 .. 300 | exactly | 0 |
 
-* A: no code, no new mutation run; the S-1 validator limit changes to the restated figure in the same commit.
-* B, B': `lfengine.py` and `conformance.py` change, so the full 991-mutant run and the classification of the survivors must be
-  repeated; r13 does not carry over (its SHAs name the old files). The vectors and the L7 blocks change too.
-* C: runtime and text only.
-* D: needs a measurable removal instant on Windows (not available here).
+The full grid is printed by `python3 spikes/rt16_bounds.py`. A SAMPLE of 300 random streams (`spikes/rt16_options.py`) gave smaller
+maxima for the same settings (for example 294 for W = 200, P = 100); that only shows that random phases rarely hit the worst one.
 
-## 5. What I recommend and why it is not applied
+## 3. What is NOT established
 
-If the S-1 skew data show a normal skew well below 150 ms: B (200 ms) meets the text as written. If they do not: A, with the clock
-start named. Applying either now would be a guess about a number the device must supply, and the requester has not decided.
-Reproduce the table: `python3 spikes/rt16_options.py`.
+* A2 is an assumption about the platform timer, not a fact. Whether a runtime timer with a gap of at most 100 ms (or 10 ms) and a small L
+  is available, also under CPU load, is a **MEASURED** quantity (S-1 at the three load levels). A coarse system timer resolution on Windows (commonly
+  cited as about 15.6 ms by default) was not checked here; it would make P = 10 unavailable without raising the resolution.
+* A3 and the clock A1: the latency of the Raw Input observer and the skew between the two sources are not in D above.
+* The skew between the observer and the hook for the SAME key under load is the quantity that decides whether a smaller W makes false losses.
+  Not available until S-1 has run.
+
+## 4. Cost of a smaller window: false loss
+
+A smaller W turns a late counterpart into a loss, and a loss means MANUAL_ONLY until 3 matched pairs after the hook is installed again
+(row 13). W must exceed the largest normal observer-to-hook skew for the same physical key (plus margin); the rule for the decision is the
+99.99th percentile of the S-1 skew distribution under load. Also, a hook that answers later than the Windows default `LowLevelHooksTimeout`
+(300 ms) is removed by the system anyway, while a W below it declares a loss on a hook that the system still keeps: that is the reason the
+current value is 300.
+
+## 5. Options (nothing applied)
+
+| Option | Change | Touches |
+|---|---|---|
+| A. Restate RT-16 | "detected within the matching window plus one timer period and its delay (W + P + L, at most 400 ms with W = 300, P = 100, L = 0)"; name the clock start: the first physical key without a counterpart | specification text only (RT-16, S-1 rule in 13.7, the `HookHealth` glossary line); the S-1 validator limit changes in the same commit |
+| B. Smaller window, margin required | choose W, P, L from section 2 so that W + P + L <= 300 - m, for example W = 200, P = 50, L <= 50 | `lfengine.py`, `conformance.py` (literals 300 and 350 in the canary tests), row 13, runtime timer period; a NEW FULL mutation run (r13 does not carry over) |
+| C. Faster timer only | P = 10 with W = 300 | cannot meet 300 (D >= 301); text only |
+| D. Clock start moved to the OS removal | "within 300 ms after the OS removed the hook" | needs an observable removal instant (the hook thread ends: `hook_removed_by_os` is recorded by the S-1 program); text and S-1 program |
+
+Recommendation (not applied): if S-1 shows a normal observer-to-hook skew well below W for every load level and a runtime timer with small P and
+L is available, option B with an explicit margin; otherwise option A. The numbers must come from the device.
