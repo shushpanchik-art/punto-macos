@@ -137,3 +137,9 @@ Clause AP-6: "A signed installer or package, per user and without elevation wher
 * **Per user, without elevation** is a property of the installer and is not written.
 * Not written: the installer, the signed package, the real removal of the application files and of the real startup entry, the real process list and stop. NOT RUN.
 
+## 15. AP-10 accessibility of the tool's own interface: BLOCKED on a decision, nothing implemented
+Clauses: AP-10 "The settings, the notices and the status icon work with VoiceOver and NVDA, and a correction is not announced twice (14.4)"; 14.4 "Screen readers: No change announced twice; test with VoiceOver and NVDA. A silent text replacement can be invisible or noisy for assistive technology".
+* **Who announces?** Two readings: (A) the tool announces nothing about a correction and only makes sure that the replacement is one operation, so the screen reader announces the changed text once (M1 is one operation; M2 is a series of key events and may be announced per character); (B) the tool announces a correction itself (a short statement) and must suppress its own repetition and any double with the screen reader's own announcement. The first fits "a silent text replacement can be invisible" less well, the second adds an output the specification does not describe (no text, no identifiers). The choice changes the design and cannot be made from the text.
+* Under (B) the portable rule would be: one announcement identifier per transaction, never repeated for the same transaction, none for ABORTED, one for an undo. That is a few lines and is NOT written until (A) or (B) is chosen.
+* Labels, roles and focus order of the settings, the notices and the icon belong to the real user interface, which is not written. VoiceOver and NVDA runs are NOT RUN.
+

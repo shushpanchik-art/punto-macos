@@ -213,3 +213,8 @@
 * AP-9 published as 1064364 (CI success on that SHA).
 * New `app/lfuninstall.py` + `app/test_uninstall.py` (AP-6 order and checks, 59 checks; mutations 27 of 27 killed, run with `PYTHONDONTWRITEBYTECODE=1`). Open readings: `audit/AP7_RT19_readings.md` section 14. Installer, package, real removal, real processes NOT written / NOT RUN.
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-15 (eighteenth part)
+* AP-6 (order and checks) published as fd2ca53 (CI success on that SHA).
+* AP-10 is BLOCKED on a decision (who announces a correction); recorded in the matrix and in `audit/AP7_RT19_readings.md` section 15; nothing implemented.
+* `lfengine.py` and `conformance.py` unchanged.
