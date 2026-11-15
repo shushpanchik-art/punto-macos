@@ -44,6 +44,7 @@ class ProcessSupervisor:
         self.max_crashes, self.loop_window, self.min_delay, self.term_timeout = max_crashes, loop_window_ms, min_delay_ms, term_timeout_ms
         self.on_event = on_event or (lambda name: None)        # names only, never text
         self._escalating = False
+        self._wd = None
         self.window = K.CrashWindow()
         self.crash_times = []
         self.starts = 0
@@ -61,17 +62,16 @@ class ProcessSupervisor:
         with self._lock:
             self._stop = True
             p = self._proc
-            first = p is not None and not self._escalating
-            if first:
+            if p is not None and not self._escalating:
                 self._escalating = True
+                t = threading.Thread(target=self._escalate, args=(p,), name="lf-stop-watchdog", daemon=True)
+                t.start()                                  # started and recorded BEFORE terminate, so run() can always join it
+                self._wd = t
         if p is not None:
             try:
                 p.terminate()
             except Exception:
                 pass
-        if first:
-            t = threading.Thread(target=self._escalate, args=(p,), name="lf-stop-watchdog", daemon=True)
-            t.start()
 
     def _escalate(self, proc):
         try:
@@ -83,6 +83,15 @@ class ProcessSupervisor:
                 pass
 
     def run(self) -> int:
+        try:
+            return self._run()
+        finally:
+            with self._lock:
+                wd = self._wd                              # no thread outlives run()
+            if wd is not None:
+                wd.join(self.term_timeout / 1000.0 + 5)
+
+    def _run(self) -> int:
         while True:
             with self._lock:
                 if self._stop:

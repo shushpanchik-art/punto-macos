@@ -173,6 +173,16 @@ class Stubborn(FakeProc):
 sp = Stubborn(); sup = P.ProcessSupervisor(lambda a: sp, lambda: 0, lambda ms: None, term_timeout_ms=100); res = []
 th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start(); time.sleep(0.1); sup.stop(); sup.stop(); th.join(5)
 T(res == [0] and sp.terminated >= 1 and sp.killed >= 1 and sup.starts == 1, "fake child that ignores terminate: killed, run returns 0, one start")
+# no thread outlives run(): the child ends at once, but the watchdog's wait is slow
+class SlowWd(FakeProc):
+    def __init__(self): super().__init__(0, []); self.ev = threading.Event()
+    def wait(self): self.ev.wait(5); return -15
+    def terminate(self): self.terminated += 1; self.ev.set()
+    def wait_timeout(self, ms):
+        if threading.current_thread().name == "lf-stop-watchdog": time.sleep(0.5)
+sw = SlowWd(); sup = P.ProcessSupervisor(lambda a: sw, lambda: 0, lambda ms: None, term_timeout_ms=100); res = []
+th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start(); time.sleep(0.1); sup.stop(); th.join(5)
+T(res == [0] and not any(t.name == "lf-stop-watchdog" and t.is_alive() for t in threading.enumerate()), "run() returns only after its watchdog thread has ended")
 # stop DURING the start: spawn is still running when stop arrives
 gate, started = threading.Event(), threading.Event(); kids = []
 def slow_spawn(args):

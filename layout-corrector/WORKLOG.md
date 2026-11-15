@@ -173,8 +173,8 @@
 * `lfengine.py` and `conformance.py` unchanged.
 
 ## 2026-11-14 (eleventh part)
-* Confirmed defect on e3efd04 and fixed: `ProcessSupervisor.stop` only called `terminate`, while `run` was blocked in `proc.wait()`; a child that ignores SIGTERM was never killed. Reproduced by the new test (bounded at 8 s, cleans up after itself) against the old file. Now `stop` starts one watchdog thread that kills after `term_timeout_ms`. `test_supervisor.py` 60 checks: a REAL child ignoring SIGTERM (stop once and three times), fake stubborn handle, stop during spawn, stop during the restart pause, a crash that races with stop, no second start, no process left; 4 of 4 hand mutants of the fix killed (one only after the test was strengthened).
+* Confirmed defect on e3efd04 and fixed: `ProcessSupervisor.stop` only called `terminate`, while `run` was blocked in `proc.wait()`; a child that ignores SIGTERM was never killed. Reproduced by the new test (bounded at 8 s, cleans up after itself) against the old file. Now `stop` starts one watchdog thread that kills after `term_timeout_ms`. `test_supervisor.py` 61 checks: a REAL child ignoring SIGTERM (stop once and three times), fake stubborn handle, stop during spawn, stop during the restart pause, a crash that races with stop, no second start, no process left; hand mutants of the fix killed (two only after the test was strengthened).
+* CI on b4ca20f FAILED on Python 3.9 (not counted as a successful run): the test required the watchdog thread to be finished at once after `run` returned, a real race. `stop` now starts and records the watchdog before `terminate` and `run()` joins it, so no thread outlives `run`; the test uses a slow watchdog to make this deterministic.
 * eb75fa6 fixes re-checked: sync, save (open, write, fsync, replace, encrypt) and wipe failures are covered by `test_lifecycle.py` (94 checks); manifest coverage check runs in CI.
 * New `app/lfsettings.py` + `app/test_settings.py` (AP-4 portable layer, 117 checks), `Runtime.auto_enabled`.
 * `lfengine.py` and `conformance.py` unchanged.
-
