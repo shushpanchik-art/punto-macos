@@ -192,3 +192,9 @@
 * New `app/lfdiag.py` + `app/test_diag.py` (AP-11 portable part, 88 checks), `Runtime.diag` hooks; open questions in audit/AP7_RT19_readings.md section 9 (length classes are a PLACEHOLDER).
 * `lfengine.py` and `conformance.py` unchanged.
 
+
+## 2026-11-15 (fourteenth part)
+* AP-11: `test_diag.py` is now 101 checks: a real ru to en correction (scorer favouring English) and its VERIFIED undo are counted on both sides from engine events; two runtimes share one `Diagnostics` (cooldown after undo); consent transitions (a reason active when the opt-in is given is not counted until it disappears and reappears; withdrawn opt-in; Delete all with an active reason is not recounted until a new appearance). Hand mutation control corrected: 14 of 16 killed, 2 equivalent (the earlier "14 of 17" was wrong).
+* New `app/lfpair.py` + `app/test_pair.py` (AP-3 deterministic part, 60 checks; mutations: 10 of 11 killed, 1 equivalent). Open questions: `audit/AP7_RT19_readings.md` section 11. Real installed-source query and fingerprint calls NOT RUN.
+* Matrix updated (stale counts, S-4 bindings and observer exist but stay BLOCKED until run on devices, AP-3 row); new `audit/check_matrix_counts.py` runs every app test and compares with the matrix.
+* `lfengine.py` and `conformance.py` unchanged.
