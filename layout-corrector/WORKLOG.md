@@ -187,3 +187,8 @@
 * New `app/lfstatus.py`, `Runtime.set_paused` / `gate_verdict`, `app/test_status.py` (AP-2 portable part, 31 checks). Readings: audit/AP7_RT19_readings.md section 8. Next available portable item: AP-11 diagnostics counters (length buckets are not defined by the specification).
 * `lfengine.py` and `conformance.py` unchanged.
 
+## 2026-11-15 (thirteenth part)
+* AP-4 defect confirmed on 7294dfc and fixed (Reset wrote `start_at_login=True` without the adapter after a successful `set_start_at_login(False)`): `Settings._defaults`; Delete all data keeps the real value and registers nothing; failing removal gives `delete_failed`. `test_settings.py` 133 checks; the new tests fail on the old file; 7 of 7 hand mutants killed.
+* New `app/lfdiag.py` + `app/test_diag.py` (AP-11 portable part, 88 checks), `Runtime.diag` hooks; open questions in audit/AP7_RT19_readings.md section 9 (length classes are a PLACEHOLDER).
+* `lfengine.py` and `conformance.py` unchanged.
+

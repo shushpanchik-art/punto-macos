@@ -56,8 +56,8 @@ def activate_hotkey(platform, requested, register):
 class Settings:
     """`store` may be None (memory only). `autostart(enabled) -> bool` is the OS adapter's registration (none here)."""
 
-    def __init__(self, store, state, runtime, autostart=None, platform="windows"):
-        self.store, self.state, self.rt, self.autostart, self.platform = store, state, runtime, autostart, platform
+    def __init__(self, store, state, runtime, autostart=None, platform="windows", diag=None):
+        self.store, self.state, self.rt, self.autostart, self.platform, self.diag = store, state, runtime, autostart, platform, diag
         self.notices = []
         self.deleted = False                 # after delete_all_data nothing is written back at shutdown until the user changes something again
         self.apply_to_runtime()
@@ -177,10 +177,30 @@ class Settings:
         return S.Store.export_exceptions(self.state)
 
     # ---- Reset and Delete all data (AP-5)
+    def _defaults(self, call_adapter):
+        """The default settings, except that `start_at_login` keeps describing what the SYSTEM does: it changes to the default only when the OS
+        registration was really changed (Reset: the adapter is called) and otherwise stays as it is (no adapter, a failing adapter, or Delete all data,
+        which must not register or unregister anything). A failure is reported with the notice `autostart_failed`."""
+        d, cur = dict(S.DEFAULT_SETTINGS), self.state.settings["start_at_login"]
+        want = d["start_at_login"]
+        if cur == want:
+            return d
+        if call_adapter and self.autostart is not None:
+            try:
+                done = self.autostart(want) is True
+            except Exception:
+                done = False
+            if done:
+                return d
+        if call_adapter:
+            self.notices.append(("autostart_failed", ""))
+        d["start_at_login"] = cur
+        return d
+
     def reset(self):
         """Defaults for settings and the application list; the exception list is kept (a reading of mine, as in the matrix)."""
         S.sync_from_engine(self.rt.engine, self.state)
-        self.state.settings, self.state.apps = dict(S.DEFAULT_SETTINGS), {}
+        self.state.settings, self.state.apps = self._defaults(True), {}
         for a in self.rt.apps.values():
             a.blacklisted = a.esc_undoes = False
         self.apply_to_runtime()
@@ -190,12 +210,20 @@ class Settings:
         """Settings, exceptions and the store's own files; the exception list of the engine is emptied too, so nothing is written back at stop.
         Returns (deleted, skipped) names, or None without a store."""
         self.rt.engine._exc_order.clear(); self.rt.engine.exceptions.clear()
-        self.state.settings, self.state.apps, self.state.exceptions = dict(S.DEFAULT_SETTINGS), {}, []
+        self.state.settings, self.state.apps, self.state.exceptions = self._defaults(False), {}, []
         for a in self.rt.apps.values():
             a.blacklisted = a.esc_undoes = False
         self.apply_to_runtime()
         self.deleted = True
-        return self.store.delete_all() if self.store is not None else None
+        if self.diag is not None:
+            self.diag.delete()                    # AP-5: "Delete all data" removes the diagnostics too (they live in memory only)
+        if self.store is None:
+            return None
+        try:
+            return self.store.delete_all()
+        except Exception:
+            self.notices.append(("delete_failed", ""))      # memory is already empty; the files that could not be removed are reported, not hidden
+            return None
 
     def shutdown(self):
         """The orderly end (lflifecycle.stop). Right after `delete_all_data` the store is not written again: \"Delete all data\" must stay deleted."""

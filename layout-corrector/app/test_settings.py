@@ -145,6 +145,43 @@ T(s.exceptions() == [] and s.get() == S.DEFAULT_SETTINGS and not rt.apps["com.ex
 s.shutdown(); T(not os.path.exists(st.path) and sorted(os.listdir(d)) == ["foreign.txt"], "shutdown after 'delete all' writes nothing back")
 s.set_auto_correction(False); T(os.path.exists(st.path), "a new choice made afterwards is saved again")
 os.remove(st.path); s.shutdown(); T(os.path.exists(st.path) and S.Store(st.path, S.TestOnlyCipher(b"k"), allow_test_cipher=True).load().settings["auto_correction"] is False, "and shutdown saves it again (the deleted flag ends with the new choice)")
+# ---- Reset and Delete all keep start_at_login equal to what the SYSTEM does (defect confirmed on 8b3510e: Reset wrote True without calling the adapter)
+def on_disk(st): return S.Store(st.path, S.TestOnlyCipher(b"k"), allow_test_cipher=True).load().settings
+calls = []
+s, rt, fld, st, d = make(autostart=lambda on: (calls.append(on), True)[1])
+s.set_start_at_login(False); s.set_auto_correction(False); s.set_update_channel("beta")
+T(s.reset() is True and calls == [False, True] and s.get() == S.DEFAULT_SETTINGS and on_disk(st) == S.DEFAULT_SETTINGS, "Reset with a working adapter: the adapter is told to register again, then the default is stored")
+calls.clear(); T(s.reset() is True and calls == [], "Reset when the value already is the default: the adapter is not called")
+for res in (False, None, "yes", 1):
+    s, rt, fld, st, d = make(autostart=lambda on, res=res: res)
+    s.autostart = lambda on: True; s.set_start_at_login(False); s.autostart = lambda on, res=res: res
+    s.set_auto_correction(False); s.set_update_channel("beta")
+    T(s.reset() is True and s.get()["start_at_login"] is False and s.get()["auto_correction"] is True and s.get()["update_channel"] == "stable" and ("autostart_failed", "") in s.notices, f"Reset, adapter answered {res!r}: everything else is reset, start_at_login keeps the real state, one notice")
+    T(on_disk(st)["start_at_login"] is False and on_disk(st)["update_channel"] == "stable", f"and the file says the same ({res!r})")
+s, rt, fld, st, d = make(autostart=lambda on: True); s.set_start_at_login(False)
+def bad_adapter2(on): raise OSError("x")
+s.autostart = bad_adapter2; s.reset(); T(s.get()["start_at_login"] is False and ("autostart_failed", "") in s.notices, "Reset, adapter raises: unchanged, noticed")
+# no adapter in a later session
+s, rt, fld, st, d = make(autostart=lambda on: True); s.set_start_at_login(False)
+st9 = S.Store(st.path, S.TestOnlyCipher(b"k"), allow_test_cipher=True); s9 = G.Settings(st9, st9.load(), new_rt())
+T(s9.get()["start_at_login"] is False and s9.reset() is True and s9.get()["start_at_login"] is False and ("autostart_failed", "") in s9.notices, "Reset without any adapter: the stored value is not claimed to have changed")
+# Reset when saving fails: memory follows the adapter, the failure is reported
+s, rt, fld, st, d = make(autostart=lambda on: True); s.set_start_at_login(False)
+def failing_save(state): raise Boom("disk")
+st.save = failing_save
+T(s.reset() is False and ("settings_not_saved", "") in s.notices and s.get()["start_at_login"] is True, "Reset with a failing save: False, noticed, the memory shows what the adapter did")
+# Delete all data neither registers nor unregisters anything
+calls = []
+s, rt, fld, st, d = make(autostart=lambda on: (calls.append(on), True)[1]); s.set_start_at_login(False); s.set_auto_correction(False)
+out = s.delete_all_data()
+T(out is not None and calls == [False] and s.get()["start_at_login"] is False and s.get()["auto_correction"] is True and not os.path.exists(st.path), "Delete all data: the adapter is not called again, start_at_login keeps the real state, the rest is default, the files are gone")
+s.shutdown(); T(not os.path.exists(st.path) and ("autostart_failed", "") not in s.notices, "nothing is written back and no failure is reported")
+# Delete all data when removing fails
+s, rt, fld, st, d = make(); real_del = st.delete_all
+def failing_delete(): raise OSError("busy")
+st.delete_all = failing_delete; typed(rt, fld, "ghbdtn"); rt.hotkey_undo(300)
+T(s.delete_all_data() is None and ("delete_failed", "") in s.notices and s.exceptions() == [] and s.get() == S.DEFAULT_SETTINGS, "Delete all data, a failing removal: reported, memory is empty anyway")
+st.delete_all = real_del
 # no text anywhere
 s, rt, fld, st, d = make(); typed(rt, fld, "ghbdtn"); rt.hotkey_undo(300); s.set_auto_correction(False)
 blob = b"".join(open(os.path.join(d, f), "rb").read() for f in os.listdir(d)) + repr(s.notices).encode()

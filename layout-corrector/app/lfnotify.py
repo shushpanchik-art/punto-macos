@@ -28,6 +28,7 @@ CATALOGUE = {
     "manual_only_after_crashes": (None, "open_settings"),   # my name for AP-7; not in the table
     "instance_lock_unavailable": (None, "open_settings"),   # RT-19 asks for OFF, not for a notice; not in the table
     "settings_not_saved": (None, "open_settings"),
+    "delete_failed": (None, "open_settings"),               # "Delete all data" could not remove a file (AP-5)
     "autostart_failed": (None, "open_settings"),
     "hotkey_fallback": (None, "open_settings"),
     "hotkey_unavailable": (None, "open_settings"),

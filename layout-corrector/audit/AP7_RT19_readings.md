@@ -72,3 +72,27 @@ Clause AP-2: "A menu-bar or tray icon always shows one of Active, Paused, Manual
 * "Pause for this application" is the blacklist entry of AP-4 (the re-enable button undoes it); the confirmation notice "re-enabled" is not shown (section 7).
 * The state is in memory only: a restart is not paused.
 
+## 9. AP-11 diagnostics (portable part, `app/lfdiag.py`): OPEN questions and my readings, not agreed
+Clauses: AP-11 "Counters only (corrections, undos, manual conversions, reason codes, incidents). They are shown to the user before the opt-in and can be exported by the user."; 14 (field quality signal) "Opt-in counters: corrections, undos, manual conversions by length and direction."; AP-5 "Delete all data removes settings, exceptions and diagnostics".
+
+**Open question 1 (blocks one part only): the length classes.** The text says "by length" and fixes no class boundaries. `PROPOSED_EDGES = (3, 6, 12)` (classes 1-3, 4-6, 7-12, 13+) is a PLACEHOLDER so that the module and its tests run; every export carries `"length_classes": "placeholder_open"`. Options and consequences:
+| Option | What it means | Consequence |
+| --- | --- | --- |
+| A | Other fixed boundaries chosen by the requester | A one-line constant change; tests use constructor edges, so they stay valid |
+| B | Exact length (capped, up to the 10,000 manual limit) | The most detailed; the length of a word is derived from typed text, so the count of distinct lengths is a small information leak; more keys |
+| C | A few coarse classes (for example short, medium, long) | Least detail, least leak; the quality signal may be too coarse to find length-dependent errors |
+| D | No length at all | Contradicts the clause "by length" |
+
+**Open question 2: which counters carry length and direction.** The sentence in section 14 can be read as "(corrections, undos, manual conversions) by length and direction" or only "manual conversions by length and direction". Implemented: corrections and undos by direction only; manual conversions by direction and length class. If length is wanted for corrections and undos too, the keys grow accordingly.
+
+**My readings (not in the text):**
+* Counters are collected only while the opt-in is on; before it, the preview shows the full document with zeros (what an export would contain), nothing is counted, not even rejected inputs. The text says the counters are "shown to the user before the opt-in" and could also mean that counting is always local and only sending needs the opt-in; then the preview would show real numbers. Which one is wanted?
+* Nothing is persisted: the counters live in memory and a restart starts from zero. AP-5 says "Delete all data removes ... diagnostics", which can imply a stored file; storing them would be a new file under the store's own names and a decision about incident counters (the earlier decision was not to persist incidents).
+* "Reason codes" counts each appearance of a runtime reason code (14 fixed codes, including the user's own choices `blacklist` and `auto_off`) for the focused application; excluding the user's own choices is possible.
+* A toggle (convert back) is not a separate count. An incident counts only as an incident (RESTORED or UNRECOVERED), not as a correction.
+* Export: the user's explicit command writes `layout-corrector-diagnostics.json` (mode 0600, atomic) into the directory the user chooses; nothing is written otherwise and the module has no network or process code. Transmission (the opt-in crash report and any quality upload) is a separate question (AP-11 "never sent without opt-in"; the sender for diagnostics is not written).
+* Untested direction: the undo of a Russian-to-English correction (the simulated scorer converts one direction only); the `len(old)` versus `len(new)` choice cannot differ in the simulation. Both are listed as surviving hand mutations in the matrix.
+
+## 10. Settings Reset and Delete all data versus the start-at-login registration (AP-4/AP-5), fixed
+Defect found on 7294dfc: after a successful `set_start_at_login(False)`, `Reset` stored the default (True) without calling the adapter. Now `Reset` calls the adapter and takes the default only if it answered exactly True; a missing or failing adapter leaves the real value and reports `autostart_failed`; `Delete all data` never registers or unregisters anything, so `start_at_login` keeps the real value there (after the files are gone, the next start reads the default; making a start reconcile the stored value with the system needs an adapter query, not written). A failing removal in `Delete all data` is reported as `delete_failed`.
+

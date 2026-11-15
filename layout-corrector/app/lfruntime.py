@@ -53,6 +53,7 @@ class Runtime:
         self.layout_ok = True
         self.watchdog_ok = True
         self.auto_enabled = True                 # AP-4 "automatic correction on or off": off gives MANUAL_ONLY, never OFF; memory only (persisted by lfsettings)
+        self.diag = None                         # optional lfdiag.Diagnostics: numeric counters only; it can never break typing
         self.paused = False                      # AP-2 "One click pauses (the gate becomes DENY, so nothing is recorded)"; memory only
         self.gate_verdict = L.GATE_UNKNOWN        # the last verdict of the gate, kept so that a resume can restore it
         self.incident_apps = []                  # application ids, parallel to the 'incident' notices (memory only)
@@ -238,6 +239,13 @@ class Runtime:
             self._convert(d)
         return d
 
+    def _diag(self, name, *a):
+        if self.diag is not None:
+            try:
+                getattr(self.diag, name)(*a)
+            except Exception:                                              # diagnostics are never allowed to disturb the engine
+                pass
+
     def _convert(self, d: "L.Decision"):
         s = self.engine.snapshot
         old = L.render(s.keys, s.layout)
@@ -247,6 +255,8 @@ class Runtime:
             res = L.TxResult("UNRECOVERED", "adapter_exception", "", True, True)
         self.last_result = res
         self.engine.on_outcome(res.outcome, res.quarantine)
+        if res.outcome == "VERIFIED":
+            self._diag("record_correction", s.direction)
         self._after(res)
 
     def _after(self, res: "L.TxResult"):
@@ -255,6 +265,7 @@ class Runtime:
             app.incidents += 1
             app.quarantined = True
             self.notices.append(("incident", f"{res.outcome}:{res.reason}"))     # short codes only, never text
+            self._diag("record_incident", res.outcome)
             self.incident_apps.append(self.app_id)                                 # which application the notice's re-enable action points at
             self.apply_mode()
 
@@ -294,6 +305,8 @@ class Runtime:
             res = L.TxResult("UNRECOVERED", "adapter_exception", "", True, True)
         self.last_result = res
         self.engine.manual_outcome(old, new, direction, res.outcome, now_ms, res.quarantine)
+        if res.outcome == "VERIFIED":
+            self._diag("record_manual", direction, len(old))
         self._after(res)
         return res
 
@@ -357,5 +370,7 @@ class Runtime:
             res = L.TxResult("UNRECOVERED", "adapter_exception", "", True, True)
         self.last_result = res
         self.engine.undo_outcome(res.outcome, res.quarantine)
+        if res.outcome == "VERIFIED":
+            self._diag("record_undo", s.direction)
         self._after(res)
         return res
