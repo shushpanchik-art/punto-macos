@@ -204,6 +204,29 @@ class Stops(FakeProc):
 sup3.spawn = lambda a: Stops(1, [])
 T(sup3.run() == 0 and sup3.starts == 1, "a crash exit that races with stop is not restarted")
 
+# ---- stress: stop at many different moments around the start of a real child; afterwards no child process and no watchdog thread may exist
+import random
+def procs_with(token):
+    out = []
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                if token.encode() in open(f"/proc/{p}/cmdline", "rb").read() and pid_alive(int(p)): out.append(int(p))
+            except OSError: pass
+    return out
+rnd = random.Random(7)
+for i in range(14):
+    d = tempfile.mkdtemp(prefix="lfstress_"); script = os.path.join(d, "c.py"); open(script, "w", encoding="utf-8").write(IGN.format(d=d))
+    sup = P.ProcessSupervisor(P.make_spawn([sys.executable, script]), lambda: int(time.monotonic() * 1000), lambda ms: time.sleep(ms / 1000.0), term_timeout_ms=150)
+    res = []; th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start()
+    time.sleep(rnd.choice([0, 0.001, 0.005, 0.02, 0.05, 0.1, 0.2])); 
+    for _ in range(rnd.choice([1, 2, 3])): sup.stop()
+    th.join(10)
+    T(not th.is_alive() and res == [0], f"stress {i}: run ended with 0")
+    time.sleep(0.05)
+    T(procs_with(d) == [], f"stress {i}: no child process of this run is left")
+    T(not any(t.name == "lf-stop-watchdog" and t.is_alive() for t in threading.enumerate()), f"stress {i}: no watchdog thread is left")
+    T(sup.starts <= 1, f"stress {i}: at most one start")
 # make_spawn refuses a flag outside the allow-list
 spawn = P.make_spawn([sys.executable, "-c", "pass"])
 T(raises(lambda: spawn(["--engine", "/etc/passwd"]), ValueError), "make_spawn passes only allow-listed flags")

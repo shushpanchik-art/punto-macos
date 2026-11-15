@@ -53,6 +53,7 @@ class Runtime:
         self.layout_ok = True
         self.watchdog_ok = True
         self.auto_enabled = True                 # AP-4 "automatic correction on or off": off gives MANUAL_ONLY, never OFF; memory only (persisted by lfsettings)
+        self.incident_apps = []                  # application ids, parallel to the 'incident' notices (memory only)
         self.instance_ok = True                  # False when this process is not THE instance (RT-19: lock not held or not establishable); memory only
         self.worker_ok = True                    # False after two worker failures within 60 s (failure row 11); memory only
         self.notices = []                        # (kind, reason): what the user would be told; never text
@@ -237,7 +238,8 @@ class Runtime:
             app = self.apps[self.app_id]
             app.incidents += 1
             app.quarantined = True
-            self.notices.append(("incident", res.reason))
+            self.notices.append(("incident", f"{res.outcome}:{res.reason}"))     # short codes only, never text
+            self.incident_apps.append(self.app_id)                                 # which application the notice's re-enable action points at
             self.apply_mode()
 
     # -- the hotkeys ---------------------------------------------------------------------------------------------------

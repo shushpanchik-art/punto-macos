@@ -178,3 +178,10 @@
 * eb75fa6 fixes re-checked: sync, save (open, write, fsync, replace, encrypt) and wipe failures are covered by `test_lifecycle.py` (94 checks); manifest coverage check runs in CI.
 * New `app/lfsettings.py` + `app/test_settings.py` (AP-4 portable layer, 117 checks), `Runtime.auto_enabled`.
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-15 (twelfth part)
+* Supervisor stop races: a stress test stops a real SIGTERM-ignoring child at 14 different moments around its start (1 to 3 stops each) and checks, by scanning `/proc`, that no process of the run and no watchdog thread remains and at most one start happened; `test_supervisor.py` is 117 checks. The CI run on b4ca20f stays not counted.
+* New `app/lfnotify.py` + `app/test_notify.py` (AP-8 portable part, 74 checks). `Runtime` incident notice detail is now `OUTCOME:reason` (short codes) and `Runtime.incident_apps` records which application each incident belongs to.
+* Gaps and readings in `audit/AP7_RT19_readings.md` section 7 (no priorities in the specification).
+* `lfengine.py` and `conformance.py` unchanged.
+
