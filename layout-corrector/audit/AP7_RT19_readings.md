@@ -65,3 +65,10 @@ Clauses: 13.5 "A notice is shown at most once per cause and per 24 hours, and ne
 * No wording: a notice has a text identifier; the words, their translation and the display (non-blocking, no focus) belong to the interface and are NOT RUN. A failing display is retried up to 3 times (my number) and then dropped and counted.
 * The notice of an incident carries the opaque identifier of the application for the re-enable action; it is the identifier the user already sees in the application list.
 
+## 8. AP-2 status and pause (portable part, `app/lfstatus.py`, `Runtime.set_paused`): my readings, not agreed
+Clause AP-2: "A menu-bar or tray icon always shows one of Active, Paused, Manual only, Off. One click pauses (the gate becomes DENY, so nothing is recorded). "Pause for this application" adds it to the application list". AP-1: "Until all are granted the state is OFF and the status icon names the missing permission."
+* Precedence is not defined. Mine: a missing permission or a missing instance lock shows Off even while paused (so the icon can name the permission); otherwise Paused wins over a per-application Off or Manual only; no focused application is Off with the reason `no_focus`.
+* While paused the gate is DENY whatever the adapter reports (the adapter cannot lift the pause, a focus change does not either); resume restores the LAST verdict of the gate (ALLOW, DENY or UNKNOWN) without a new adapter call; pausing and resuming drop the word in progress.
+* "Pause for this application" is the blacklist entry of AP-4 (the re-enable button undoes it); the confirmation notice "re-enabled" is not shown (section 7).
+* The state is in memory only: a restart is not paused.
+

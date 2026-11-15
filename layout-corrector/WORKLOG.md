@@ -184,4 +184,6 @@
 * New `app/lfnotify.py` + `app/test_notify.py` (AP-8 portable part, 74 checks). `Runtime` incident notice detail is now `OUTCOME:reason` (short codes) and `Runtime.incident_apps` records which application each incident belongs to.
 * Gaps and readings in `audit/AP7_RT19_readings.md` section 7 (no priorities in the specification).
 * `lfengine.py` and `conformance.py` unchanged.
+* New `app/lfstatus.py`, `Runtime.set_paused` / `gate_verdict`, `app/test_status.py` (AP-2 portable part, 31 checks). Readings: audit/AP7_RT19_readings.md section 8. Next available portable item: AP-11 diagnostics counters (length buckets are not defined by the specification).
+* `lfengine.py` and `conformance.py` unchanged.
 

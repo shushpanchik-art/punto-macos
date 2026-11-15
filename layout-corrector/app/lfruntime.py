@@ -53,6 +53,8 @@ class Runtime:
         self.layout_ok = True
         self.watchdog_ok = True
         self.auto_enabled = True                 # AP-4 "automatic correction on or off": off gives MANUAL_ONLY, never OFF; memory only (persisted by lfsettings)
+        self.paused = False                      # AP-2 "One click pauses (the gate becomes DENY, so nothing is recorded)"; memory only
+        self.gate_verdict = L.GATE_UNKNOWN        # the last verdict of the gate, kept so that a resume can restore it
         self.incident_apps = []                  # application ids, parallel to the 'incident' notices (memory only)
         self.instance_ok = True                  # False when this process is not THE instance (RT-19: lock not held or not establishable); memory only
         self.worker_ok = True                    # False after two worker failures within 60 s (failure row 11); memory only
@@ -81,14 +83,28 @@ class Runtime:
         self.apps.setdefault(app_id, AppState(support)).caps = frozenset(adapter.caps)
         self.app_id, self.ad = app_id, adapter
         self.engine.on_event(L.Event("break"))
-        self.engine.set_gate(L.GATE_UNKNOWN)
-        self.health.set_gate_open(False)
+        self.gate_verdict = L.GATE_UNKNOWN
+        self._push_gate()
         self.apply_mode()
 
     def on_gate(self, gate: str):
         """The verdict of the gate for the focused element (ALLOW | DENY | UNKNOWN). The only entry for it."""
-        self.engine.set_gate(gate)
-        self.health.set_gate_open(gate == L.GATE_ALLOW)
+        self.gate_verdict = gate
+        self._push_gate()
+
+    def _push_gate(self):
+        g = L.GATE_DENY if self.paused else self.gate_verdict
+        self.engine.set_gate(g)
+        self.health.set_gate_open(g == L.GATE_ALLOW)
+
+    def set_paused(self, on: bool):
+        """AP-2: while paused the gate is DENY whatever the adapter says, so nothing is recorded. Pausing or resuming drops the word in progress."""
+        if not isinstance(on, bool):
+            raise ValueError("paused")
+        if on != self.paused:
+            self.engine.on_event(L.Event("break"))
+            self.paused = on
+            self._push_gate()
 
     def set_support(self, app_id: str, support: str):
         if support not in L.SUPPORT_STATUS:

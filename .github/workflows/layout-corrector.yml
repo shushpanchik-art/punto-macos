@@ -63,11 +63,13 @@ jobs:
           python test_instance.py
           python test_settings.py
           python test_notify.py
+          python test_status.py
           python -O test_apps.py
           python -O test_lifecycle.py
           python -O test_instance.py
           python -O test_settings.py
           python -O test_notify.py
+          python -O test_status.py
           python -O test_supervisor.py
           python -O test_autostart.py
       - name: Spike result validator (synthetic files only; it proves the decision rules, not a platform fact)
