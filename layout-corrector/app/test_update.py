@@ -163,6 +163,97 @@ T(e.u.at_restart() == "rejected:validation" and e.u.state["active"] == "1.0.0" a
 e.u.validate = lambda v, p: 1; a3, b3, c3 = pkg("1.2.0"); e.u.stage(a3, b3, c3); T(e.u.at_restart() == "rejected:validation", "a validator that does not answer True refuses")
 e.u.validate = lambda v, p: 1 / 0; e.u.stage(a3, b3, c3); T(e.u.at_restart() == "rejected:validation" and e.u.state["active"] == "1.0.0", "a failing validator refuses")
 e.done()
+# ---- the stored package is checked again when it is used (audit of AP-9: atomicity, tampering after staging, loss of the previous state)
+def fresh(v1="1.0.0", v2=None):
+    en = Env(); a, b, c = pkg(v1); en.u.stage(a, b, c); en.u.at_restart()
+    if v2: a, b, c = pkg(v2); en.u.stage(a, b, c)
+    return en
+P = lambda en, v, n="": os.path.join(en.root, "packages", v, n)
+# a file changed after it was staged
+en = fresh("1.0.0", "1.1.0"); open(P(en, "1.1.0", "model"), "wb").write(b"evil")
+T(en.u.at_restart() == "rejected:integrity" and en.u.state["active"] == "1.0.0" and en.u.state["staged"] is None and not os.path.exists(P(en, "1.1.0")), "a staged file changed before the switch: not used, dropped, the active one stays")
+T(len(en.nt.pending) == 1 and en.nt.pending[0][1]["kind"] == "update_failed", "and a row 12 notice is queued"); en.done()
+# the stored manifest or signature changed, the directory removed, a file added, a link in place of a file, a key that no longer verifies
+for what in ("sig", "manifest", "rmdir", "extra", "link", "missing_file", "revoked_key", "garbage_manifest"):
+    en = fresh("1.0.0", "1.1.0"); d = P(en, "1.1.0")
+    if what == "sig":
+        r = json.load(open(d + "/manifest.json")); r["signature"] = "00" * 32; json.dump(r, open(d + "/manifest.json", "w"))
+    elif what == "manifest":
+        r = json.load(open(d + "/manifest.json")); r["manifest"]["rollout_percent"] = 1; json.dump(r, open(d + "/manifest.json", "w"))
+    elif what == "rmdir": shutil.rmtree(d)
+    elif what == "extra": open(d + "/lexicon", "wb").write(b"x")
+    elif what == "link": os.remove(d + "/model"); os.symlink(P(en, "1.0.0", "model"), d + "/model")
+    elif what == "missing_file": os.remove(d + "/model")
+    elif what == "revoked_key": en.u.verify = lambda data, sig: False
+    elif what == "garbage_manifest": open(d + "/manifest.json", "w").write("{")
+    r = en.u.at_restart()
+    T(r == "rejected:integrity" and en.u.state["active"] == "1.0.0" and en.u.state["staged"] is None, f"integrity: {what}: {r}")
+    en.done()
+# a signed package of ANOTHER version put into the staged directory
+en = fresh("1.0.0", "1.1.0"); shutil.rmtree(P(en, "1.1.0")); shutil.copytree(P(en, "1.0.0"), P(en, "1.1.0"))
+T(en.u.at_restart() == "rejected:integrity" and en.u.state["active"] == "1.0.0", "a valid package of another version in the staged directory is refused"); en.done()
+# a link in place of a component, pointing to a file with the very same content
+en = fresh("1.0.0", "1.1.0"); outside = os.path.join(en.root, "outside"); open(outside, "wb").write(b"m1.1.0"); os.remove(P(en, "1.1.0", "model")); os.symlink(outside, P(en, "1.1.0", "model"))
+T(en.u.at_restart() == "rejected:integrity", "a link is refused even when the content would match"); en.done()
+# exactly 10 MB is staged AND switched
+en = Env(); a, b, c = pkg("1.0.0", {"lexicon": b"x" * U.MAX_BYTES}); T(en.u.stage(a, b, c) == "staged" and en.u.at_restart() == "switched" and en.u.state["active"] == "1.0.0", "a package of exactly 10 MB passes the check at the switch"); en.done()
+# the active and the previous package both damaged
+en = fresh("1.0.0", "1.1.0"); en.u.at_restart(); open(P(en, "1.1.0", "model"), "wb").write(b"evil"); open(P(en, "1.0.0", "model"), "wb").write(b"evil"); u = en.reopen()
+T(u.state["active"] == "builtin" and u.state["previous"] is None and u.counters["active_damaged"] == 1, "both damaged at start: the built-in package"); en.done()
+# the blocked list stays bounded when a damaged active package is found
+en = fresh("1.0.0"); st_ = json.load(open(os.path.join(en.root, "state.json"))); st_["blocked"] = ["9.%d.0" % i for i in range(16)]; json.dump(st_, open(os.path.join(en.root, "state.json"), "w")); open(P(en, "1.0.0", "model"), "wb").write(b"evil")
+u = en.reopen(); T(len(u.state["blocked"]) == 16 and u.state["blocked"][-1] == "1.0.0" and u.state["blocked"][0] == "9.1.0", "the blocked list stays at 16"); en.done()
+# the verifier must still answer exactly True when the package is used
+en = fresh("1.0.0", "1.1.0"); en.u.verify = lambda d, sg: 1
+T(en.u.at_restart() == "rejected:integrity", "a verifier that answers 1 at the switch does not pass the stored package"); en.done()
+# a signature of a wrong type with a verifier that says True
+en = Env(); en.u.verify = lambda d, s: True; a, b, c = pkg("1.0.0")
+T(en.u.stage(a, 5, c) == "rejected:signature" and en.u.stage(a, [1], c) == "rejected:signature", "an integer or a list is not a signature"); en.done()
+# a verifier that returns True and a signature that is not bytes
+en = Env(); en.u.verify = lambda d, s: True; a, b, c = pkg("1.0.0")
+T(en.u.stage(a, "text", c) == "rejected:signature" and en.u.stage(a, bytearray(b"x"), c) == "staged", "a signature that is not bytes is refused; a bytearray is accepted as bytes"); en.done()
+# the active package damaged: found at start, the previous one (when it verifies) or the built-in one is used
+en = fresh("1.0.0", "1.1.0"); en.u.at_restart(); open(P(en, "1.1.0", "model"), "wb").write(b"evil")
+u = en.reopen()
+T(u.state["active"] == "1.0.0" and u.state["previous"] is None and u.state["blocked"] == ["1.1.0"] and u.counters["active_damaged"] == 1 and not os.path.exists(P(en, "1.1.0")), "a damaged active package: the previous one is used, the damaged one is blocked and removed")
+open(P(en, "1.0.0", "model"), "wb").write(b"evil"); u = en.reopen()
+T(u.state["active"] == "builtin" and u.active_files() == {} and u.state["blocked"] == ["1.1.0", "1.0.0"], "the previous one damaged too: the built-in package")
+en.done()
+en = fresh("1.0.0", "1.1.0"); en.u.at_restart(); shutil.rmtree(P(en, "1.1.0")); u = en.reopen()
+T(u.state["active"] == "1.0.0" and u.counters["active_damaged"] == 1, "the active directory is gone: the previous one is used"); en.done()
+# a rollback to a damaged previous package goes to the built-in one
+en = fresh("1.0.0", "1.1.0"); en.u.at_restart(); open(P(en, "1.0.0", "model"), "wb").write(b"evil")
+T(en.u.rollback() == "rolled_back" and en.u.state["active"] == "builtin" and en.u.counters["previous_damaged"] == 1 and en.u.state["blocked"] == ["1.1.0"], "rollback never activates a damaged previous package"); en.done()
+# an unreadable state: the packages it referred to are kept aside with it, not deleted
+en = fresh("1.0.0"); open(os.path.join(en.root, "state.json"), "w").write("{bad"); u = en.reopen()
+T(os.path.isdir(os.path.join(en.root, "packages.bad", "1.0.0")) and os.listdir(os.path.join(en.root, "packages")) == [] and u.state["active"] == "builtin" and os.path.exists(os.path.join(en.root, "state.json.bad")), "an unreadable state keeps its packages aside")
+a, b, c = pkg("2.0.0"); u.stage(a, b, c); u.at_restart()
+open(os.path.join(en.root, "state.json"), "w").write("{bad"); u = en.reopen()
+T(os.listdir(os.path.join(en.root, "packages.bad")) == ["2.0.0"], "a second unreadable state replaces the aside copy by the newer one"); en.done()
+# an interruption while staging (not an OSError) leaves nothing that the next start does not remove, and the state is untouched
+en = fresh("1.0.0"); snap_state = open(os.path.join(en.root, "state.json")).read(); a, b, c = pkg("1.1.0"); realfsync = os.fsync
+def intr(fd): raise KeyboardInterrupt()
+os.fsync = intr
+try:
+    try: en.u.stage(a, b, c)
+    except KeyboardInterrupt: pass
+finally: os.fsync = realfsync
+T(open(os.path.join(en.root, "state.json")).read() == snap_state, "an interrupted staging does not touch the state")
+u = en.reopen(); T(sorted(os.listdir(os.path.join(en.root, "packages"))) == ["1.0.0"] and u.state["active"] == "1.0.0", "the next start removes what the interrupted staging left"); en.done()
+# a failing manifest write while staging: storage failure, nothing left
+en = fresh("1.0.0"); snap = tree(en.root); realdump = json.dump
+def failing_dump(obj, fp, **kw):
+    if isinstance(obj, dict) and "manifest" in obj: raise OSError("disk")
+    return realdump(obj, fp, **kw)
+json.dump = failing_dump
+try: r = en.u.stage(*pkg("1.1.0"))
+finally: json.dump = realdump
+T(r == "rejected:storage" and tree(en.root) == snap, "a failing manifest write: nothing left"); en.done()
+# validation sees the components only, never the manifest file
+seen = []
+en = Env(validate=lambda v, p: seen.append(sorted(p)) or True); a, b, c = pkg("1.0.0"); en.u.stage(a, b, c); en.u.at_restart()
+T(seen == [["calibration", "model"]], "the validator is given the components only"); en.done()
+
 # ---- the staged rollout
 for bucket, pct, want in ((0, 100, "staged"), (99, 100, "staged"), (99, 99, "not_yet"), (0, 1, "staged"), (1, 1, "not_yet"), (0, 0, "not_yet"), (50, 50, "not_yet"), (49, 50, "staged")):
     e = Env(bucket=bucket); a, b, c = pkg("1.0.0", pct=pct); T(e.u.stage(a, b, c) == want, f"bucket {bucket}, rollout {pct}: {want}")

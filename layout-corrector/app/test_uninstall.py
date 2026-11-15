@@ -83,7 +83,8 @@ a = Blind(); r = U.uninstall(a, True); T(r["result"] == "incomplete" and r["step
 a = Fake(); a.fail.add("startup"); r = U.uninstall(a, True)
 T(r["steps"]["startup"] == "failed" and r["steps"]["application"] == "ok" and r["steps"]["data"] == "ok" and r["leftovers"] == ["startup_entry"] and r["result"] == "incomplete", "a failing startup removal is reported and the rest goes on")
 a = Fake(); a.fail.add("app"); r = U.uninstall(a, True)
-T(r["steps"]["application"] == "failed" and r["steps"]["data"] == "ok" and r["leftovers"] == ["application"], "a failing application removal does not stop the data removal the user asked for")
+T(r["steps"]["application"] == "failed" and r["steps"]["data"] == "not_run" and "data" not in a.log and r["leftovers"] == ["application", "user_data"] and r["result"] == "incomplete", "a failing application removal: the data, an irreversible step, is not deleted (my reading, open)")
+a = Fake(app="absent"); r = U.uninstall(a, True); T(r["steps"]["data"] == "ok", "an application already gone does not hold the data back")
 a = Fake(); a.fail.add("data"); r = U.uninstall(a, True); T(r["steps"]["data"] == "failed" and r["leftovers"] == ["user_data"] and r["steps"]["final_check"] == "ok", "a failing data removal is reported")
 for bad in ("yes", None, "", 1, "REMOVED"):
     a = Fake(startup=bad, app=bad); r = U.uninstall(a, True)
@@ -95,6 +96,21 @@ T(r["steps"]["data"] == "skipped" and r["leftovers"] == ["user_data_partial"] an
 a = Fake(data=([], [])); r = U.uninstall(a, True); T(r["steps"]["data"] == "absent" and r["result"] == "complete", "no data: absent")
 a = Fake(startup="absent", app="absent", procs=()); r = U.uninstall(a, True)
 T(r["steps"] == {"startup": "absent", "processes": "absent", "application": "absent", "data": "ok", "final_check": "ok"} and r["result"] == "complete", "a second uninstall finds everything gone and is complete")
+# ---- an interrupted uninstall leaves a state that a second run finishes (a BaseException is not swallowed, nothing is half-recorded)
+class Stop(BaseException): pass
+class Inter(Fake):
+    def remove_application(self): self.log.append("app"); raise Stop()
+a = Inter()
+try: U.uninstall(a, True); T(False, "the interruption must propagate")
+except Stop: T(True, "")
+T("data" not in a.log and a.procs == [], "interrupted at the application step: the data was not touched, the processes are already gone")
+a2 = Fake(procs=(), startup="absent"); r = U.uninstall(a2, True); T(r["result"] == "complete", "a second run after the interruption completes")
+# an adapter that fails in stop() or sleep() leaves nothing deleted
+class BadSleep(Fake):
+    def sleep(self, ms): raise RuntimeError("x")
+a = BadSleep(); r = U.uninstall(a, True); T(r["result"] == "incomplete" and "app" not in a.log and "data" not in a.log, "a failing sleep: nothing is deleted")
+# the processes are asked once per round, not twice
+a = Fake(stubborn=2); U.uninstall(a); T(a.stops == 3 and len([x for x in a.log if x == "stop"]) == 3, "one stop request per round")
 # ---- data is removed only after the processes have ended: a process writes its files again when it ends
 d = tempfile.mkdtemp(prefix="lfun_"); sp = os.path.join(d, "settings.json"); st = S.Store(sp, S.TestOnlyCipher(b"key"), allow_test_cipher=True)
 state = st.load(); st.save(state); T(os.path.exists(sp), "the store file exists")

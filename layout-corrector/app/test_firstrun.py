@@ -213,6 +213,43 @@ T(seen.count("break") == 1, f"one break for one loss ({seen})")
 # no instance lock and a missing permission: the icon names what Runtime.explain gives (instance), not a permission
 a = Fake(); fr = F.FirstRun(a); rt, f = new(); rt.instance_ok = False
 T(fr.icon(rt) == ("Off", ["instance"], None), "the permission is named only when it is the reason shown")
+# ---- one prompt at a time, also when an EARLIER permission is revoked while the next one's prompt is open (defect found by the requester's scenario)
+a = Fake({"input_monitoring": "granted"}); fr = F.FirstRun(a); fr.acknowledge()
+T(fr.request_current() == "post_event" and a.calls == ["post_event"] and fr.view()["prompt_for"] == "post_event", "Post Event is open")
+a.st["input_monitoring"] = "denied"; v = fr.view()
+T(fr.current() == "input_monitoring" and v["prompt_open"] and v["prompt_for"] == "post_event" and v["permission"] == "post_event" and v["next"] == "input_monitoring", "the view shows the prompt that is really open, and what comes next")
+T(fr.request_current() is None and a.calls == ["post_event"] and fr.counters["duplicate_press"] == 1, "no second request while the first prompt is open")
+T(fr.revoked == ["input_monitoring"], "the revoke is still recorded")
+# late answer for the open prompt, 'granted' confirmed by the status
+a.st["post_event"] = "granted"; v = fr.view()
+T(not v["prompt_open"] and v["permission"] == "input_monitoring" and v["next"] is None and fr.request_current() == "input_monitoring" and a.calls == ["post_event", "input_monitoring"], "after the answer the earlier one is asked, once")
+# a late answer through the callback
+a = Fake({"input_monitoring": "granted"}); fr = F.FirstRun(a); fr.acknowledge(); fr.request_current(); a.st["input_monitoring"] = "denied"; fr.refresh()
+T(fr.on_answer("input_monitoring", "denied") is False and fr.counters["stale_answer"] == 1 and fr.view()["prompt_for"] == "post_event", "an answer for a prompt that is not the open one is stale and ignored")
+T(fr.on_answer("post_event", "maybe") is False and fr.counters["answer_ignored"] == 1 and fr.view()["prompt_open"], "an answer that is not granted or denied changes nothing")
+T(fr.on_answer("post_event", "granted") is False and fr.view()["prompt_open"], "a late 'granted' that the status does not confirm is not believed")
+T(fr.on_answer("post_event", "denied") is True and not fr.view()["prompt_open"] and fr.view()["permission"] == "input_monitoring" and fr.request_current() == "input_monitoring", "a late denial closes the prompt; the next is asked afterwards")
+a.st["post_event"] = "denied"
+T(fr.on_answer("post_event", "denied") is False and fr.counters["stale_answer"] == 2, "the same answer again is stale: repeated events do nothing")
+a = Fake(); fr = F.FirstRun(a); fr.acknowledge(); fr.request_current()
+T(fr.on_answer("input_monitoring", "denied") is True and fr.view()["denied"] and not fr.view()["prompt_open"] and fr.view()["permission"] == "input_monitoring", "a late denial is shown as denied, the link stays")
+a = Fake({"input_monitoring": "granted"}); fr = F.FirstRun(a); fr.acknowledge(); fr.request_current(); a.st["post_event"] = "granted"
+T(fr.on_answer("post_event", "granted") is True and not fr.view()["prompt_open"], "a late 'granted' that the status confirms closes the prompt")
+T(fr.on_answer("post_event", "granted") is False, "and the repeat is stale")
+# cancel while another one was revoked
+a = Fake({"input_monitoring": "granted"}); fr = F.FirstRun(a); fr.acknowledge(); fr.request_current(); a.st["input_monitoring"] = "denied"; fr.refresh()
+fr.cancel(); v = fr.view()
+T(not v["prompt_open"] and v["permission"] == "input_monitoring" and a.calls == ["post_event"], "cancel closes the open prompt only; nothing is requested by it")
+T(fr.request_current() == "input_monitoring" and a.calls == ["post_event", "input_monitoring"] and fr.request_current() is None, "after the cancel the earlier one is asked once, and a repeat is a duplicate")
+# re-entry (quit and resume) keeps the open prompt; a restart does not know it
+a = Fake({"input_monitoring": "granted"}); fr = F.FirstRun(a); fr.acknowledge(); fr.request_current(); fr.quit(); fr.resume()
+T(fr.view()["prompt_open"] and fr.request_current() is None and a.calls == ["post_event"], "quit and resume keep the open prompt and ask nothing again")
+a.st["input_monitoring"] = "denied"; T(fr.request_current() is None and a.calls == ["post_event"], "also with the earlier one revoked in between")
+# before the information screen is acknowledged the view still tells the truth
+a = Fake({"input_monitoring": "granted"}); fr = F.FirstRun(a); fr.request_current(); v = fr.view()
+T(v["screen"] == F.INTRO and v["prompt_open"] and v["prompt_for"] == "post_event", "a prompt opened before the screen was acknowledged is shown as open")
+# the old duplicate-press rule for the same permission still holds
+a = Fake(); fr = F.FirstRun(a); fr.acknowledge(); fr.request_current(); T(fr.request_current() is None and a.calls == ["input_monitoring"], "the same permission twice: one request")
 # the word typed while a permission is missing is neither recorded nor converted; after the grant a new word is converted
 a = Fake(); fr = F.FirstRun(a); rt, f = new(); fr.apply(rt)
 typed(rt, f, "ghbdtn", 100); space(rt, f, 106)

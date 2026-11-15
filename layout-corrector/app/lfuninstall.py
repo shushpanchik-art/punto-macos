@@ -82,7 +82,9 @@ def uninstall(ad, delete_data=False, max_rounds=5, wait_ms=200):
         return {"result": "incomplete", "steps": steps, "leftovers": left, "rounds": rounds}
 
     run("application", lambda: _simple(ad.remove_application), "application")
-    if delete_data:
+    if delete_data and steps["application"] not in (OK, ABSENT):
+        left.append("user_data")                         # the irreversible step comes last and only after the application is gone (my reading, section 14)
+    elif delete_data:
         def data():
             d, s = ad.remove_user_data()
             if not (isinstance(d, (list, tuple)) and isinstance(s, (list, tuple))):

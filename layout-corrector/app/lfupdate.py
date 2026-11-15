@@ -25,6 +25,7 @@ _VER = re.compile(r"(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3}
 _HEX = re.compile(r"[0-9a-f]{64}")
 MANIFEST_KEYS = {"version", "rollout_percent", "sha256"}
 MAX_BLOCKED = 16
+MANIFEST_FILE = "manifest.json"             # kept next to the components so that the package can be verified again when it is used
 
 
 def vkey(v):
@@ -43,6 +44,9 @@ class Updater:
         self.log = []                                   # (event, detail) codes, never text of a package
         os.makedirs(os.path.join(root, "packages"), exist_ok=True)
         self.state = self._load()
+        if self.counters.get("state_unreadable"):
+            self._set_aside_packages()                   # the packages the unreadable state referred to are kept aside with it, not deleted
+        self._check_active()
         self._gc()
 
     # -- state ---------------------------------------------------------------------------------------------------------------
@@ -81,6 +85,28 @@ class Updater:
         self._count("state_unreadable")
         return self._fresh()
 
+    def _set_aside_packages(self):
+        d, bad = self._path("packages"), self._path("packages.bad")
+        try:
+            shutil.rmtree(bad, ignore_errors=True)
+            os.replace(d, bad)
+        except OSError:
+            self._count("aside_failed")
+        os.makedirs(d, exist_ok=True)
+
+    def _check_active(self):
+        """At start the active package is checked again; a damaged one is replaced by the previous package when that verifies, else by the built-in one."""
+        s = self.state
+        if s["active"] == BUILTIN or self._verify_dir(s["active"]):
+            return
+        self._count("active_damaged")
+        prev = s["previous"] if s["previous"] and (s["previous"] == BUILTIN or self._verify_dir(s["previous"])) else BUILTIN
+        new = {"active": prev, "previous": None, "staged": s["staged"], "blocked": (s["blocked"] + [s["active"]])[-MAX_BLOCKED:]}
+        try:
+            self._save(new)
+        except OSError:
+            self.state = new                             # still used for this run; the next successful save writes it
+
     def _save(self, s):
         tmp = self._path("state.json.tmp")
         try:
@@ -104,6 +130,37 @@ class Updater:
         for n in os.listdir(d):
             if n not in keep:
                 shutil.rmtree(os.path.join(d, n), ignore_errors=True)
+
+    def _verify_dir(self, v):
+        """The stored package is checked again when it is used: its manifest, the signature and the hash of every file. A package that was changed, damaged or
+        partly removed after it was staged does not pass (the directory is not trusted just because this module wrote it)."""
+        try:
+            d = self._path("packages", v)
+            with open(os.path.join(d, MANIFEST_FILE), "r", encoding="ascii") as f:
+                rec = json.load(f)
+            if not isinstance(rec, dict) or set(rec) != {"manifest", "signature"}:
+                return False
+            m, sig = rec["manifest"], bytes.fromhex(rec["signature"])
+            if not isinstance(m, dict) or set(m) != MANIFEST_KEYS or m["version"] != v or not isinstance(m["sha256"], dict) or not m["sha256"]:
+                return False
+            if self.verify(canonical(m), sig) is not True:
+                return False
+            names = set(os.listdir(d)) - {MANIFEST_FILE}
+            if names != set(m["sha256"]) or not names <= set(COMPONENTS):
+                return False
+            total = 0
+            for n in names:
+                p = os.path.join(d, n)
+                if os.path.islink(p) or not os.path.isfile(p):
+                    return False
+                with open(p, "rb") as f:
+                    b = f.read(MAX_BYTES + 1)
+                total += len(b)
+                if total > MAX_BYTES or hashlib.sha256(b).hexdigest() != m["sha256"][n]:
+                    return False
+            return True
+        except Exception:
+            return False
 
     def _fail(self, code):
         self._count("rejected_" + code)
@@ -135,7 +192,7 @@ class Updater:
             if not all(isinstance(b, (bytes, bytearray)) for b in files.values()) or sum(len(b) for b in files.values()) > MAX_BYTES:
                 return self._fail("size")
             try:
-                ok = self.verify(canonical(manifest), signature) is True
+                ok = isinstance(signature, (bytes, bytearray)) and self.verify(canonical(manifest), bytes(signature)) is True
             except Exception:
                 ok = False
             if not ok:
@@ -169,6 +226,10 @@ class Updater:
                     f.write(bytes(b))
                     f.flush()
                     os.fsync(f.fileno())
+            with open(os.path.join(tmp, MANIFEST_FILE), "w", encoding="ascii") as f:
+                json.dump({"manifest": manifest, "signature": bytes(signature).hex()}, f, sort_keys=True)
+                f.flush()
+                os.fsync(f.fileno())
             shutil.rmtree(d, ignore_errors=True)
             os.replace(tmp, d)
             s = dict(self.state, staged=v)
@@ -203,7 +264,11 @@ class Updater:
             self._count("busy")
             return "busy"
         v = s["staged"]
-        paths = {n: os.path.join(self._path("packages", v), n) for n in os.listdir(self._path("packages", v))}
+        if not self._verify_dir(v):                      # changed or damaged since it was staged: it is not used
+            self._save(dict(s, staged=None))
+            self._gc()
+            return self._fail("integrity")
+        paths = {n: os.path.join(self._path("packages", v), n) for n in sorted(os.listdir(self._path("packages", v))) if n != MANIFEST_FILE}
         try:
             ok = True if self.validate is None else self.validate(v, paths) is True
         except Exception:
@@ -229,8 +294,12 @@ class Updater:
             return "nothing"
         bad = s["active"]
         blocked = (s["blocked"] + ([bad] if bad != BUILTIN else []))[-MAX_BLOCKED:]
+        target = s["previous"]
+        if target != BUILTIN and not self._verify_dir(target):
+            self._count("previous_damaged")              # the previous package is damaged: the built-in one is the safe step back
+            target = BUILTIN
         try:
-            self._save({"active": s["previous"], "previous": None, "staged": s["staged"], "blocked": blocked})
+            self._save({"active": target, "previous": None, "staged": s["staged"], "blocked": blocked})
         except OSError:
             return self._fail("storage")
         self._gc()
@@ -243,4 +312,4 @@ class Updater:
         if v == BUILTIN:
             return {}
         d = self._path("packages", v)
-        return {n: os.path.join(d, n) for n in sorted(os.listdir(d))}
+        return {n: os.path.join(d, n) for n in sorted(os.listdir(d)) if n != MANIFEST_FILE}

@@ -103,11 +103,11 @@ class FirstRun:
             self._count("ignored_after_quit")
             return None
         cur = self.current()
+        if self._pending is not None:
+            self._count("duplicate_press")        # ONE prompt at a time, whichever permission it is for (an earlier grant may have been revoked meanwhile)
+            return None
         if cur is None:
             self._count("nothing_to_ask")
-            return None
-        if self._pending == cur:
-            self._count("duplicate_press")
             return None
         self.requests.append(cur)
         try:
@@ -123,6 +123,22 @@ class FirstRun:
         else:
             self._pending = cur
         return cur
+
+    def on_answer(self, name, answer):
+        """A late answer of the OS prompt (the adapter's callback). It counts only for the prompt that is open; any other is stale and ignored. 'granted' is
+        believed only when the status agrees; 'denied' closes the prompt and is remembered; anything else changes nothing."""
+        if name != self._pending:
+            self._count("stale_answer")
+            return False
+        if answer == "denied":
+            self._denied.add(name)
+            self._pending = None
+            return True
+        if answer == "granted":
+            self.refresh()
+            return self._granted.get(name, False)
+        self._count("answer_ignored")
+        return False
 
     def cancel(self):
         """The user cancels the open prompt or the step. Nothing is requested, nothing is granted, the state stays OFF at the same permission."""
@@ -160,7 +176,7 @@ class FirstRun:
         user can always quit (`can_quit`)."""
         self.refresh()
         v = {"screen": None, "observed": list(OBSERVED), "missing": self.missing(), "permission": None, "link": None, "state": "OFF", "can_quit": True,
-             "prompt_open": False, "denied": False}
+             "prompt_open": self._pending is not None, "prompt_for": self._pending, "denied": False, "next": None}
         if self.quit_requested:
             v["screen"] = QUIT
         elif self.all_granted():
@@ -168,8 +184,9 @@ class FirstRun:
         elif not self.intro_seen:
             v["screen"] = INTRO
         else:
-            cur = self.current()
-            v.update(screen=PERMISSION, permission=cur, link=self.link(cur), prompt_open=self._pending == cur, denied=cur in self._denied)
+            cur = self._pending if self._pending is not None else self.current()      # the open prompt is shown first, it is the one that is really open
+            v.update(screen=PERMISSION, permission=cur, link=self.link(cur),
+                     denied=cur in self._denied, next=self.current() if self.current() != cur else None)
         if v["screen"] == INTRO:
             v["permission"] = self.current()
         return v

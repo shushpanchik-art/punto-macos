@@ -218,3 +218,12 @@
 * AP-6 (order and checks) published as fd2ca53 (CI success on that SHA).
 * AP-10 is BLOCKED on a decision (who announces a correction); recorded in the matrix and in `audit/AP7_RT19_readings.md` section 15; nothing implemented.
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-15 (nineteenth part)
+* AP-1 defect found and fixed: with Input Monitoring granted and the Post Event prompt open, a revoke of Input Monitoring made it current again and `request_current` opened a second prompt (the guard compared only with the current permission). Now one prompt for any permission; `view()` shows `prompt_for` and `next`; `on_answer` handles late answers. Tests 89 -> 108 (regression for revoke of the earlier permission, late answer granted/denied/stale, cancel, quit and resume, repeated events, the view before the screen was acknowledged).
+* `audit/AP7_RT19_readings.md` section 9 corrected: the ru to en undo is tested; the `len(old)`/`len(new)` mutant is equivalent because `manual_convert` keeps the length (checked on 200,000 random strings, 0 changes).
+* `audit/check_matrix_counts.py` was NOT in CI (found by the review); added with `audit/check_matrix_counts_selftest.py`, which proves that a deliberate mismatch is rejected (status 31 -> 32 on a temporary copy). The check also caught my own stale count (firstrun 107 vs 108).
+* Hand-mutation controls AP-3 and AP-11 repeated with `PYTHONDONTWRITEBYTECODE=1` on files that `git diff` showed unchanged: AP-11 14 of 16 killed, 2 equivalent (unchanged); AP-3 gave 2 real gaps (identifier repeated across languages; `layout_of(None)` without a pair), now tested; the earlier "10 of 11" is replaced by 16 of 20 killed, 4 equivalent. Whether the earlier runs used a stale `.pyc` is not known; this repeat does not depend on it.
+* AP-9 audit: the stored package was not verified when used (a file changed between staging and the switch was switched in: confirmed on 9b0d0a8 by the new tests, which fail there); an unreadable state deleted the packages it referred to; a rollback could activate a damaged previous package; a non-bytes signature reached the verifier. All fixed; tests 146 -> 174.
+* AP-6 audit: data could be deleted although the application removal failed (changed, see readings); an interruption test and a failing `sleep` test added; tests 59 -> 65.
+* `lfengine.py` and `conformance.py` unchanged.

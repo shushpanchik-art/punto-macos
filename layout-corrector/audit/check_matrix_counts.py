@@ -3,7 +3,10 @@
 the count written in the matrix. Run from anywhere; exit 1 on a mismatch. (A count in prose elsewhere is not checked.)"""
 import os, re, subprocess, sys
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-text = open(os.path.join(root, "app", "REQUIREMENTS_MATRIX.md"), encoding="utf-8").read()
+matrix = os.path.join(root, "app", "REQUIREMENTS_MATRIX.md")
+if len(sys.argv) == 3 and sys.argv[1] == "--matrix":
+    matrix = sys.argv[2]                     # used by the selftest below on a copy with a deliberate mismatch
+text = open(matrix, encoding="utf-8").read()
 bad = 0
 seen = set()
 for m in re.finditer(r"`app/(test_\w+\.py)`[^|]{0,12}?(\d[\d,]*) checks", text):

@@ -27,6 +27,12 @@ r = P.select_pair([src("ru", RU), src("us", EN)]); T(r.state == P.PAIR and r.en 
 # unsupported variants installed besides: still the pair; the variants are listed and are not members
 r = P.select_pair([src("us", EN), src("ru", RU), src("mn", RU_MNEMONIC), src("intl", EN_INTL), src("ime", None)])
 T(r.state == P.PAIR and r.unsupported == ["mn", "intl", "ime"] and r.layout_of("mn") is None and r.layout_of("intl") is None and r.layout_of("ime") is None, "unsupported variants next to a supported pair: the pair is used, the variants are not members")
+# a repeated identifier is refused even when the two sources are of different languages (nothing is guessed)
+r = P.select_pair([src("a", EN), src("a", RU)]); T(r.state == P.NONE and r.en is None and r.ru is None, "one identifier for an English and a Russian source: no pair")
+# a state that is not a pair has no member, whatever identifier asks (None included)
+r = P.select_pair([src("us", EN), src("us2", EN), src("ru", RU)])
+T(r.state == P.CHOOSE and r.layout_of(None) is None and r.layout_of("us") is None and r.layout_of("ru") is None, "CHOOSE: no source is a member, also the identifier None")
+r = P.select_pair([src("us", EN)]); T(r.layout_of(None) is None and r.layout_of("us") is None, "NONE: no source is a member")
 # no pair
 for lst, name in (([src("us", EN)], "no Russian"), ([src("ru", RU)], "no English"), ([], "nothing"), ([src("mn", RU_MNEMONIC), src("us", EN)], "only an unsupported Russian"), ([src("ime", None), src("ime2", None)], "only non-layouts")):
     r = P.select_pair(lst); T(r.state == P.NONE and r.layout_of("us") is None, f"no pair: {name}")
