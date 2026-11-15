@@ -14,7 +14,7 @@ import lfsettings as G
 
 DAY_MS = 86_400_000
 ACTIONS = ("open_settings", "re_enable")
-PERMISSIONS = ("input_monitoring", "accessibility", "hook")
+PERMISSIONS = ("input_monitoring", "post_event", "accessibility", "hook")
 _APP = re.compile(r"[^\x00-\x1f\x7f]{1,512}")
 
 # kind -> (13.5 row or None when the table has no row, action). Text identifiers are "notice." + kind (+ "." + variant).

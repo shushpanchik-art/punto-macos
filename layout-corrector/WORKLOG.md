@@ -198,3 +198,7 @@
 * New `app/lfpair.py` + `app/test_pair.py` (AP-3 deterministic part, 60 checks; mutations: 10 of 11 killed, 1 equivalent). Open questions: `audit/AP7_RT19_readings.md` section 11. Real installed-source query and fingerprint calls NOT RUN.
 * Matrix updated (stale counts, S-4 bindings and observer exist but stay BLOCKED until run on devices, AP-3 row); new `audit/check_matrix_counts.py` runs every app test and compares with the matrix.
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-15 (fifteenth part)
+* New `app/lffirstrun.py` + `app/test_firstrun.py` (AP-1 portable part, 89 checks; mutations 18 of 22 killed, 4 equivalent). Linked to runtime (`permission_ok`, engine break on a loss), status (icon names the missing permission), notify (row 14, once per loss, 24 h limit) and pair. `post_event` added to the permission allow-list of `lfnotify`. Open readings: `audit/AP7_RT19_readings.md` section 12. Real prompts, panes, revocation NOT RUN.
+* `lfengine.py` and `conformance.py` unchanged.
