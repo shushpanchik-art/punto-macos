@@ -23,7 +23,7 @@ def mk(show=None, **kw):
 T(set(N.ACTIONS) == {"open_settings", "re_enable"}, "the two actions of AP-8")
 for kind, (row, action) in N.CATALOGUE.items():
     n = N.build(kind, params={"permission": "input_monitoring"} if kind == "permission_missing" else ({"chord": "Pause"} if kind == "hotkey_fallback" else None))
-    T(action in N.ACTIONS and n["takes_focus"] is False and N.validate(n) == [] and (row is None or row in (9, 10, 11, 13, 14)), f"catalogue entry {kind}")
+    T(action in N.ACTIONS and n["takes_focus"] is False and N.validate(n) == [] and (row is None or row in (9, 10, 11, 12, 13, 14)), f"catalogue entry {kind}")
 T(N.CATALOGUE["incident"] == (10, "re_enable") and N.CATALOGUE["permission_missing"] == (14, "open_settings") and N.CATALOGUE["watchdog"] == (9, "re_enable") and N.CATALOGUE["stream_lost"][0] == 13 and N.CATALOGUE["worker_failed_twice"][0] == 11, "rows 9, 10, 11, 13, 14 as in the table")
 T(N.build("incident", "unrecovered")["text_id"] == "notice.incident.unrecovered" and N.build("incident", "restored")["text_id"] == "notice.incident.restored" and N.build("incident", "whatever")["text_id"] == "notice.incident.restored", "row 10: the UNRECOVERED wording is a different text; an unknown variant is not copied")
 T(N.build("nope") is None, "unknown kind")

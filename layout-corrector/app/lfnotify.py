@@ -23,6 +23,7 @@ CATALOGUE = {
     "permission_missing": (14, "open_settings"),    # names the permission; row 8 (gate UNKNOWN through a revoked text interface) uses the same kind
     "stream_lost": (13, "re_enable"),
     "watchdog": (9, "re_enable"),
+    "update_failed": (12, "open_settings"),          # AP-9: a package fails signature, hash or validation; the previous package stays active
     "worker_failed_twice": (11, "open_settings"),
     "models_unavailable": (None, "open_settings"),  # rows 3 to 6 and 12 cannot be told apart by the runtime flag `models_ok`
     "manual_only_after_crashes": (None, "open_settings"),   # my name for AP-7; not in the table
