@@ -68,6 +68,7 @@ jobs:
           python test_pair.py
           python test_firstrun.py
           python test_update.py
+          python test_uninstall.py
           python -O test_apps.py
           python -O test_lifecycle.py
           python -O test_instance.py
@@ -78,6 +79,7 @@ jobs:
           python -O test_pair.py
           python -O test_firstrun.py
           python -O test_update.py
+          python -O test_uninstall.py
           python -O test_supervisor.py
           python -O test_autostart.py
       - name: Spike result validator (synthetic files only; it proves the decision rules, not a platform fact)

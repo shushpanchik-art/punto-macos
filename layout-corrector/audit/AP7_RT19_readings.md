@@ -126,3 +126,14 @@ Clause AP-9: "Application, model, lexicon and calibration package are signed and
 * The 10 MB limit is the "whole package" budget of the table at 978 ("not yet assembled"); it is used as a bound here, not asserted as normative.
 * Not written: download, transport security, the real signature check, the swap of the application, the real restart, the user interface of the update and rollback buttons. NOT RUN.
 
+## 14. AP-6 uninstall (portable part, `app/lfuninstall.py`): OPEN questions, not agreed
+Clause AP-6: "A signed installer or package, per user and without elevation where the OS allows. The uninstaller removes the application, its login item or startup entry and, on request, all user data, and leaves no hook or helper process running". AP-5: "Delete all data" removes settings, exceptions and diagnostics.
+* **Order.** The text lists no order. Here: startup entry, processes, application, data, final check. The startup entry goes first so that nothing starts again if a later step fails; the data goes last and only after no process is left, because the engine saves its state when it ends (`lflifecycle.stop`), which would bring deleted data back.
+* **"Leaves no hook or helper process running"** is read as: asked to end, and the list is read again, in at most 5 rounds with 200 ms between (my numbers, not normative). A process list that cannot be read or a failing query is `unverified` and the result is incomplete: the text does not allow the claim "none left" without a check. Whether the uninstaller may force an end after the rounds (the supervisor's watchdog does, for the engine) is open.
+* **Nothing is deleted while a process may still run** (application and data). On Windows an open file cannot be deleted anyway; on macOS it could, but then a running helper would be left without its application. A reading in which the application is removed regardless is possible.
+* **"On request"** is read as a flag the user sets; the default is that data stays. The exception list is encrypted with the OS key store (13.3): whether the uninstaller must also remove the key store entry is open (the portable store has no such entry; `Store.delete_all` removes the files only).
+* **Diagnostics** live in memory only here (AP-11 reading), so there is no file to remove for them.
+* **Partial data removal** (a link or a directory that has the name of one of the store's files is never followed or removed) makes the result incomplete and the leftover is named by a code, not by a path.
+* **Per user, without elevation** is a property of the installer and is not written.
+* Not written: the installer, the signed package, the real removal of the application files and of the real startup entry, the real process list and stop. NOT RUN.
+

@@ -208,3 +208,8 @@
 * New `app/lfupdate.py` + `app/test_update.py` (AP-9 portable part, 146 checks; mutations 35 of 36 killed, 1 equivalent). Found by test: a failed state write left the module's own `state.json.tmp` (fixed). Notice kind `update_failed` (row 12) added to `lfnotify`. Open readings: `audit/AP7_RT19_readings.md` section 13. Signature scheme, transport, installer swap, real restart not defined / NOT RUN.
 * Mutation harness note: the hand scripts must run with `PYTHONDONTWRITEBYTECODE=1` (a stale `.pyc` of an earlier mutant can be loaded when file size and second are equal); the AP-1 control was repeated that way (18 of 22 killed, 4 equivalent, unchanged).
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-15 (seventeenth part)
+* AP-9 published as 1064364 (CI success on that SHA).
+* New `app/lfuninstall.py` + `app/test_uninstall.py` (AP-6 order and checks, 59 checks; mutations 27 of 27 killed, run with `PYTHONDONTWRITEBYTECODE=1`). Open readings: `audit/AP7_RT19_readings.md` section 14. Installer, package, real removal, real processes NOT written / NOT RUN.
+* `lfengine.py` and `conformance.py` unchanged.
