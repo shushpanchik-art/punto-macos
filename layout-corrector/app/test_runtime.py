@@ -191,4 +191,39 @@ rt = R.Runtime(L.Engine(L.example_cal(), scorer, {}), L.HookHealth(canary=False)
 fld.sizes.clear(); rt._word_before(len(fld.text))
 T(fld.sizes == [64, 256, 1024, 4096, 10002], f"U-2: a very long token stops at MANUAL_MAX + 2: {fld.sizes}")
 
+
+# 14. fault injection (audit 6): an adapter that answers with something unusable never raises into the caller and never writes
+class Wrap:
+    def __init__(self, f, **ov): self.f, self.ov = f, ov
+    def __getattr__(self, n): return self.ov[n] if n in self.ov else getattr(self.f, n)
+def wrapped(**ov):
+    f = L.SimField("say ghbdtn", M1); rt = R.Runtime(L.Engine(L.example_cal(), scorer, {"en": {"hello"}, "ru": {"привет"}}), L.HookHealth(canary=False))
+    rt.on_focus("app.t", Wrap(f, **ov), "AUTO"); rt.on_gate(L.GATE_ALLOW); return rt, f
+for label, rd in (("an int", lambda s, e: 5), ("bytes", lambda s, e: b"ghbdtn"), ("a list", lambda s, e: ["g"])):
+    rt, f = wrapped(selection=lambda: (4, 10), read=rd)
+    try: r = rt.hotkey_convert(1000); err = None
+    except Exception as e: r, err = None, e
+    T(err is None and r.outcome == "ABORTED" and r.reason == "not_readable" and f.text == "say ghbdtn", f"read of the selection returns {label}: ABORTED not_readable, no exception, nothing written ({err!r})")
+    T("ghbdtn" not in repr(rt.notices) + repr(r), "and no text in the notices or the result")
+asked = []
+rt, f = wrapped(selection=lambda: (0, 10 ** 9), read=lambda s, e: asked.append((s, e)) or "x")
+r = rt.hotkey_convert(1000)
+T(r.outcome == "ABORTED" and r.reason == "length" and asked == [], f"a selection of 10**9 characters is refused as 'length' before any read ({asked})")
+rt, f = wrapped(selection=lambda: (10, 4), read=lambda s, e: asked.append((s, e)) or "x")
+T(rt.hotkey_convert(1000).outcome == "ABORTED", "a reversed selection is handled without an exception")
+asked.clear(); rt, f = wrapped(selection=lambda: (0, L.MANUAL_MAX), read=lambda s, e: asked.append((s, e)) or "a" * (e - s))
+r = rt.hotkey_convert(1000); T(asked and asked[0] == (0, L.MANUAL_MAX) and r.reason != "length", "a selection of exactly MANUAL_MAX is still read and not refused as too long (the limit is inclusive)")
+# a focus event whose element cannot be described: the old element must not stay active
+class BadCaps:
+    @property
+    def caps(self): raise OSError("injected")
+class NotIter:
+    caps = 5
+for label, ad in (("raises", BadCaps()), ("is not iterable", NotIter())):
+    rt, fld = make(); type_word(rt, fld, "he", "en", 100, space=False)
+    try: ok = rt.on_focus("app.new", ad, "AUTO"); err = None
+    except Exception as e: ok, err = None, e
+    T(err is None and ok is False and rt.ad is None and rt.app_id is None and rt.engine.mode == "OFF" and rt.gate_verdict == L.GATE_UNKNOWN, f"focus event whose caps {label}: no exception, engine OFF, the old element is let go ({err!r})")
+    T(rt.engine.snapshot is None and rt.hotkey_convert(5).reason == "mode_off", "and nothing of the old element survives")
+    T(rt.on_focus("app.ok", L.SimField("", M1), "AUTO") is True and rt.ad is not None, "a later working focus event recovers")
 print(f"OK ({CHECKS} runtime checks)")

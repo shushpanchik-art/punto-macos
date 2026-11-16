@@ -338,4 +338,49 @@ T(not th.is_alive() and res == [0] and _Wrap.fired[0], "stop() re-entered inside
 sp_bad = P.make_spawn(["/nonexistent/lf-no-such-engine"]); ev7 = []
 sup = P.ProcessSupervisor(sp_bad, lambda: 0, lambda ms: None, on_event=ev7.append)
 T(sup.run() == P.EXIT_GAVE_UP and ev7.count("spawn_failed") == 6, "a real executable that does not exist: spawn_failed, bounded, status 70")
+# ---------------------------------------------------------------- RealChild.wait_timeout: bounded, and it never claims an end it did not see
+class FPopen:
+    def __init__(self, kill_raises=False, dies_on_kill=False): self.kills, self.kr, self.dk, self.dead = 0, kill_raises, dies_on_kill, False
+    def poll(self): return 0 if self.dead else None
+    def kill(self):
+        self.kills += 1
+        if self.kr: raise PermissionError("injected")
+        if self.dk: self.dead = True
+    def wait(self, timeout=None):
+        if self.dead: return 0
+        if timeout is None: threading.Event().wait(30)
+        raise subprocess.TimeoutExpired("x", timeout)
+def fake_real(p):
+    rc = P.RealChild.__new__(P.RealChild); rc.p, rc.term_timeout_s = p, 1; return rc
+def timed(fn):
+    out = []
+    def go():
+        try: out.append(fn())
+        except Exception as e: out.append(e)
+    th = threading.Thread(target=go, daemon=True); th.start(); th.join(2); return (None if th.is_alive() else out[0])
+r1 = timed(lambda: fake_real(FPopen()).wait_timeout(50))
+T(r1 is False, f"a child that cannot be killed or reaped: wait_timeout returns within a bound and says False, not 'ended' ({r1!r})")
+fp = FPopen(kill_raises=True); r2 = timed(lambda: fake_real(fp).wait_timeout(50))
+T(r2 is False and fp.kills == 1, f"a kill that fails: False, no exception, one kill ({r2!r})")
+r3 = timed(lambda: fake_real(FPopen(dies_on_kill=True)).wait_timeout(50))
+T(r3 is True, "a child that ends after the kill: True")
+rc = P.RealChild([sys.executable, "-c", "import time; time.sleep(0.05)"]); T(rc.wait_timeout(5000) is True, "a real child that ends by itself: True")
+# the supervisor reports an end that is not proven, by name, in both places (stop watchdog and the end after a stop during the start)
+class NotEnded(FakeProc):
+    def __init__(self): super().__init__(0, []); self.ev = threading.Event()
+    def wait(self): self.ev.wait(5); return -9
+    def terminate(self): self.terminated += 1
+    def wait_timeout(self, ms): self.ev.set(); return False
+ne = NotEnded(); evn = []; sup = P.ProcessSupervisor(lambda a: ne, lambda: 0, lambda ms: None, term_timeout_ms=50, on_event=evn.append); res = []
+th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start(); time.sleep(0.1); sup.stop(); th.join(5)
+T(res == [0] and "child_not_ended" in evn, f"stop with a child whose end is not proven: reported as child_not_ended, run still returns 0 ({evn})")
+class NotEndedBy(NotEnded):
+    def __init__(self, only_watchdog): super().__init__(); self.ow = only_watchdog
+    def wait_timeout(self, ms):
+        self.ev.set(); wd = threading.current_thread().name == "lf-stop-watchdog"
+        return False if wd == self.ow else True
+for ow, where in ((True, "the stop watchdog"), (False, "the end after the run")):
+    ne = NotEndedBy(ow); evn = []; sup = P.ProcessSupervisor(lambda a: ne, lambda: 0, lambda ms: None, term_timeout_ms=50, on_event=evn.append); res = []
+    th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start(); time.sleep(0.1); sup.stop(); th.join(5)
+    T(res == [0] and evn.count("child_not_ended") == 1, f"an unproven end seen only by {where} is reported once ({evn})")
 print(f"OK ({CHECKS} process supervisor checks; fake children for policy, real child processes on Linux; no Windows or macOS process behaviour checked)")

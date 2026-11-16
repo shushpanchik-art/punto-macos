@@ -81,7 +81,8 @@ class ProcessSupervisor:
 
     def _escalate(self, proc):
         try:
-            proc.wait_timeout(self.term_timeout)          # RealChild: waits, then kills; a handle that cannot wait is killed at once
+            if proc.wait_timeout(self.term_timeout) is False:     # RealChild: waits, then kills; a handle that cannot wait is killed at once
+                self._emit("child_not_ended")
         except Exception:
             try:
                 proc.kill()
@@ -159,7 +160,8 @@ class ProcessSupervisor:
             pass
         self.sleep(0)
         try:
-            proc.wait_timeout(self.term_timeout)
+            if proc.wait_timeout(self.term_timeout) is False:
+                self._emit("child_not_ended")             # not proven ended: reported, never claimed
         except Exception:
             try:
                 proc.kill()
@@ -186,11 +188,23 @@ class RealChild:
             self.p.kill()
 
     def wait_timeout(self, ms):
+        """Waits up to `ms`; if the child is still alive it is killed and waited for once more, for at most `ms` again (no new constant). Returns True
+        when the child is KNOWN to have ended, False when it is not proven (a kill that failed, or a child still not reaped after the second wait: for
+        example a process that cannot be killed). It never blocks without a limit and never claims an end it did not see."""
         try:
             self.p.wait(timeout=ms / 1000.0)
+            return True
         except subprocess.TimeoutExpired:
+            pass
+        try:
             self.kill()
-            self.p.wait()
+        except Exception:
+            pass                                           # the second wait below decides what is known
+        try:
+            self.p.wait(timeout=ms / 1000.0)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
 
 
 def make_spawn(command_prefix):

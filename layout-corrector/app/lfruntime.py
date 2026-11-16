@@ -81,12 +81,24 @@ class Runtime:
     # -- focus, gate -----------------------------------------------------------------------------------------------
     def on_focus(self, app_id: str, adapter, support: str = "UNKNOWN"):
         """Another element or application has the focus: nothing of the old one survives (RT-20, 13.2 step 1)."""
-        self.apps.setdefault(app_id, AppState(support)).caps = frozenset(adapter.caps)
+        try:
+            caps = frozenset(adapter.caps)
+        except Exception:
+            # The new element cannot be described: the old one must not stay active either. Nothing of it survives, the engine is OFF until a focus
+            # event that works arrives (fail-safe direction). The failure itself is not raised into the adapter's event loop.
+            self.app_id, self.ad = None, None
+            self.engine.on_event(L.Event("break"))
+            self.gate_verdict = L.GATE_UNKNOWN
+            self._push_gate()
+            self.apply_mode()
+            return False
+        self.apps.setdefault(app_id, AppState(support)).caps = caps
         self.app_id, self.ad = app_id, adapter
         self.engine.on_event(L.Event("break"))
         self.gate_verdict = L.GATE_UNKNOWN
         self._push_gate()
         self.apply_mode()
+        return True
 
     def on_gate(self, gate: str):
         """The verdict of the gate for the focused element (ALLOW | DENY | UNKNOWN). The only entry for it."""
@@ -291,10 +303,12 @@ class Runtime:
                 if len(old) > L.MANUAL_MAX:
                     return L.TxResult("ABORTED", "length")
             else:
+                if abs(e - s) > L.MANUAL_MAX:                       # refused before reading: the adapter is never asked for a huge range
+                    return L.TxResult("ABORTED", "length")
                 old = self.ad.read(s, e)
         except Exception:
             return L.TxResult("ABORTED", "adapter_error")
-        if old is None:
+        if not isinstance(old, str):                                # None or a value of the wrong type from the adapter: not readable, never an exception
             return L.TxResult("ABORTED", "not_readable")
         direction, new = L.manual_convert(old)
         if direction is None or new == old:

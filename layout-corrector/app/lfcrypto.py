@@ -39,6 +39,26 @@ _KC_NOT_FOUND = -25300                                      # errSecItemNotFound
 _KC_DUPLICATE = -25299                                      # errSecDuplicateItem
 
 
+_PLAIN_MIN = 8                                              # a plaintext of at least this many bytes found verbatim in an envelope means the backend did not encrypt
+
+
+def _bytes(x, what, min_len=1, multiple=1):
+    """A backend result must be real bytes of a usable size; anything else is 'cannot do it now' (CipherUnavailable), never a value that would be
+    written or returned. The result is copied to immutable bytes."""
+    if not isinstance(x, (bytes, bytearray, memoryview)):
+        raise CipherUnavailable(f"{what}: not bytes")
+    x = bytes(x)
+    if len(x) < min_len or len(x) % multiple:
+        raise CipherUnavailable(f"{what}: unusable size")
+    return x
+
+
+def _not_clear(plain: bytes, envelope: bytes):
+    if len(plain) >= _PLAIN_MIN and plain in envelope:
+        raise CipherUnavailable("the backend left the plaintext in the envelope")
+    return envelope
+
+
 class DecryptError(ValueError):
     """A backend's own verdict that the data is not decryptable (damaged, or for another user or key)."""
 
@@ -58,12 +78,12 @@ class DpapiCipher(Cipher):
 
     def encrypt(self, data: bytes) -> bytes:
         try:
-            blob = self.b.protect(bytes(data), DPAPI_ENTROPY)
+            blob = _bytes(self.b.protect(bytes(data), DPAPI_ENTROPY), "DPAPI protect")
+            return _not_clear(bytes(data), self.HEADER + hashlib.sha256(blob).digest() + blob)
         except CipherUnavailable:
             raise
         except Exception as e:
             raise CipherUnavailable(f"DPAPI protect failed: {type(e).__name__}") from None
-        return self.HEADER + hashlib.sha256(blob).digest() + blob
 
     def decrypt(self, data: bytes) -> bytes:
         n = len(self.HEADER) + 32
@@ -73,7 +93,7 @@ class DpapiCipher(Cipher):
         if not hmac.compare_digest(hashlib.sha256(blob).digest(), data[len(self.HEADER):n]):
             raise ValueError("the DPAPI envelope is damaged")
         try:
-            return self.b.unprotect(bytes(blob), DPAPI_ENTROPY)
+            return _bytes(self.b.unprotect(bytes(blob), DPAPI_ENTROPY), "DPAPI unprotect", min_len=0)
         except CipherUnavailable:
             raise
         except Exception as e:
@@ -104,8 +124,8 @@ class KeychainCipher(Cipher):
             iv = self._rand(self.IV)
             if len(iv) != self.IV:
                 raise CipherUnavailable("bad IV")
-            body = self.HEADER + iv + self.b.aes_cbc(True, ek, iv, bytes(data))
-            return body + hmac.new(mk, body, hashlib.sha256).digest()
+            body = self.HEADER + iv + _bytes(self.b.aes_cbc(True, ek, iv, bytes(data)), "Keychain encrypt", min_len=16, multiple=16)
+            return _not_clear(bytes(data), body + hmac.new(mk, body, hashlib.sha256).digest())
         except CipherUnavailable:
             raise
         except Exception as e:
@@ -125,7 +145,7 @@ class KeychainCipher(Cipher):
             if not hmac.compare_digest(hmac.new(mk, body, hashlib.sha256).digest(), tag):
                 raise DecryptError("authentication failed")          # checked BEFORE anything is decrypted
             iv = body[len(self.HEADER):len(self.HEADER) + self.IV]
-            return self.b.aes_cbc(False, ek, iv, body[len(self.HEADER) + self.IV:])
+            return _bytes(self.b.aes_cbc(False, ek, iv, body[len(self.HEADER) + self.IV:]), "Keychain decrypt", min_len=0)
         except (DecryptError, CipherUnavailable):
             raise
         except Exception as e:

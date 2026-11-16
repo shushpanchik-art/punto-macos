@@ -246,3 +246,6 @@
 
 ## 2026-11-16 (twenty-fourth part)
 * 8544ac5 published (CI success). Fault injection of `lfsupervisor.py`, `lfsettings.py`, `Lock.release()`: four confirmed defects (see readings addendum) fixed; `Lock.release()` now returns whether the release is proven (earlier claim withdrawn). test_supervisor 117 → 123, test_settings 133 → 145, test_instance 33 → 43. Hand mutations 15 of 15 killed. `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-16 (twenty-fifth part)
+* 4984726 published (CI success). Next stage: `RealChild.wait_timeout` bounded, returns proven/not proven (`child_not_ended`); `lfruntime` (non-str read, over-limit selection read before refusal, failed focus left the old element active); `lfcrypto` fake-backend results validated. Tests: runtime 59 → 74, crypto 78 → 97, supervisor 123 → 130. Two vacuous tests found by mutation and fixed. `lfengine.py` and `conformance.py` unchanged.

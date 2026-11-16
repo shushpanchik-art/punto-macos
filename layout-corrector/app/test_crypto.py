@@ -188,4 +188,34 @@ import subprocess
 r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "device_check_cipher.py"), os.path.join(tempfile.mkdtemp(), "o.json")], capture_output=True, text=True)
 T(r.returncode == 2 and "NOT RUN" in r.stdout, "on Linux the device check reports NOT RUN and writes nothing else")
 
+# ---------------------------------------------------------------- fault injection (audit 6): a backend that returns something unusable (fake backends only)
+msg2 = json.dumps([["en2ru", "ghbdtn secret words"]]).encode()
+class DP(FakeDpapi):
+    def __init__(self, protect=None, unprotect=None): super().__init__(); self.pr, self.un = protect, unprotect
+    def protect(self, data, entropy): return self.pr(data) if self.pr else super().protect(data, entropy)
+    def unprotect(self, blob, entropy): return self.un(blob) if self.un else super().unprotect(blob, entropy)
+for label, fn in (("None", lambda d: None), ("a str", lambda d: "x"), ("empty bytes", lambda d: b""), ("the plaintext itself", lambda d: bytes(d))):
+    T(raises(lambda: C.DpapiCipher(DP(protect=fn)).encrypt(msg2), BaseException) is S.CipherUnavailable, f"DPAPI protect returning {label}: CipherUnavailable, nothing usable is produced")
+good = C.DpapiCipher(FakeDpapi()).encrypt(msg2)
+for label, fn in (("None", lambda b: None), ("a str", lambda b: "x"), ("an int", lambda b: 7)):
+    T(raises(lambda: C.DpapiCipher(DP(unprotect=fn)).decrypt(good), BaseException) is S.CipherUnavailable, f"DPAPI unprotect returning {label}: CipherUnavailable, not a value")
+T(C.DpapiCipher(DP(unprotect=lambda b: bytearray(b"ok"))).decrypt(good) == b"ok" and type(C.DpapiCipher(DP(unprotect=lambda b: bytearray(b"ok"))).decrypt(good)) is bytes, "DPAPI unprotect returning a bytearray: copied to bytes")
+class KC(FakeKeychain):
+    def __init__(self, enc=None, dec=None): super().__init__(); self.enc, self.dec = enc, dec
+    def aes_cbc(self, encrypt, key, iv, data):
+        f = self.enc if encrypt else self.dec
+        return f(data) if f else super().aes_cbc(encrypt, key, iv, data)
+for label, fn in (("None", lambda d: None), ("empty bytes", lambda d: b""), ("5 bytes", lambda d: bytes(d)[:5]), ("a str", lambda d: "x"), ("the padded plaintext", lambda d: bytes(d) + b"\0" * (-len(d) % 16))):
+    T(raises(lambda: C.KeychainCipher(KC(enc=fn)).encrypt(msg2), BaseException) is S.CipherUnavailable, f"Keychain AES returning {label}: CipherUnavailable, nothing usable is produced")
+kgood = C.KeychainCipher(FakeKeychain()).encrypt(msg2)
+def kc_with_master(**kw):
+    o = KC(**kw); o.master = bytes(range(32)); return o        # the same master as the one that made kgood, so the tag is valid and only the AES result is unusable
+T(C.KeychainCipher(kc_with_master()).decrypt(kgood) == msg2, "the injected Keychain backend reads what the good one wrote (the next checks are not vacuous)")
+for label, fn in (("None", lambda d: None), ("a str", lambda d: "x")):
+    T(raises(lambda: C.KeychainCipher(kc_with_master(dec=fn)).decrypt(kgood), BaseException) is S.CipherUnavailable, f"Keychain decrypt returning {label}: CipherUnavailable, not a value")
+T(raises(lambda: C.KeychainCipher(KC(enc=lambda d: bytes(d)[:1] * 17)).encrypt(msg2), BaseException) is S.CipherUnavailable, "Keychain AES returning 17 bytes (not a multiple of 16): CipherUnavailable")
+# through the store: an unusable backend result is 'cannot save now': the previous file is kept and nothing is written in clear
+for name, cipher in (("DPAPI", C.DpapiCipher(DP(protect=lambda d: bytes(d)))), ("Keychain", C.KeychainCipher(KC(enc=lambda d: b"")))):
+    d = tempfile.mkdtemp(prefix="lfcr_"); st = S.Store(os.path.join(d, "settings.json"), cipher); state = S.StoreState(); state.exceptions = [["en2ru", "ghbdtn secret words"]]
+    T(st.save(state) is False and os.listdir(d) == [] and "cipher_unavailable" in st.notices, f"{name}: an unusable backend result: no file written, notice cipher_unavailable ({os.listdir(d)} {st.notices})")
 print(f"OK ({CHECKS} cipher checks; fake backends only; the Windows DPAPI and macOS Keychain backends are compiled, NOT RUN)")
