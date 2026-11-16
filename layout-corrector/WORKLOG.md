@@ -243,3 +243,6 @@
 
 ## 2026-11-16 (twenty-third part)
 * 3cc092e published (CI success). Fault injection of `lfinstance.py`: two confirmed defects (double close of one descriptor; failing release raised), fixed; `test_instance.py` 26 → 33 checks, fail on 3cc092e. Hand mutations 4 of 5 killed, 1 equivalent (see readings addendum). `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-16 (twenty-fourth part)
+* 8544ac5 published (CI success). Fault injection of `lfsupervisor.py`, `lfsettings.py`, `Lock.release()`: four confirmed defects (see readings addendum) fixed; `Lock.release()` now returns whether the release is proven (earlier claim withdrawn). test_supervisor 117 → 123, test_settings 133 → 145, test_instance 33 → 43. Hand mutations 15 of 15 killed. `lfengine.py` and `conformance.py` unchanged.

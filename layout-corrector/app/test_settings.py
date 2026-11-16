@@ -186,4 +186,25 @@ st.delete_all = real_del
 s, rt, fld, st, d = make(); typed(rt, fld, "ghbdtn"); rt.hotkey_undo(300); s.set_auto_correction(False)
 blob = b"".join(open(os.path.join(d, f), "rb").read() for f in os.listdir(d)) + repr(s.notices).encode()
 T(b"ghbdtn" not in blob and "привет".encode() not in blob, "no typed word in the files (the exception list is encrypted) or in the notices")
+# ---- fault injection (audit 6): failing writes keep the file, are reported, can be retried; a failing diagnostics delete does not stop Delete all data
+import errno
+for name in ("fsync", "replace"):
+    st_, rt, fld, st, d = make(); st_.set_update_channel("beta"); before = open(st.path, "rb").read()
+    real = getattr(os, name)
+    def boom(*a, **k): raise OSError(errno.EIO, "injected")
+    setattr(os, name, boom)
+    try: ok = st_.set_update_channel("stable")
+    finally: setattr(os, name, real)
+    T(ok is False and open(st.path, "rb").read() == before and ("settings_not_saved", "") in st_.notices, f"a failing {name}: False, the old file is intact, one notice")
+    T(not [f for f in os.listdir(d) if f != "settings.json" and "lock" not in f], f"a failing {name}: no temporary file left")
+    T(st_.get()["update_channel"] == "stable", "memory stays the truth of this session")
+    T(S.Store(st.path, S.TestOnlyCipher(b"k"), allow_test_cipher=True).load().settings["update_channel"] == "beta", f"after a failing {name} a restart reads the previous value")
+    T(st_.set_update_channel("stable") is True and S.Store(st.path, S.TestOnlyCipher(b"k"), allow_test_cipher=True).load().settings["update_channel"] == "stable", f"retry after {name} succeeds and is read back after a restart")
+class BadDiag:
+    def delete(self): raise RuntimeError("injected")
+st_, rt, fld, st, d = make(); st_.diag = BadDiag(); st_.set_update_channel("beta")
+try: r = st_.delete_all_data(); err = None
+except Exception as e: r, err = None, e
+T(err is None and not os.path.exists(st.path), f"a failing diagnostics delete does not stop Delete all data: the store files are still removed ({err!r})")
+T(("delete_failed", "") in st_.notices, "and it is reported by name")
 print(f"OK ({CHECKS} settings checks; temporary directories, fake registrar and fake adapter; no OS registration, no user interface)")

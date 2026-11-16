@@ -216,7 +216,10 @@ class Settings:
         self.apply_to_runtime()
         self.deleted = True
         if self.diag is not None:
-            self.diag.delete()                    # AP-5: "Delete all data" removes the diagnostics too (they live in memory only)
+            try:
+                self.diag.delete()                # AP-5: "Delete all data" removes the diagnostics too (they live in memory only)
+            except Exception:
+                self.notices.append(("delete_failed", ""))     # reported, and the files of the store are still removed below
         if self.store is None:
             return None
         try:

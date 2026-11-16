@@ -42,7 +42,7 @@ class ProcessSupervisor:
     def __init__(self, spawn, clock_ms, sleep_ms, max_crashes=5, loop_window_ms=600_000, min_delay_ms=1000, term_timeout_ms=10_000, on_event=None):
         self.spawn, self.clock, self.sleep = spawn, clock_ms, sleep_ms
         self.max_crashes, self.loop_window, self.min_delay, self.term_timeout = max_crashes, loop_window_ms, min_delay_ms, term_timeout_ms
-        self.on_event = on_event or (lambda name: None)        # names only, never text
+        self._on_event = on_event or (lambda name: None)       # names only, never text; called through _emit, which never lets it fail the supervisor
         self._escalating = False
         self._wd = None
         self.window = K.CrashWindow()
@@ -50,7 +50,13 @@ class ProcessSupervisor:
         self.starts = 0
         self._stop = False
         self._proc = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()                         # re-entrant: stop() may be called from a signal handler that interrupts this very thread inside `with self._lock`
+
+    def _emit(self, name):
+        try:
+            self._on_event(name)
+        except Exception:
+            pass                                           # a failing observer must not stop the supervisor or leave a child unmanaged
 
     def reset(self):
         """The user's re-enable: the latch is cleared (the next start has no --manual-only)."""
@@ -100,7 +106,7 @@ class ProcessSupervisor:
             try:
                 proc = self.spawn(args)
             except Exception:
-                self.on_event("spawn_failed")
+                self._emit("spawn_failed")
                 if self._count_crash(self.clock()):
                     return EXIT_GAVE_UP
                 self.sleep(max(self.min_delay, 1))
@@ -112,8 +118,15 @@ class ProcessSupervisor:
             if stopped:
                 self._end(proc)
                 return 0
-            self.on_event("started")
-            code = proc.wait()
+            self._emit("started")
+            try:
+                code = proc.wait()
+            except Exception:
+                # the exit status cannot be read: the child may still be running. End it (terminate, bounded wait, kill) and count a crash: the
+                # loop guard bounds the restarts. MY READING (open): the alternative is to re-raise; that would leave the child unmanaged.
+                self._emit("wait_failed")
+                self._end(proc)
+                code = 1
             with self._lock:
                 self._proc = None
                 stopped = self._stop
@@ -121,13 +134,13 @@ class ProcessSupervisor:
                 self._end(proc)
                 return 0
             if code == 0:
-                self.on_event("clean_exit")
+                self._emit("clean_exit")
                 return 0
-            self.on_event("engine_crashed")
+            self._emit("engine_crashed")
             now = self.clock()                      # one reading per crash: both windows see the same instant
             verdict = self.window.record(now)
             if verdict == "manual_only":
-                self.on_event("manual_only")
+                self._emit("manual_only")
             if self._count_crash(now):
                 return EXIT_GAVE_UP
             self.sleep(self.min_delay)
@@ -135,7 +148,7 @@ class ProcessSupervisor:
     def _count_crash(self, now):
         self.crash_times = [t for t in self.crash_times if now - t <= self.loop_window] + [now]
         if len(self.crash_times) > self.max_crashes:
-            self.on_event("gave_up")
+            self._emit("gave_up")
             return True
         return False
 

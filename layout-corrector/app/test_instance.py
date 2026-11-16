@@ -130,4 +130,32 @@ finally: fcntl.flock = _fl
 T(not raised and nfd() == base, "a failing unlock in release does not raise and the descriptor is closed")
 a.release(); b = I.acquire_posix(dl); T(b.state == I.HELD, "after the failing release the lock can be taken again"); b.release()
 T(nfd() == base, "no descriptor is left after all of it")
+# ---- the observable guarantee of release(): True only when the release is KNOWN; never repeated on the descriptor
+calls = []
+def _cl2(fd): calls.append(("close", fd)); _cl(fd); raise OSError(errno.EIO, "injected")          # Linux: the descriptor is gone although close reports an error
+def _unf(fd, op):
+    calls.append(("flock", op))
+    if op == fcntl.LOCK_UN: raise OSError(errno.EIO, "injected")
+    return _fl(fd, op)
+def _rel(d, unlock_fails, close_fails):
+    a = I.acquire_posix(d); del calls[:]
+    if unlock_fails: fcntl.flock = _unf
+    if close_fails: os.close = _cl2
+    try: r1 = a.release(); n1 = list(calls); r2 = a.release(); n2 = list(calls)
+    finally: fcntl.flock, os.close = _fl, _cl
+    return a, r1, r2, n1, n2
+a, r1, r2, n1, n2 = _rel(newdir(), False, False)
+T(r1 is True and r2 is True and a.released is True and n1 == [] and n2 == [], "a clean release: True, and the second call does nothing")
+d = newdir(); a, r1, r2, n1, n2 = _rel(d, False, True)
+T(r1 is True and sum(1 for c in n2 if c[0] == "close") == 1, "unlock succeeded, close reported an error: released (the unlock proves it), close called once")
+b = I.acquire_posix(d); T(b.state == I.HELD, "and the lock really can be taken again"); b.release()
+d = newdir(); a, r1, r2, n1, n2 = _rel(d, True, False)
+T(r1 is True and r2 is True, "unlock failed, close succeeded: released")
+b = I.acquire_posix(d); T(b.state == I.HELD, "and the lock really can be taken again (close)"); b.release()
+d = newdir(); a, r1, r2, n1, n2 = _rel(d, True, True)
+T(r1 is False and r2 is False and a.released is False, "unlock and close both failed: NOT proven, release says False (not 'released')")
+T(sum(1 for c in n2 if c[0] == "close") == 1 and n2 == n1, "no second close and no further flock on the descriptor after a failed close")
+T(I.Lock(I.HELD, lambda: (_ for _ in ()).throw(RuntimeError("x"))).release() is False, "a backend that raises: False, no exception")
+T(I.Lock(I.HELD, lambda: False).release() is False, "a backend that reports False: False")
+T(I.Lock(I.HELD, lambda: True).release() is True and I.Lock(I.UNAVAILABLE).release() is True, "a backend that reports True, and a lock that holds nothing: True")
 print(f"OK ({CHECKS} single-instance checks; POSIX lock with real processes on Linux; Windows mutex compiled only; two real OS instances NOT RUN)")

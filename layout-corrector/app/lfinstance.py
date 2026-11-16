@@ -15,13 +15,22 @@ EXIT_ALREADY_RUNNING = 0          # a second start is not an error: exit at once
 
 
 class Lock:
-    """Result of acquire(): `.state` is HELD, ALREADY_RUNNING or UNAVAILABLE; `.release()` is safe to call twice."""
-    def __init__(self, state, release=lambda: None, why=""):
+    """Result of acquire(): `.state` is HELD, ALREADY_RUNNING or UNAVAILABLE.
+    `.release()` runs the backend's release AT MOST ONCE and returns whether the lock is KNOWN to be released (True) or not proven (False: the backend
+    reported a failure or raised). It never raises. A second call returns the first answer and touches nothing (a descriptor is never closed twice).
+    `.released` is None before the first call, then that answer."""
+    def __init__(self, state, release=lambda: True, why=""):
         self.state, self._release, self.why = state, release, why     # `why`: a short code, never a path or text
+        self.released = None
 
     def release(self):
-        r, self._release = self._release, (lambda: None)
-        r()
+        if self.released is None:
+            try:
+                self.released = self._release() is not False
+            except Exception:
+                self.released = False
+            self._release = lambda: True
+        return self.released
 
 
 def acquire_posix(directory):
@@ -60,14 +69,22 @@ def acquire_posix(directory):
         held = fd
 
         def release():
+            """True only when the lock is known to be gone: an explicit LOCK_UN that succeeded (it ends the lock whatever other descriptors exist), or a
+            close that succeeded (this module never duplicates the descriptor and opens it close-on-exec). When both failed nothing is proven: the
+            result is False. The descriptor is closed at most once and is never used again after a close was attempted, because after a failing close
+            its number may already belong to something else; the kernel frees the lock at the latest when the process ends."""
+            unlocked = closed = False
             try:
                 fcntl.flock(held, fcntl.LOCK_UN)
+                unlocked = True
             except OSError:
-                pass                                      # closing the descriptor releases the lock anyway
+                pass
             try:
                 os.close(held)
+                closed = True
             except OSError:
-                pass                                      # nothing more can be done; release never raises into a shutdown
+                pass
+            return unlocked or closed
         return Lock(HELD, release)
     except OSError:
         if fd is not None:
@@ -90,7 +107,7 @@ def acquire_windows(name):  # pragma: no cover - compiled only, never run by the
     if err == 183:
         k32.CloseHandle(h)
         return Lock(ALREADY_RUNNING, why="held")
-    return Lock(HELD, lambda: k32.CloseHandle(h))
+    return Lock(HELD, lambda: bool(k32.CloseHandle(h)))
 
 
 def start_gate(acquire, on_second=lambda: None):

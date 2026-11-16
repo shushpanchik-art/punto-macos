@@ -286,4 +286,56 @@ r = subprocess.run([sys.executable, script, "--engine"], capture_output=True, te
 T(r.returncode == 1 and r.stdout == "" and r.stderr == "", f"a crashing engine process: status 1, stdout and stderr empty ({r.stderr[:80]!r})")
 files = [os.path.join(rep_dir, f) for f in os.listdir(rep_dir)]
 T(len(files) == 1 and K.validate_report(json.load(open(files[0]))) == [] and b"ghbdtn" not in open(files[0], "rb").read() and "привет".encode() not in open(files[0], "rb").read(), "its report is valid and content-free")
+# ---------------------------------------------------------------- fault injection (audit 6)
+class Odd(FakeProc):
+    def __init__(self, code, wait_raises=False): super().__init__(code, []); self.wr = wait_raises
+    def wait(self):
+        if self.wr: raise OSError("injected wait")
+        return self.code
+    def wait_timeout(self, ms): pass
+kids = []; ev6 = []
+def spw(a): k = Odd(1, True); kids.append(k); return k
+sup = P.ProcessSupervisor(spw, lambda: 0, lambda ms: None, on_event=ev6.append)
+try: rc = sup.run(); err = None
+except Exception as e: rc, err = None, e
+T(err is None and rc == P.EXIT_GAVE_UP and len(kids) == 6 and all(k.terminated >= 1 for k in kids), f"a wait that fails: the child is ended and counted as a crash, the loop guard ends it ({rc} {err!r})")
+T(ev6.count("wait_failed") == 6 and ev6[-1] == "gave_up", "a wait failure is reported by name")
+kids = []
+def spw2(a): k = Odd(0); kids.append(k); return k
+def bad_ev(n): raise RuntimeError("injected event")
+sup = P.ProcessSupervisor(spw2, lambda: 0, lambda ms: None, on_event=bad_ev)
+try: rc = sup.run(); err = None
+except Exception as e: rc, err = None, e
+T(err is None and rc == 0 and len(kids) == 1, f"an observer that fails does not stop the supervisor ({err!r})")
+kids = []
+def spw3(a): k = Odd(1); kids.append(k); return k
+sup = P.ProcessSupervisor(spw3, lambda: 0, lambda ms: None, on_event=bad_ev)
+try: rc = sup.run(); err = None
+except Exception as e: rc, err = None, e
+T(err is None and rc == P.EXIT_GAVE_UP and len(kids) == 6, "a failing observer changes nothing in the restart policy")
+# stop() re-entered by the thread that already holds the supervisor's lock (what a signal handler does): no deadlock. The lock factories are wrapped so the
+# first entry of the main run thread calls stop() from inside the locked region, whatever lock type the implementation uses.
+import threading as _th
+_orig = (_th.Lock, _th.RLock)
+class _Wrap:
+    armed = [False]; fired = [False]
+    def __init__(self, f): self.i = f()
+    def __enter__(self):
+        self.i.acquire()
+        if self.armed[0] and not self.fired[0]:
+            self.fired[0] = True; SUP[0].stop()
+    def __exit__(self, *a): self.i.release()
+    def acquire(self, *a, **k): return self.i.acquire(*a, **k)
+    def release(self): self.i.release()
+SUP = [None]
+_th.Lock = lambda: _Wrap(_orig[0]); _th.RLock = lambda: _Wrap(_orig[1])
+try: sup = P.ProcessSupervisor(lambda a: Odd(0), lambda: 0, lambda ms: None)
+finally: _th.Lock, _th.RLock = _orig
+SUP[0] = sup; _Wrap.armed[0] = True; res = []
+th = threading.Thread(target=lambda: res.append(sup.run()), daemon=True); th.start(); th.join(3)
+T(not th.is_alive() and res == [0] and _Wrap.fired[0], "stop() re-entered inside the supervisor's own locked region does not deadlock")
+# a real spawn that cannot start (no such executable): counted, bounded, status 70, no hang
+sp_bad = P.make_spawn(["/nonexistent/lf-no-such-engine"]); ev7 = []
+sup = P.ProcessSupervisor(sp_bad, lambda: 0, lambda ms: None, on_event=ev7.append)
+T(sup.run() == P.EXIT_GAVE_UP and ev7.count("spawn_failed") == 6, "a real executable that does not exist: spawn_failed, bounded, status 70")
 print(f"OK ({CHECKS} process supervisor checks; fake children for policy, real child processes on Linux; no Windows or macOS process behaviour checked)")
