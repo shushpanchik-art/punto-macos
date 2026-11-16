@@ -167,4 +167,40 @@ doc = json.load(open(s4.path, encoding="utf-8")); doc["schema_version"] = 0; jso
 S.Store(s4.path, S.TestOnlyCipher(b"k"), {0: lambda x: {**x, "schema_version": 1}}, allow_test_cipher=True).load()
 names = sorted(os.listdir(d4)); T(len(names) >= 3 and s4.owned_names()[1] == names, f"everything the module creates is owned: {names}")
 dd, sk = s4.delete_all(); T(sorted(dd) == names and sk == [] and os.listdir(d4) == [], "and delete_all removes all of it")
+# ---- fault injection (audit 3): the file that cannot be kept aside or backed up is left alone, load never raises
+import tempfile as _tf
+def _mk(content):
+    d_ = _tf.mkdtemp(prefix="lfs_"); p_ = os.path.join(d_, "settings.json"); open(p_, "w").write(content)
+    return d_, p_, S.Store(p_, S.TestOnlyCipher(b"k"), allow_test_cipher=True)
+d_, p_, s_ = _mk("garbage")
+_real = os.replace
+def _f(a, b, *x):
+    if str(a) == p_: raise OSError("injected")
+    return _real(a, b, *x)
+os.replace = _f
+try:
+    try: st_ = s_.load(); raised = False
+    except Exception: raised = True
+finally: os.replace = _real
+T(not raised and s_.read_only and s_.notices == ["file_unreadable_defaults", "file_aside_failed"] and open(p_).read() == "garbage", "an unreadable file that cannot be moved aside: no exception, left in place, read-only")
+T(s_.save(st_) is False and open(p_).read() == "garbage", "and it is never written over")
+T(os.listdir(d_) == ["settings.json"], "nothing else is left in the directory")
+d_, p_, s_ = _mk("garbage"); st_ = s_.load()
+T(not s_.read_only and s_.notices == ["file_unreadable_defaults"] and os.path.exists(p_ + ".corrupt-0"), "the normal case is unchanged: moved aside, defaults, writable")
+# migration backup that cannot be written
+d_, p_, s_ = _mk("")
+good = S.Store(p_, S.TestOnlyCipher(b"k"), allow_test_cipher=True); good.save(S.StoreState())
+doc = json.load(open(p_)); doc["schema_version"] = 0; json.dump(doc, open(p_, "w")); before = open(p_).read()
+s_ = S.Store(p_, S.TestOnlyCipher(b"k"), {0: lambda x: dict(x, schema_version=1)}, allow_test_cipher=True)
+_ro = open
+def _open(f, mode="r", *a, **k):
+    if "backup-v" in str(f):
+        if "w" in mode: _ro(f, mode).close()               # a partial copy exists when the write fails
+        raise OSError("injected")
+    return _ro(f, mode, *a, **k)
+import builtins
+builtins.open = _open
+try: st_ = s_.load()
+finally: builtins.open = _ro
+T(s_.read_only and s_.notices == ["migration_backup_failed"] and open(p_).read() == before and not any("backup" in n or "corrupt" in n for n in os.listdir(d_)), "a backup that cannot be written: no migration, the old file intact and read-only, not treated as corrupt")
 print(f"OK ({CHECKS} storage checks; test cipher only, no OS key store, files in a temporary directory)")

@@ -164,8 +164,17 @@ class Store:
             migrated = False
             if isinstance(v, int) and not isinstance(v, bool) and v < SCHEMA_VERSION:
                 bak = self._aside(f"backup-v{v}")
-                with open(self.path, "rb") as a, open(bak, "wb") as b:
-                    b.write(a.read())
+                try:
+                    with open(self.path, "rb") as a, open(bak, "wb") as b:
+                        b.write(a.read())
+                except OSError:
+                    try:
+                        os.remove(bak)                   # our own partial copy only
+                    except OSError:
+                        pass
+                    self.read_only = True                # no backup, no migration: the old file stays intact and is never written over
+                    self.notices.append("migration_backup_failed")
+                    return StoreState()
                 while doc["schema_version"] < SCHEMA_VERSION:
                     doc = self.migrations[doc["schema_version"]](doc)
                 migrated = True
@@ -175,8 +184,12 @@ class Store:
             self.notices.append("cipher_unavailable")
             return StoreState()
         except Exception:
-            os.replace(self.path, self._aside("corrupt"))
             self.notices.append("file_unreadable_defaults")
+            try:
+                os.replace(self.path, self._aside("corrupt"))
+            except OSError:
+                self.read_only = True                    # it could not be kept aside: it is left where it is and never written over
+                self.notices.append("file_aside_failed")
             return StoreState()
         if migrated:
             try:

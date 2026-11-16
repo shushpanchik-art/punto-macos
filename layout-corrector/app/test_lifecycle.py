@@ -101,6 +101,17 @@ T(rp.handle(t, e, tb) is not None, "a failing upload is not a second crash")
 for _ in range(5): rp.handle(t, e, tb)
 names = sorted(os.listdir(d))
 T(names == ["crash-000007.json", "crash-000008.json", "crash-000009.json"] or len(names) == 3, f"at most max_files reports, newest kept: {names}")
+# a failing removal of an old report does not hide the new one and does not skip the upload (audit 3)
+d2 = tempfile.mkdtemp(prefix="lfcrash_"); sent2 = []
+rp2 = K.CrashReporter(d2, "1.0.0", lambda: {}, max_files=1, sender=sent2.append, opt_in=lambda: True)
+rp2.handle(t, e, tb); _rm = os.remove
+def _fail_rm(p, *a):
+    if os.path.basename(p).startswith("crash-"): raise OSError("injected")
+    return _rm(p, *a)
+os.remove = _fail_rm
+try: p3 = rp2.handle(t, e, tb)
+finally: os.remove = _rm
+T(p3 is not None and os.path.basename(p3) == "crash-000002.json" and rp2.last_path == p3 and len(sent2) == 2, "the new report is reported and uploaded although an old one could not be removed")
 open(os.path.join(d, "crash-notes.txt"), "w").write("keep"); open(os.path.join(d, "crash-1.json"), "w").write("keep")
 os.mkdir(os.path.join(d, "crash-000999.json")); outside = tempfile.mkdtemp(); open(os.path.join(outside, "v"), "w").write("v")
 os.symlink(os.path.join(outside, "v"), os.path.join(d, "crash-000001.json"))

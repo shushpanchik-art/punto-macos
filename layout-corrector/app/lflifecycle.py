@@ -125,9 +125,12 @@ class CrashReporter:
             with open(tmp, "wb") as f:
                 f.write(data); f.flush(); os.fsync(f.fileno())
             os.replace(tmp, path)
-            for old in self._own()[:-self.max_files] if self.max_files > 0 else []:
-                os.remove(os.path.join(self.dir, old))
             self.last_path = path
+            try:
+                for old in self._own()[:-self.max_files] if self.max_files > 0 else []:
+                    os.remove(os.path.join(self.dir, old))
+            except OSError:
+                pass                                              # an old report that cannot be removed never hides the report that was written
             try:
                 if self.sender is not None and self.opt_in():
                     self.sender(data)
