@@ -348,11 +348,16 @@ class Runtime:
         """The end of the process or of a session (AP-6, RT-6): nothing derived from typed text stays reachable. The engine is put to OFF
         (its buffer, run credit, snapshot, undo record and toggle record are destroyed), the gate closes, the stream-health queues are emptied
         and the adapter is let go. The exception list is NOT touched here: it is saved by the caller before this (lflifecycle.stop)."""
-        self.engine.on_event(L.Event("break"))
-        self.engine.set_gate(L.GATE_UNKNOWN)
-        self.engine.set_mode("OFF")
-        self.health.set_gate_open(False)
+        first = None
+        for step in (lambda: self.engine.on_event(L.Event("break")), lambda: self.engine.set_gate(L.GATE_UNKNOWN),
+                     lambda: self.engine.set_mode("OFF"), lambda: self.health.set_gate_open(False)):
+            try:
+                step()
+            except Exception as e:                 # every wipe step runs even when an earlier one failed; the first failure is raised after all of them
+                first = first or e
         self.ad, self.app_id = None, None
+        if first is not None:
+            raise first
 
     def hotkey_toggle(self, now_ms: int):
         """Convert back what a manual conversion just wrote (13.3). None when there is nothing to toggle."""

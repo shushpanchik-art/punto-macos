@@ -218,4 +218,18 @@ T(raises(lambda: C.KeychainCipher(KC(enc=lambda d: bytes(d)[:1] * 17)).encrypt(m
 for name, cipher in (("DPAPI", C.DpapiCipher(DP(protect=lambda d: bytes(d)))), ("Keychain", C.KeychainCipher(KC(enc=lambda d: b"")))):
     d = tempfile.mkdtemp(prefix="lfcr_"); st = S.Store(os.path.join(d, "settings.json"), cipher); state = S.StoreState(); state.exceptions = [["en2ru", "ghbdtn secret words"]]
     T(st.save(state) is False and os.listdir(d) == [] and "cipher_unavailable" in st.notices, f"{name}: an unusable backend result: no file written, notice cipher_unavailable ({os.listdir(d)} {st.notices})")
+# ---- the 8-byte floor of `_not_clear` (a heuristic, NOT a security guarantee; it is not in the specification, it only refuses a backend that obviously did nothing)
+import random as _r
+rnd = _r.Random(6); fd, fk = C.DpapiCipher(FakeDpapi()), C.KeychainCipher(FakeKeychain())
+edge = [b"\0" * 64, b"A" * 64, b"\xff" * 17, bytes(range(32)), json.dumps([["en2ru", "ghbdtn"]]).encode(), b"[" * 8, b"DP2" * 8, b"KC1" * 8]
+refused = 0; total = 0
+for pt in edge + [bytes(rnd.randrange(256) for _ in range(rnd.randrange(8, 300))) for _ in range(1500)]:
+    for c in (fd, fk):
+        total += 1
+        try: assert c.decrypt(c.encrypt(pt)) == pt
+        except S.CipherUnavailable: refused += 1
+T(refused == 0, f"no correct ciphertext of the fake backends is refused ({total} round trips with edge and random plaintexts, {refused} refused)")
+class Rev(FakeDpapi):
+    def protect(self, data, entropy): return b"BLOB" + bytes(data)[::-1]
+T(C.DpapiCipher(Rev()).encrypt(msg2).endswith(msg2[::-1]), "LIMIT, documented: a backend that only reverses the text is NOT detected by the verbatim check (the check is not a guarantee)")
 print(f"OK ({CHECKS} cipher checks; fake backends only; the Windows DPAPI and macOS Keychain backends are compiled, NOT RUN)")

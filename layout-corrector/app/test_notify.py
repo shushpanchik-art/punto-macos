@@ -145,4 +145,33 @@ nf, clk, shown = mk(); rt, f = new_rt()
 rt.notices += [("stream_lost", "ghbdtn привет"), ("incident", "UNRECOVERED:ghbdtn привет")]; rt.incident_apps.append("com.example.A")
 nf.poll_runtime(rt); nf.deliver()
 T(all(N.validate(n) == [] for n in shown) and "ghbdtn" not in repr(shown) + repr(nf.counters) and "привет" not in repr(shown) + repr(nf.pending), "no typed text in anything shown, queued or counted")
+
+# ---- fault injection (audit 6): malformed input from other modules, an adapter that tampers with the notice it is given
+import copy as _copy
+nf = N.Notifier(lambda x: True, lambda: 0)
+for label, entries in (("an empty tuple", [()]), ("None", [None]), ("a list as kind", [(["a"], "")]), ("an int", [5]), ("a bytes kind", [(b"x", "")])):
+    try: nf.poll_list("src_" + label, entries); err = None
+    except Exception as e: err = e
+    T(err is None, f"poll_list with {label}: no exception ({err!r})")
+T(nf.counters.get("malformed") == 5 and nf.pending == [], f"the malformed entries are counted, none is queued ({nf.counters})")
+nf.poll_list("mixed", [(), "settings_not_saved", None, ("delete_failed", "")])
+T([c for c, _, _ in nf.pending] == [("settings_not_saved", ""), ("delete_failed", "")], "one malformed entry does not stop the entries after it")
+for label, args in (("params an int", ("incident", "", 5)), ("kind a list", (["x"],)), ("variant a list", ("incident", ["x"])), ("kind None", (None,))):
+    try: r = nf.submit(*args); err = None
+    except Exception as e: r, err = None, e
+    T(err is None and r in ("invalid", "unknown"), f"submit with {label}: never raises ({err!r} {r})")
+rt = R.Runtime(L.Engine(L.example_cal(), lambda ids: [-3, 9, -2], {"en": {"hello"}}), L.HookHealth(canary=False))
+rt.notices += [(), ("stream_lost",), 7, ("watchdog", "")]
+try: nf.poll_runtime(rt); err = None
+except Exception as e: err = e
+T(err is None, f"poll_runtime with malformed runtime notices: no exception ({err!r})")
+seen = []
+def tamper(n):
+    seen.append(_copy.deepcopy(n))
+    if len(seen) == 1:
+        n["params"]["target"] = "SECRET TEXT"; n["text_id"] = "notice.evil"; raise OSError("x")
+    return True
+nf2 = N.Notifier(tamper, lambda: 0); nf2.submit("settings_not_saved"); nf2.deliver(); shown = nf2.deliver()
+T(len(seen) == 2 and N.validate(seen[1]) == [] and seen[1]["text_id"] == "notice.settings_not_saved" and seen[1]["params"] == {}, f"an adapter that changes the notice it was given and then fails: the next attempt shows the validated notice ({seen[1:]})")
+T(all(N.validate(n) == [] for n in shown), "and what deliver returns is valid")
 print(f"OK ({CHECKS} notification checks; fake adapter and clock; no real notification display)")

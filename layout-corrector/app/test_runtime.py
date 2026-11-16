@@ -226,4 +226,25 @@ for label, ad in (("raises", BadCaps()), ("is not iterable", NotIter())):
     T(err is None and ok is False and rt.ad is None and rt.app_id is None and rt.engine.mode == "OFF" and rt.gate_verdict == L.GATE_UNKNOWN, f"focus event whose caps {label}: no exception, engine OFF, the old element is let go ({err!r})")
     T(rt.engine.snapshot is None and rt.hotkey_convert(5).reason == "mode_off", "and nothing of the old element survives")
     T(rt.on_focus("app.ok", L.SimField("", M1), "AUTO") is True and rt.ad is not None, "a later working focus event recovers")
+
+# 15. shutdown: every wipe step runs even when an earlier one fails; the first failure is still raised; a repeated shutdown is harmless
+def boom(*a, **k): raise RuntimeError("injected")
+for obj, name in (("engine", "on_event"), ("engine", "set_gate"), ("health", "set_gate_open")):
+    rt, fld = make(); type_word(rt, fld, "he", "en", 100, space=False)
+    o = getattr(rt, obj); orig = getattr(o, name); setattr(o, name, boom)
+    try: rt.shutdown(); err = None
+    except RuntimeError as e: err = e
+    finally: setattr(o, name, orig)
+    T(err is not None and rt.ad is None and rt.app_id is None and rt.engine.mode == "OFF", f"shutdown with a failing {obj}.{name}: the failure is raised, the adapter is let go, the engine is OFF")
+    rt.shutdown(); rt.shutdown(); T(rt.ad is None and rt.engine.mode == "OFF", "a repeated shutdown does nothing more")
+rt, fld = make(); orig = rt.engine.set_mode; rt.engine.set_mode = boom
+try: rt.shutdown(); err = None
+except RuntimeError as e: err = e
+finally: rt.engine.set_mode = orig
+T(err is not None and rt.ad is None and rt.app_id is None, "shutdown with a failing set_mode: later steps (adapter release) still ran")
+# a focus event that fails also sends the engine an explicit break (defence in depth, in addition to the mode change)
+rt, fld = make(); events = []; o = rt.engine.on_event
+rt.engine.on_event = lambda ev: (events.append(ev.kind), o(ev))[1]
+rt.on_focus("app.new", BadCaps(), "AUTO")
+T("break" in events, "a failed focus event sends the engine a break")
 print(f"OK ({CHECKS} runtime checks)")

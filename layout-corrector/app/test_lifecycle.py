@@ -303,5 +303,16 @@ rt.shutdown = bad_wipe; got = None
 try: K.stop(rt, st, S.StoreState())
 except BaseException as e: got = e
 T(isinstance(got, Boom2) and isinstance(got.__context__, Boom), "wipe failure on top of a save failure: both are visible (wipe raised, save error as context)")
+# ---- fault injection (audit 6): a failing wipe step does not leave later steps undone; a repeated stop is harmless
+def _boom(*a, **k): raise RuntimeError("injected")
+rt3 = new_rt(); f3 = L.SimField("", M1); rt3.on_focus("A", f3, "AUTO"); rt3.on_gate(L.GATE_ALLOW); typed(rt3, f3, "ghbdtn"); typed(rt3, f3, "ghb", 400)
+sd3 = tempfile.mkdtemp(); st3 = S.Store(os.path.join(sd3, "settings.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True); state3 = st3.load()
+rt3.engine.on_event = _boom
+try: K.stop(rt3, st3, state3); got = None
+except RuntimeError as e: got = e
+T(got is not None and os.path.exists(st3.path) and rt3.ad is None and rt3.app_id is None, "stop: the exception list was saved, a failing wipe step is raised, the adapter is still let go")
+rt4 = new_rt(); f4 = L.SimField("", M1); rt4.on_focus("A", f4, "AUTO"); rt4.on_gate(L.GATE_ALLOW)
+sd4 = tempfile.mkdtemp(); st4 = S.Store(os.path.join(sd4, "settings.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True); state4 = st4.load()
+T(K.stop(rt4, st4, state4) is True and K.stop(rt4, st4, state4) is True and rt4.engine.mode == "OFF" and rt4.ad is None, "a repeated stop: saved again, still wiped, no exception")
 real_sd()
 print(f"OK ({CHECKS} lifecycle and crash checks; simulated failures and child processes on Linux; no OS crash reporter, no supervisor process)")

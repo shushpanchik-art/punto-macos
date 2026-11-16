@@ -249,3 +249,6 @@
 
 ## 2026-11-16 (twenty-fifth part)
 * 4984726 published (CI success). Next stage: `RealChild.wait_timeout` bounded, returns proven/not proven (`child_not_ended`); `lfruntime` (non-str read, over-limit selection read before refusal, failed focus left the old element active); `lfcrypto` fake-backend results validated. Tests: runtime 59 → 74, crypto 78 → 97, supervisor 123 → 130. Two vacuous tests found by mutation and fixed. `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-16 (twenty-sixth part)
+* 9c6281f published (CI success). Next stage: `Runtime.shutdown` runs every wipe step (first failure raised after all); `lfnotify` malformed input and tampering adapter fixed; runtime mutant analysed (evidence, no equivalence claim); the 8-byte check measured and its limits written down. Tests: runtime 74 → 82, notify 76 → 90, lifecycle 95 → 97, crypto 97 → 99. `lfengine.py` and `conformance.py` unchanged.

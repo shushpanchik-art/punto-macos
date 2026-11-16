@@ -8,6 +8,7 @@ MY READINGS (listed in audit/AP7_RT19_readings.md, section 7): the cause is the 
 the action of each kind; the mapping of runtime reasons and of the store and settings notices to kinds.
 A notice carries NO free text: kind, row, text identifier, one action, and parameters that pass an allow-list (a permission name, a hotkey chord, the opaque
 identifier of the application the re-enable action points at). Details coming in from other modules only select a variant from a fixed list, never copied."""
+import copy
 import re
 
 import lfsettings as G
@@ -103,7 +104,11 @@ class Notifier:
 
     def submit(self, kind, variant="", params=None):
         """Returns 'queued', 'suppressed', 'duplicate', 'unknown' or 'invalid'. Never raises, never calls the adapter."""
-        n = build(kind, variant, params)
+        try:
+            n = build(kind, variant, params) if isinstance(kind, str) and isinstance(variant, str) else None
+        except Exception:                                   # a params value that is not a mapping, or one that cannot be copied
+            self._count("invalid")
+            return "invalid"
         if n is None:
             self._count("unknown")
             return "unknown"
@@ -137,7 +142,7 @@ class Notifier:
                 if not self._due(cause, now):
                     self._count("suppressed")
                     continue
-                ok = self.show(n) is True
+                ok = self.show(copy.deepcopy(n)) is True     # the adapter gets a copy: what it does to it never reaches the queued, validated notice
             except Exception:
                 ok = False
                 now = None
@@ -158,7 +163,12 @@ class Notifier:
         """Takes the runtime's new notices and the reasons that appeared since the last call (13.5 rows 9, 10, 13, 14 and the models flag)."""
         new = rt.notices[self._seen.get("runtime", 0):]
         self._seen["runtime"] = len(rt.notices)
-        for kind, detail in new:
+        for entry in new:
+            try:
+                kind, detail = entry
+            except Exception:
+                self._count("malformed")
+                continue
             if kind == "incident":
                 i = self._incident_seen
                 self._incident_seen += 1
@@ -183,7 +193,13 @@ class Notifier:
         new = entries[self._seen.get(name, 0):]
         self._seen[name] = len(entries)
         for e in new:
-            kind, detail = (e, "") if isinstance(e, str) else (e[0], e[1] if len(e) > 1 else "")
+            try:
+                kind, detail = (e, "") if isinstance(e, str) else (e[0], e[1] if len(e) > 1 else "")
+                if not isinstance(kind, str):
+                    raise TypeError("kind")
+            except Exception:
+                self._count("malformed")                    # one malformed entry never stops the others
+                continue
             if kind in IGNORED:
                 continue
             self.submit(kind, "", {"chord": detail} if kind == "hotkey_fallback" and detail else None)
