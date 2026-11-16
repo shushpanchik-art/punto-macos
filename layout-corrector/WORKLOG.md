@@ -240,3 +240,6 @@
 * 88a36ec published (CI success on that SHA). Fault injection of `lfautostart.py` and `lfdiag.py`: two confirmed defect classes (unreadable description answered "absent"; success reported without a read-back for the plist, the export and the Run value), fixed with regressions that fail on 88a36ec; failing write/fsync/chmod/replace/remove were already handled (tests added as regressions). Tests: autostart 115, diag 109, uninstall 66.
 * AP-9 mutation report corrected (list rebuilt, 68 matched, 62 killed, 6 not killed, platform claim limited). Hand mutations of the new code: autostart 10 of 10 killed, diag 5 of 5.
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-16 (twenty-third part)
+* 3cc092e published (CI success). Fault injection of `lfinstance.py`: two confirmed defects (double close of one descriptor; failing release raised), fixed; `test_instance.py` 26 → 33 checks, fail on 3cc092e. Hand mutations 4 of 5 killed, 1 equivalent (see readings addendum). `lfengine.py` and `conformance.py` unchanged.

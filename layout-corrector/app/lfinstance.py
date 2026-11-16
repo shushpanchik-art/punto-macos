@@ -42,20 +42,32 @@ def acquire_posix(directory):
         fd = os.open(path, flags, 0o600)
         fst = os.fstat(fd)
         if not stat.S_ISREG(fst.st_mode) or fst.st_uid != os.geteuid():
-            os.close(fd)
+            fd, bad = None, fd                            # a descriptor is closed once: a second close could hit a descriptor another thread has opened
+            try:
+                os.close(bad)
+            except OSError:
+                pass
             return Lock(UNAVAILABLE, why="file")
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (BlockingIOError, PermissionError) as e:
-            os.close(fd)
+            fd, bad = None, fd
+            try:
+                os.close(bad)
+            except OSError:
+                pass
             return Lock(ALREADY_RUNNING if isinstance(e, BlockingIOError) else UNAVAILABLE, why="held" if isinstance(e, BlockingIOError) else "flock")
         held = fd
 
         def release():
             try:
                 fcntl.flock(held, fcntl.LOCK_UN)
-            finally:
+            except OSError:
+                pass                                      # closing the descriptor releases the lock anyway
+            try:
                 os.close(held)
+            except OSError:
+                pass                                      # nothing more can be done; release never raises into a shutdown
         return Lock(HELD, release)
     except OSError:
         if fd is not None:

@@ -89,4 +89,45 @@ for _ in range(20):
 T(total_a == 20 and total_b == 0 and b_f.text == "ghbdtn " * 21, f"20 more words: one conversion each, all by the lock holder ({total_a}, {total_b})")
 b_rt.instance_ok = True; b_rt.apply_mode()
 T(b_rt.explain("A")[0] != "OFF" or "instance" not in b_rt.explain("A")[1], "when the fact changes the mode is recomputed")
+# ---- fault injection (audit 5): descriptors are closed once and never leak; a failing release never raises
+import errno, fcntl
+def nfd(): return len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else None
+base = nfd()
+_fl = fcntl.flock
+def _enolck(fd, op):
+    if op & fcntl.LOCK_EX: raise OSError(errno.ENOLCK, "injected")
+    return _fl(fd, op)
+fcntl.flock = _enolck
+try: r = I.acquire_posix(newdir())
+finally: fcntl.flock = _fl
+T(r.state == I.UNAVAILABLE and nfd() == base, "a flock that fails with another error: UNAVAILABLE, no descriptor left open")
+_fs = os.fstat
+def _eio(fd): raise OSError(errno.EIO, "injected")
+os.fstat = _eio
+try: r = I.acquire_posix(newdir())
+finally: os.fstat = _fs
+T(r.state == I.UNAVAILABLE and nfd() == base, "an fstat that fails: UNAVAILABLE, no descriptor left open")
+dq = newdir(); os.mkfifo(os.path.join(dq, "instance.lock")); closes = []; _cl = os.close
+def _cfail(fd): closes.append(fd); _cl(fd); raise OSError(errno.EIO, "injected")
+os.close = _cfail
+try: r = I.acquire_posix(dq)
+finally: os.close = _cl
+T(r.state == I.UNAVAILABLE and len(closes) == 1, f"a failing close of a refused lock file is not repeated ({closes})")
+dh = newdir(); a = I.acquire_posix(dh); a2 = I.acquire_posix(dh); closes = []
+os.close = _cfail
+try: a2.release(); a.release(); r2 = True
+except Exception: r2 = False
+finally: os.close = _cl
+T(r2 is True and a2.state == I.ALREADY_RUNNING, "a failing close in release does not raise")
+dl = newdir(); a = I.acquire_posix(dl)
+def _unfail(fd, op):
+    if op == fcntl.LOCK_UN: raise OSError(errno.EIO, "injected")
+    return _fl(fd, op)
+fcntl.flock = _unfail
+try: a.release(); raised = False
+except Exception: raised = True
+finally: fcntl.flock = _fl
+T(not raised and nfd() == base, "a failing unlock in release does not raise and the descriptor is closed")
+a.release(); b = I.acquire_posix(dl); T(b.state == I.HELD, "after the failing release the lock can be taken again"); b.release()
+T(nfd() == base, "no descriptor is left after all of it")
 print(f"OK ({CHECKS} single-instance checks; POSIX lock with real processes on Linux; Windows mutex compiled only; two real OS instances NOT RUN)")
