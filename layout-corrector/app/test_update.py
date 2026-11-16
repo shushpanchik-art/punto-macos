@@ -168,7 +168,7 @@ def fresh(v1="1.0.0", v2=None):
     en = Env(); a, b, c = pkg(v1); en.u.stage(a, b, c); en.u.at_restart()
     if v2: a, b, c = pkg(v2); en.u.stage(a, b, c)
     return en
-P = lambda en, v, n="": os.path.join(en.root, "packages", v, n)
+P = lambda en, v, n=None: os.path.join(en.root, "packages", v, *([n] if n else []))
 # a file changed after it was staged
 en = fresh("1.0.0", "1.1.0"); open(P(en, "1.1.0", "model"), "wb").write(b"evil")
 T(en.u.at_restart() == "rejected:integrity" and en.u.state["active"] == "1.0.0" and en.u.state["staged"] is None and not os.path.exists(P(en, "1.1.0")), "a staged file changed before the switch: not used, dropped, the active one stays")
@@ -254,6 +254,127 @@ seen = []
 en = Env(validate=lambda v, p: seen.append(sorted(p)) or True); a, b, c = pkg("1.0.0"); en.u.stage(a, b, c); en.u.at_restart()
 T(seen == [["calibration", "model"]], "the validator is given the components only"); en.done()
 
+# ---- fault injection (audit 2): the move aside of an unreadable state, the failing drop of a staged package, links
+def failing_replace(match_src=None, match_dst=None, only_first=False):
+    """a replacement of os.replace that fails for the given source/destination endings"""
+    real_, st = os.replace, {"n": 0}
+    def f(a, b, *x):
+        if (match_src is None or str(a).endswith(match_src)) and (match_dst is None or str(b).endswith(match_dst)) and not (only_first and st["n"]):
+            st["n"] += 1; raise OSError("injected")
+        return real_(a, b, *x)
+    return f, real_
+def with_replace(fn, body):
+    f, real_ = fn; os.replace = f
+    try: return body()
+    finally: os.replace = real_
+def bad_state(en): open(os.path.join(en.root, "state.json"), "w").write("{bad")
+def seed_backup(en, name="packages.bad"):
+    os.makedirs(os.path.join(en.root, name, "0.9.0")); open(os.path.join(en.root, name, "0.9.0", "x"), "w").write("old backup")
+backup_ok = lambda en, name="packages.bad": os.path.isfile(os.path.join(en.root, name, "0.9.0", "x")) and open(os.path.join(en.root, name, "0.9.0", "x")).read() == "old backup"
+# A: the packages cannot be moved: nothing is deleted, the updater is frozen, the next start tries again
+en = fresh("1.0.0"); seed_backup(en); bad_state(en); snap = tree(en.root)
+u = with_replace(failing_replace("packages", "packages.bad.tmp"), lambda: en.reopen())
+T(u.frozen and u.counters["aside_failed"] == 1 and u.counters["frozen"] == 1, "the move of the packages fails: frozen")
+T(os.path.isdir(P(en, "1.0.0")) and backup_ok(en) and open(os.path.join(en.root, "state.json")).read() == "{bad" and tree(en.root) == snap, "nothing deleted, nothing moved, the unreadable state file is still where it was")
+T(u.state["active"] == "builtin" and u.stage(*pkg("1.1.0")) == "rejected:storage" and tree(en.root) == snap, "a frozen updater refuses to store anything and says storage")
+u2 = en.reopen()
+T(not u2.frozen and backup_ok(en) is False and os.path.isdir(os.path.join(en.root, "packages.bad", "1.0.0")) and os.path.exists(os.path.join(en.root, "state.json.bad")) and os.listdir(P(en, "")) == [], "the next start moves the packages aside (the new copy replaces the old one only now)")
+en.done()
+# B: the new copy cannot take the place of the old one: the old one is put back, the new one stays under the temporary name
+en = fresh("1.0.0"); seed_backup(en); bad_state(en)
+u = with_replace(failing_replace("packages.bad.tmp", "packages.bad"), lambda: en.reopen())
+T(not u.frozen and u.counters["aside_kept_tmp"] == 1 and backup_ok(en) and os.path.isdir(os.path.join(en.root, "packages.bad.tmp", "1.0.0")) and not os.path.exists(os.path.join(en.root, "packages.bad.old")), "the old copy is back in place, the new copy is kept as packages.bad.tmp")
+T(os.path.exists(os.path.join(en.root, "state.json.bad")) and u.state["active"] == "builtin" and os.listdir(P(en, "")) == [], "the updater works with the built-in package")
+u.stage(*pkg("2.0.0")); u.at_restart(); bad_state(en); u = en.reopen()
+T(u.frozen and u.counters["aside_failed"] == 1 and backup_ok(en) and os.path.isdir(os.path.join(en.root, "packages.bad.tmp", "1.0.0")) and os.path.isdir(P(en, "2.0.0")), "a temporary copy left by an earlier unfinished move is not touched: frozen"); en.done()
+# C: both the replacement and the putting back fail: the old copy is under packages.bad.old, the new under packages.bad.tmp, nothing deleted
+en = fresh("1.0.0"); seed_backup(en); bad_state(en)
+real0 = os.replace
+def f2(a, b, *x):
+    if str(b).endswith("packages.bad") and str(a).endswith(("packages.bad.tmp", "packages.bad.old")): raise OSError("injected")
+    return real0(a, b, *x)
+os.replace = f2
+try: u = en.reopen()
+finally: os.replace = real0
+T(backup_ok(en, "packages.bad.old") and os.path.isdir(os.path.join(en.root, "packages.bad.tmp", "1.0.0")) and u.counters["aside_kept_tmp"] == 1, "double failure: both copies are kept under their temporary names"); en.done()
+# D: the moved packages are kept when the new empty directory cannot be made
+en = fresh("1.0.0"); bad_state(en); realmk = os.makedirs
+def mk(p, *a, **k):
+    if str(p).endswith(os.sep + "packages") and not os.path.exists(p): raise OSError("injected")
+    return realmk(p, *a, **k)
+os.makedirs = mk
+try: u = en.reopen()
+finally: os.makedirs = realmk
+T(u.frozen and os.path.isdir(os.path.join(en.root, "packages.bad", "1.0.0")), "the moved packages are kept and the updater is frozen when the new directory cannot be made"); en.done()
+# E: nothing to keep: an existing aside copy is not replaced by an empty one
+en = Env(); seed_backup(en); bad_state(en); u = en.reopen()
+T(backup_ok(en) and not u.frozen and os.path.exists(os.path.join(en.root, "state.json.bad")), "an unreadable state without packages keeps the old aside copy"); en.done()
+# F: the packages directory cannot be listed
+en = fresh("1.0.0"); bad_state(en); reallist = os.listdir
+def ls(p="."):
+    if str(p).endswith(os.sep + "packages"): raise OSError("injected")
+    return reallist(p)
+os.listdir = ls
+try: u = en.reopen()
+finally: os.listdir = reallist
+T(u.frozen and os.path.isdir(P(en, "1.0.0")), "a directory that cannot be listed is not moved or deleted"); en.done()
+# G: the drop of a staged package fails (replace, fsync, dump) in the integrity and the validation branch
+def drop_case(kind, how):
+    en = Env(validate=(lambda v, p: False) if kind == "validation" else None); a, b, c = pkg("1.0.0"); en.u.stage(a, b, c)
+    if kind == "validation": en.u.validate = None
+    en.u.at_restart(); en.u.validate = (lambda v, p: False) if kind == "validation" else None
+    a, b, c = pkg("1.1.0"); en.u.stage(a, b, c)
+    if kind == "integrity": open(P(en, "1.1.0", "model"), "wb").write(b"evil")
+    snap_state = open(os.path.join(en.root, "state.json")).read()
+    if how == "replace": f_, r_ = failing_replace(None, "state.json"); os.replace = f_
+    elif how == "fsync":
+        r_ = os.fsync
+        def fs(fd): raise OSError("injected")
+        os.fsync = fs
+    else:
+        r_ = json.dump
+        def jd(o, fp, **k): raise OSError("injected")
+        json.dump = jd
+    try: res = en.u.at_restart()
+    finally:
+        if how == "replace": os.replace = r_
+        elif how == "fsync": os.fsync = r_
+        else: json.dump = r_
+    T(res == "rejected:" + kind, f"{kind}/{how}: an honest status, no exception ({res})")
+    T(en.u.state["active"] == "1.0.0" and en.u.state["staged"] == "1.1.0" and open(os.path.join(en.root, "state.json")).read() == snap_state and not os.path.exists(os.path.join(en.root, "state.json.tmp")), f"{kind}/{how}: the active package and the state file are unchanged, no temporary file left")
+    T(en.u.counters.get("drop_failed") == 1 and os.path.isdir(P(en, "1.0.0")) and sorted(en.u.active_files()) == ["calibration", "model"], f"{kind}/{how}: the failure is counted, the active package is intact")
+    r2 = en.u.at_restart()
+    T(r2 == "rejected:" + kind and en.u.state["staged"] is None and en.u.state["active"] == "1.0.0" and not os.path.exists(P(en, "1.1.0")), f"{kind}/{how}: a safe repeat refuses again and now drops it")
+    en.done()
+for kind in ("integrity", "validation"):
+    for how in ("replace", "fsync", "dump"): drop_case(kind, how)
+# the residue of a replaced aside copy is removed after a successful replacement
+en = fresh("1.0.0"); seed_backup(en); bad_state(en); en.reopen()
+T(sorted(x for x in os.listdir(en.root) if x.startswith("packages")) == ["packages", "packages.bad"] and not backup_ok(en), "after a successful move aside no .tmp or .old directory is left, and the new copy replaced the old one"); en.done()
+# a root that cannot be used: no exception from the constructor, nothing can be stored
+d0 = tempfile.mkdtemp(prefix="lfu_"); fl = os.path.join(d0, "afile"); open(fl, "w").write("x")
+u = U.Updater(fl, verify, notifier=None)
+T(u.frozen and u.stage(*pkg("1.0.0")) == "rejected:storage" and u.rollback() == "nothing" and u.at_restart() == "nothing_staged" and u.active_files() == {}, "an unusable root: frozen, honest status, no exception"); shutil.rmtree(d0, ignore_errors=True)
+# the collection of unreferenced directories cannot list the directory: counted, the staging still succeeds
+en = fresh("1.0.0"); reallist = os.listdir; calls = {"n": 0}
+def ls2(p="."):
+    if str(p).endswith(os.sep + "packages"): raise OSError("injected")
+    return reallist(p)
+os.listdir = ls2
+try: r = en.u.stage(*pkg("1.1.0"))
+finally: os.listdir = reallist
+T(r == "staged" and en.u.counters["gc_failed"] == 1 and en.u.state["staged"] == "1.1.0", "a failing collection does not undo a staged package"); en.done()
+# the validation branch really drops the package (when the write works)
+en = Env(validate=lambda v, p: False); en.u.stage(*pkg("1.0.0")); T(en.u.at_restart() == "rejected:validation" and en.u.state["staged"] is None and not os.path.exists(P(en, "1.0.0")), "the validation branch drops the staged package and its files"); en.done()
+# H: links: the package directory, the manifest, a component; and the stated limits of the check
+en = fresh("1.0.0", "1.1.0"); shutil.copytree(P(en, "1.1.0"), os.path.join(en.root, "copy")); shutil.rmtree(P(en, "1.1.0")); os.symlink(os.path.join(en.root, "copy"), P(en, "1.1.0"))
+T(en.u.at_restart() == "rejected:integrity" and en.u.state["active"] == "1.0.0", "a link in place of the package directory is refused even when the copy is valid"); en.done()
+en = fresh("1.0.0", "1.1.0"); shutil.copy(P(en, "1.1.0", "manifest.json"), os.path.join(en.root, "mcopy")); os.remove(P(en, "1.1.0", "manifest.json")); os.symlink(os.path.join(en.root, "mcopy"), P(en, "1.1.0", "manifest.json"))
+T(en.u.at_restart() == "rejected:integrity", "a link in place of the manifest is refused even when the content is valid"); en.done()
+en = fresh("1.0.0", "1.1.0"); en.u.at_restart(); shutil.copytree(P(en, "1.1.0"), os.path.join(en.root, "copy")); shutil.rmtree(P(en, "1.1.0")); os.symlink(os.path.join(en.root, "copy"), P(en, "1.1.0")); u = en.reopen()
+T(u.state["active"] == "1.0.0" and u.counters["active_damaged"] == 1, "an active package directory that is a link is replaced at start"); en.done()
+# the limits of the check (not claims): a hard link to a file with the same content, a link above the package directory and a change between the check and the use are NOT detected here
+# (these limits are written in the module and in the readings; they are not tested as guarantees)
 # ---- the staged rollout
 for bucket, pct, want in ((0, 100, "staged"), (99, 100, "staged"), (99, 99, "not_yet"), (0, 1, "staged"), (1, 1, "not_yet"), (0, 0, "not_yet"), (50, 50, "not_yet"), (49, 50, "staged")):
     e = Env(bucket=bucket); a, b, c = pkg("1.0.0", pct=pct); T(e.u.stage(a, b, c) == want, f"bucket {bucket}, rollout {pct}: {want}")

@@ -42,12 +42,28 @@ class Updater:
         self.root, self.verify, self.validate, self.bucket, self.notifier = root, verify, validate, bucket, notifier
         self.counters = {}
         self.log = []                                   # (event, detail) codes, never text of a package
-        os.makedirs(os.path.join(root, "packages"), exist_ok=True)
+        self.frozen = False                             # True: nothing may be changed or deleted because the old data could not be kept safely
+        try:
+            os.makedirs(os.path.join(root, "packages"), exist_ok=True)
+        except OSError:
+            self.frozen = True                          # an unusable directory: refuse to store, do not raise from the constructor
+            self._count("root_unusable")
+        self._unreadable = False
         self.state = self._load()
-        if self.counters.get("state_unreadable"):
-            self._set_aside_packages()                   # the packages the unreadable state referred to are kept aside with it, not deleted
-        self._check_active()
-        self._gc()
+        if self._unreadable:
+            # the packages the unreadable state referred to are kept aside FIRST; the state file is moved aside only after that, so that a failed attempt is
+            # repeated at the next start (the unreadable file is still there) and nothing is deleted by a collection of "unreferenced" directories
+            if self._set_aside_packages():
+                try:
+                    os.replace(self._path("state.json"), self._path("state.json.bad"))
+                except OSError:
+                    self._count("state_aside_failed")
+            else:
+                self.frozen = True
+                self._count("frozen")
+        if not self.frozen:
+            self._check_active()
+            self._gc()
 
     # -- state ---------------------------------------------------------------------------------------------------------------
     def _count(self, k):
@@ -78,21 +94,51 @@ class Updater:
             return self._fresh()
         except (OSError, ValueError):
             pass
-        try:
-            os.replace(p, p + ".bad")                   # the unreadable state is kept aside; the built-in package is used
-        except OSError:
-            pass
+        self._unreadable = True                         # the built-in package is used; the file is moved aside by __init__ after the packages
         self._count("state_unreadable")
         return self._fresh()
 
     def _set_aside_packages(self):
-        d, bad = self._path("packages"), self._path("packages.bad")
+        """Moves the package directory aside as one unit (`packages.bad`). Returns True when the packages are safe (moved, or there was nothing to keep) and False
+        when they could not be moved: then nothing is deleted and the Updater is frozen. An existing aside copy is deleted only AFTER the new one is in its
+        place; if that cannot be done the new copy stays as `packages.bad.tmp` and the old one stays as it was."""
+        d, bad, tmp = self._path("packages"), self._path("packages.bad"), self._path("packages.bad.tmp")
         try:
-            shutil.rmtree(bad, ignore_errors=True)
-            os.replace(d, bad)
+            if not os.listdir(d):
+                return True
         except OSError:
             self._count("aside_failed")
-        os.makedirs(d, exist_ok=True)
+            return False
+        if os.path.lexists(tmp):
+            self._count("aside_failed")                  # an earlier unfinished move: it is not touched
+            return False
+        try:
+            os.replace(d, tmp)
+        except OSError:
+            self._count("aside_failed")
+            return False
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError:
+            self._count("aside_failed")
+            self.frozen = True
+        old = self._path("packages.bad.old")
+        try:
+            if os.path.lexists(bad):
+                if os.path.lexists(old):
+                    raise OSError("an earlier replacement did not finish")
+                os.replace(bad, old)                     # the existing aside copy is deleted only after the new one is in its place
+                try:
+                    os.replace(tmp, bad)
+                except OSError:
+                    os.replace(old, bad)                 # put the old one back
+                    raise
+                shutil.rmtree(old, ignore_errors=True)
+            else:
+                os.replace(tmp, bad)
+        except OSError:
+            self._count("aside_kept_tmp")                # nothing is lost: the new copy stays as packages.bad.tmp, the old one as it was
+        return True
 
     def _check_active(self):
         """At start the active package is checked again; a damaged one is replaced by the previous package when that verifies, else by the built-in one."""
@@ -127,7 +173,14 @@ class Updater:
         """Removes what the state does not reference (a crashed staging, a package that was replaced)."""
         keep = {v for v in (self.state["active"], self.state["previous"], self.state["staged"]) if v and v != BUILTIN}
         d = self._path("packages")
-        for n in os.listdir(d):
+        if self.frozen:
+            return
+        try:
+            names = os.listdir(d)
+        except OSError:
+            self._count("gc_failed")
+            return
+        for n in names:
             if n not in keep:
                 shutil.rmtree(os.path.join(d, n), ignore_errors=True)
 
@@ -136,7 +189,10 @@ class Updater:
         partly removed after it was staged does not pass (the directory is not trusted just because this module wrote it)."""
         try:
             d = self._path("packages", v)
-            with open(os.path.join(d, MANIFEST_FILE), "r", encoding="ascii") as f:
+            mp = os.path.join(d, MANIFEST_FILE)
+            if os.path.islink(d) or not os.path.isdir(d) or os.path.islink(mp) or not os.path.isfile(mp):
+                return False                              # a link in place of the package directory or of the manifest is refused
+            with open(mp, "r", encoding="ascii") as f:
                 rec = json.load(f)
             if not isinstance(rec, dict) or set(rec) != {"manifest", "signature"}:
                 return False
@@ -162,6 +218,17 @@ class Updater:
         except Exception:
             return False
 
+    def _drop_staged(self):
+        """Forgets the staged package. A failing write leaves the state as it was (the package stays staged and is refused again at the next try, for the same
+        reason); it never raises and never touches the active package."""
+        try:
+            self._save(dict(self.state, staged=None))
+        except Exception:
+            self._count("drop_failed")
+            return False
+        self._gc()
+        return True
+
     def _fail(self, code):
         self._count("rejected_" + code)
         self.log.append(("rejected", code))
@@ -176,6 +243,8 @@ class Updater:
     def stage(self, manifest, signature, files):
         """Verifies a package and stages it. `files` maps a component name to bytes. Returns 'staged', 'duplicate', 'not_yet' (the rollout has not reached this
         device; no notice) or 'rejected:<code>' (the previous package stays active and a notice is queued, row 12). Nothing of the active package is touched."""
+        if self.frozen:
+            return self._fail("storage")                 # honest: nothing can be stored while the old data could not be kept safely
         try:
             if not isinstance(manifest, dict) or set(manifest) != MANIFEST_KEYS or not isinstance(files, dict):
                 return self._fail("shape")
@@ -265,8 +334,7 @@ class Updater:
             return "busy"
         v = s["staged"]
         if not self._verify_dir(v):                      # changed or damaged since it was staged: it is not used
-            self._save(dict(s, staged=None))
-            self._gc()
+            self._drop_staged()
             return self._fail("integrity")
         paths = {n: os.path.join(self._path("packages", v), n) for n in sorted(os.listdir(self._path("packages", v))) if n != MANIFEST_FILE}
         try:
@@ -274,8 +342,7 @@ class Updater:
         except Exception:
             ok = False
         if not ok:
-            self._save(dict(s, staged=None))
-            self._gc()
+            self._drop_staged()
             return self._fail("validation")
         try:
             self._save({"active": v, "previous": s["active"], "staged": None, "blocked": s["blocked"]})
