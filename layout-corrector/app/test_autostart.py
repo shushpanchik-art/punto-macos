@@ -78,5 +78,98 @@ T(A.RUN_KEY.endswith("CurrentVersion\\Run") and A.RUN_KEY.startswith("HKCU"), "t
 # no secrets or text in anything generated
 blob = A.render_plist(d).decode() + reg + cmd
 T(not any(w in blob.lower() for w in ("password", "token", "secret", "ghbdtn")) and "%" not in cmd, "generated descriptions carry no secret-like words and no variables")
+# ---- fault injection (audit 4): failing writes leave the old file and no temporary file; no false success; a repeat works
+import builtins, shutil as _sh
+_dirA = tempfile.mkdtemp(prefix="lfas_"); LABEL = "com.example.layoutcorrector"; EXE_ = "/Applications/LayoutCorrector.app/Contents/MacOS/lc-supervisor"
+good_d = A.launch_agent(LABEL, EXE_); good_text = A.render_plist(good_d)
+pp = A.write_launch_agent(_dirA, good_d); T(open(pp, "rb").read() == good_text, "baseline write")
+def listing(): return sorted(os.listdir(_dirA))
+d2_ = A.launch_agent(LABEL, EXE_.replace("lc-supervisor", "lc-supervisor2")) if False else None
+def inject(target, name, exc=OSError):
+    real_ = getattr(target, name)
+    def f(*a, **k): raise exc("injected")
+    setattr(target, name, f)
+    return lambda: setattr(target, name, real_)
+other = dict(good_d)
+for what, tgt, nm in (("replace", os, "replace"), ("fsync", os, "fsync"), ("chmod", os, "chmod")):
+    undo = inject(tgt, nm)
+    try: r = raises(lambda: A.write_launch_agent(_dirA, other), OSError)
+    finally: undo()
+    T(r and open(pp, "rb").read() == good_text and listing() == [LABEL + ".plist"], f"{what} fails: the old description is intact and no temporary file is left")
+# a failing write in the middle of the data
+class Half:
+    def __init__(self, f): self.f = f
+    def write(self, b): self.f.write(b[:10]); raise OSError("injected")
+    def __getattr__(self, n): return getattr(self.f, n)
+    def __enter__(self): return self
+    def __exit__(self, *a): self.f.close()
+_fd = os.fdopen
+os.fdopen = lambda fd, mode="r", *a, **k: Half(_fd(fd, mode, *a, **k))
+try: r = raises(lambda: A.write_launch_agent(_dirA, other), OSError)
+finally: os.fdopen = _fd
+T(r and open(pp, "rb").read() == good_text and listing() == [LABEL + ".plist"], "a partial write: the old description is intact, the partial temporary file is removed")
+# a temporary file that cannot be removed is the only thing that may remain, and the error is still the original one
+undo1 = inject(os, "replace"); undo2 = inject(os, "remove")
+try: r = raises(lambda: A.write_launch_agent(_dirA, other), OSError)
+finally: undo1(); undo2()
+T(r and open(pp, "rb").read() == good_text, "replace and remove both fail: the original error is raised, the old description is intact")
+for n in listing():
+    if n.startswith(".lf-"): os.remove(os.path.join(_dirA, n))
+# silent failure: replace returns but nothing was written -> no false success
+_rp = os.replace
+os.replace = lambda s_, d_, *a: None
+_dirN = tempfile.mkdtemp(prefix="lfas_")
+try: r = raises(lambda: A.write_launch_agent(_dirN, good_d), A.AutostartError)
+finally: os.replace = _rp
+T(r and os.listdir(_dirN) == [], "a replace that did nothing is reported as a failure, not as a written description, and its temporary file is removed")
+_sh.rmtree(_dirN, ignore_errors=True)
+# a repeat after a failure works
+T(A.write_launch_agent(_dirA, good_d) == pp and open(pp, "rb").read() == good_text and listing() == [LABEL + ".plist"], "a repeat after the failures works")
+# removal: a file that cannot be read is NOT 'absent'
+_open = builtins.open
+def _op(f, mode="r", *a, **k):
+    if str(f) == pp and "r" in mode and "b" in mode: raise OSError("injected")
+    return _open(f, mode, *a, **k)
+builtins.open = _op
+try: r = raises(lambda: A.remove_launch_agent(_dirA, LABEL), A.AutostartError)
+finally: builtins.open = _open
+T(r and os.path.exists(pp), "an unreadable description is a failure of the removal, not 'absent'; the file is untouched")
+# a failing remove raises and keeps the file; a file that disappears meanwhile is 'absent'
+undo = inject(os, "remove")
+try: r = raises(lambda: A.remove_launch_agent(_dirA, LABEL), OSError)
+finally: undo()
+T(r and os.path.exists(pp), "a failing os.remove is raised, the file stays")
+_rm = os.remove
+def gone(p, *a): _rm(p, *a); raise FileNotFoundError("gone")
+os.remove = gone
+try: r = A.remove_launch_agent(_dirA, LABEL)
+finally: os.remove = _rm
+T(r is False and not os.path.exists(pp), "removed by someone else in between: nothing left, reported as not removed by us")
+T(A.write_launch_agent(_dirA, good_d) == pp and A.remove_launch_agent(_dirA, LABEL) is True and A.remove_launch_agent(_dirA, LABEL) is False, "a repeat after the failures: removed once, then absent")
+# a description that is not valid plist data is 'not ours' (False), still not an error
+open(pp, "wb").write(b"\x00\x01 not a plist")
+T(A.remove_launch_agent(_dirA, LABEL) is False and os.path.exists(pp), "a file that is not a plist is not ours: left alone")
+os.remove(pp)
+_sh.rmtree(_dirA, ignore_errors=True)
+# ---- the Run value: no false success
+class Lying(A.MemoryRegistry):
+    def set(self, name, data): pass                       # says nothing, stores nothing
+class Sticky(A.MemoryRegistry):
+    def delete(self, name): return True                   # says deleted, the value stays
+class Failing(A.MemoryRegistry):
+    def set(self, name, data): raise OSError("injected")
+    def delete(self, name): raise OSError("injected")
+WE = "C:\\Program Files\\LC\\lc.exe"
+T(raises(lambda: A.install_run_value(Lying(), WE)), "a backend that does not store the value: the install is a failure, not a success")
+rg = Sticky(); rg.values[A.RUN_VALUE] = A.windows_run_command(WE)
+T(raises(lambda: A.uninstall_run_value(rg, WE)), "a backend that says deleted and keeps the value: the removal is a failure")
+T(raises(lambda: A.install_run_value(Failing(), WE), OSError) and raises(lambda: A.uninstall_run_value(Failing(), WE), OSError) is False, "a failing set raises; a failing delete is not reached when the value is not ours")
+fg = Failing(); fg.values[A.RUN_VALUE] = A.windows_run_command(WE)
+T(raises(lambda: A.uninstall_run_value(fg, WE), OSError) and A.RUN_VALUE in fg.values, "a failing delete raises and the value stays")
+class Raced(A.MemoryRegistry):
+    def delete(self, name): self.values.pop(name, None); return False          # someone else removed it between the read and the delete
+rc = Raced(); rc.values[A.RUN_VALUE] = A.windows_run_command(WE)
+T(A.uninstall_run_value(rc, WE) is False and rc.values == {}, "a value removed by someone else in between: the answer is not 'removed by us'")
+mr = A.MemoryRegistry(); A.install_run_value(mr, WE); T(A.install_run_value(mr, WE) == A.windows_run_command(WE) and len(mr.values) == 1, "a repeat install changes nothing")
 import shutil; shutil.rmtree(tmp)
 print(f"OK ({CHECKS} autostart description checks; generation and temp-dir writes only; no launchd, login item or registry behaviour checked)")

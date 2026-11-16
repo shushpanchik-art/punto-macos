@@ -235,3 +235,8 @@
 ## 2026-11-15 (twenty-first part)
 * ac023f4 published (CI success on that SHA). Scan of the other modules for unguarded file operations found three more confirmed defects (each test fails on ac023f4): `Store.load` raised when the unreadable file could not be moved aside; an unwritable migration backup was treated as corruption; a failing removal of an old crash report hid the new report and skipped the upload. Fixed; `test_store.py` 48, `test_lifecycle.py` 95. Details: readings, last bullet. Real OS NOT RUN.
 * `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-15 (twenty-second part)
+* 88a36ec published (CI success on that SHA). Fault injection of `lfautostart.py` and `lfdiag.py`: two confirmed defect classes (unreadable description answered "absent"; success reported without a read-back for the plist, the export and the Run value), fixed with regressions that fail on 88a36ec; failing write/fsync/chmod/replace/remove were already handled (tests added as regressions). Tests: autostart 115, diag 109, uninstall 66.
+* AP-9 mutation report corrected (list rebuilt, 68 matched, 62 killed, 6 not killed, platform claim limited). Hand mutations of the new code: autostart 10 of 10 killed, diag 5 of 5.
+* `lfengine.py` and `conformance.py` unchanged.

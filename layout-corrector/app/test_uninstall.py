@@ -134,6 +134,18 @@ try: U.startup_launchd(os.path.expanduser("~/Library/LaunchAgents"), LAB)(); T(F
 except A.AutostartError: T(True, "")
 a = Fake(); a.remove_startup = U.startup_launchd(os.path.expanduser("~/Library/LaunchAgents"), LAB); r = U.uninstall(a, False)
 T(r["steps"]["startup"] == "failed" and r["leftovers"] == ["startup_entry"], "a refusal of the glue is a failed step, not a crash")
+# an unreadable description is a failed startup step, never 'absent' (audit 4: it used to answer absent, so an uninstall could be called complete with the entry still there)
+A.write_launch_agent(agents, A.launch_agent(LAB, EXE))
+import builtins
+_open = builtins.open
+def _op(f, mode="r", *a, **k):
+    if str(f).endswith(LAB + ".plist") and "r" in mode and "b" in mode: raise OSError("injected")
+    return _open(f, mode, *a, **k)
+a = Fake(procs=()); a.remove_startup = U.startup_launchd(agents, LAB); builtins.open = _op
+try: r = U.uninstall(a, False)
+finally: builtins.open = _open
+T(r["steps"]["startup"] == "failed" and r["leftovers"] == ["startup_entry"] and r["result"] == "incomplete" and os.listdir(agents) == [LAB + ".plist"], "an unreadable description is a failed step, the file stays, the result is incomplete")
+os.remove(os.path.join(agents, LAB + ".plist"))
 reg = A.MemoryRegistry(); WEXE = "C:\\Program Files\\LC\\lc.exe"
 g = U.startup_run_value(reg, WEXE); T(g() == "absent", "no value: absent")
 A.install_run_value(reg, WEXE); T(g() == "removed" and reg.values == {} and g() == "absent", "the Run value is removed once")

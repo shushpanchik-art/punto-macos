@@ -153,4 +153,45 @@ typed(rt, f, "ghbdtn", 100); T(total(dg.preview()) == 0 and dg.preview()["opt_in
 sg.set_diagnostics_opt_in(True); f2 = L.SimField("", M1); rt.on_focus("A", f2, "AUTO"); rt.on_gate(L.GATE_ALLOW); typed(rt, f2, "ghbdtn", 1000)
 T(dg.preview()["counters"]["corrections"]["en2ru"] == 1 and dg.preview()["opt_in"] is True, "setting on: counted")
 ex = dg.write_export(out, "mine.json"); sg.delete_all_data(); T(total(dg.preview()) == 0 and os.path.exists(ex), "Delete all data: counters are zero, the user's own export file is not touched")
+# ---- fault injection (audit 4): the export file
+import builtins, shutil
+dx = D.Diagnostics(lambda: True); dx.record_correction("en2ru"); outx = tempfile.mkdtemp(prefix="lfdx_")
+first = dx.write_export(outx, "e.json"); old_bytes = open(first, "rb").read(); dx.record_correction("en2ru")
+def inj(target, name):
+    real_ = getattr(target, name)
+    def f(*a, **k): raise OSError("injected")
+    setattr(target, name, f)
+    return lambda: setattr(target, name, real_)
+for nm_, tg_ in (("replace", os), ("fsync", os), ("chmod", os)):
+    undo = inj(tg_, nm_)
+    try: r = raises(lambda: dx.write_export(outx, "e.json"), OSError)
+    finally: undo()
+    T(r and open(first, "rb").read() == old_bytes and sorted(os.listdir(outx)) == ["e.json"], f"{nm_} fails: the earlier export is intact and no temporary file is left")
+class Half:
+    def __init__(self, f): self.f = f
+    def write(self, b): self.f.write(b[:7]); raise OSError("injected")
+    def __getattr__(self, n): return getattr(self.f, n)
+    def __enter__(self): return self
+    def __exit__(self, *a): self.f.close()
+_fd = os.fdopen
+os.fdopen = lambda fd, mode="r", *a, **k: Half(_fd(fd, mode, *a, **k))
+try: r = raises(lambda: dx.write_export(outx, "e.json"), OSError)
+finally: os.fdopen = _fd
+T(r and open(first, "rb").read() == old_bytes and sorted(os.listdir(outx)) == ["e.json"], "a partial write: the earlier export is intact, the partial file is removed")
+u1 = inj(os, "replace"); u2 = inj(os, "remove")
+try: r = raises(lambda: dx.write_export(outx, "e.json"), OSError)
+finally: u1(); u2()
+T(r and open(first, "rb").read() == old_bytes, "replace and remove both fail: the original error, the earlier export intact")
+for n in os.listdir(outx):
+    if n.startswith(".lf-diag-"): os.remove(os.path.join(outx, n))
+_rp = os.replace; os.replace = lambda s_, d_, *a: None
+outy = tempfile.mkdtemp(prefix="lfdx_")
+try: r = raises(lambda: dx.write_export(outy, "e.json"), OSError)
+finally: os.replace = _rp
+T(r and os.listdir(outy) == [], "a replace that did nothing is a failure, not a returned path, and leaves no temporary file")
+shutil.rmtree(outy, ignore_errors=True)
+p_ = dx.write_export(outx, "e.json")
+T(json.load(open(p_))["counters"]["corrections"]["en2ru"] == 2 and sorted(os.listdir(outx)) == ["e.json"] and oct(os.stat(p_).st_mode & 0o777) == "0o600", "a repeat after the failures writes the new counters, mode 0600, one file")
+T(raises(lambda: dx.write_export(os.path.join(outx, "missing"), "e.json"), OSError) and sorted(os.listdir(outx)) == ["e.json"], "a directory that does not exist is a failure; nothing is created elsewhere")
+shutil.rmtree(outx, ignore_errors=True)
 print(f"OK ({CHECKS} diagnostics checks; numeric counters under fixed keys, no transmission; the length classes are a PLACEHOLDER of an open question)")

@@ -89,6 +89,13 @@ def write_launch_agent(directory, d, allow_real=False):
             f.write(text); f.flush(); os.fsync(f.fileno())
         os.chmod(tmp, 0o644)
         os.replace(tmp, path)
+        try:
+            with open(path, "rb") as f:                   # a write is a success only when the file reads back exactly
+                back = f.read()
+        except OSError:
+            back = None
+        if back != text:
+            raise AutostartError("the written description does not read back")
     except BaseException:
         try: os.remove(tmp)
         except OSError: pass
@@ -107,12 +114,21 @@ def remove_launch_agent(directory, label, allow_real=False):
         return False
     try:
         with open(path, "rb") as f:
-            d = plistlib.loads(f.read())
-    except Exception:
+            raw = f.read()
+    except FileNotFoundError:
         return False
+    except OSError:
+        raise AutostartError("the description cannot be read")      # not 'absent': it may be ours and still there
+    try:
+        d = plistlib.loads(raw)
+    except Exception:
+        return False                                                # not a plist: not ours
     if validate_launch_agent(d) or d.get("Label") != label:
         return False
-    os.remove(path)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return False                                                # removed by someone else in between
     return True
 
 
@@ -169,6 +185,8 @@ def install_run_value(backend, exe_path, value_name=RUN_VALUE):
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", value_name):
         raise AutostartError("value name")
     backend.set(value_name, cmd)
+    if backend.get(value_name) != cmd:                                # a write is a success only when the value reads back
+        raise AutostartError("the value was not stored")
     return cmd
 
 
@@ -176,4 +194,7 @@ def uninstall_run_value(backend, exe_path, value_name=RUN_VALUE):
     """Deletes the value only if it still holds exactly the command this program would write (never a value someone else changed)."""
     if backend.get(value_name) != windows_run_command(exe_path):
         return False
-    return backend.delete(value_name)
+    done = backend.delete(value_name)
+    if backend.get(value_name) is not None:
+        raise AutostartError("the value was not removed")
+    return done

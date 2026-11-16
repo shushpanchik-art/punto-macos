@@ -141,6 +141,13 @@ class Diagnostics:
                 os.fsync(f.fileno())
             os.chmod(tmp, 0o600)
             os.replace(tmp, path)
+            try:
+                with open(path, "r", encoding="utf-8") as f:       # a success only when the file reads back exactly
+                    back = f.read()
+            except OSError:
+                back = None
+            if back != text:
+                raise OSError("the export does not read back")
         except BaseException:
             try:
                 os.remove(tmp)
