@@ -77,4 +77,51 @@ T(f.text == "ghbdtn ", "while the unsupported variant is active nothing is conve
 # re-identification: a table that changes is a different layout
 src_live = src("us", list(EN)); pr = P.select_pair([src_live, src("ru", RU)]); T(pr.state == P.PAIR, "setup")
 src_live.entries = variant(EN, 5, "q"); T(P.select_pair([src_live, src("ru", RU)]).state == P.NONE, "the same source with a changed table is no longer supported when identified again")
+
+# ---- fault injection (audit 6): adapter objects whose attributes fail, repeated and odd inputs
+class BadId(P.Source):
+    __slots__ = ()
+    @property
+    def id(self): raise OSError("injected")
+    @id.setter
+    def id(self, v): pass
+class BadEntries(P.Source):
+    __slots__ = ()
+    @property
+    def entries(self): raise OSError("injected")
+    @entries.setter
+    def entries(self, v): pass
+class BadIter(list):
+    def __iter__(self): raise OSError("injected")
+for label, lst in (("an id that cannot be read", [BadId("us", EN), src("ru", RU)]), ("a list that cannot be iterated", BadIter([src("us", EN), src("ru", RU)]))):
+    try: r = P.select_pair(lst); err = None
+    except Exception as e: r, err = None, e
+    T(err is None and r.state == P.NONE, f"select_pair with {label}: NONE, no exception ({err!r})")
+try: r = P.select_pair([BadEntries("us", EN), src("ru", RU)]); err = None
+except Exception as e: r, err = None, e
+T(err is None and r.state == P.NONE and r.unsupported == ["us"], f"a source whose entries cannot be read is unsupported, the rest is judged normally ({err!r})")
+try: c = P.classify(BadEntries("x", EN)); err = None
+except Exception as e: c, err = None, e
+T(err is None and c is None, "classify of a source whose entries cannot be read: None")
+r1 = P.select_pair([src("us", EN), src("ru", RU)]); r2 = P.select_pair([src("us", EN), src("ru", RU)])
+T((r1.state, r1.en, r1.ru) == (r2.state, r2.en, r2.ru), "the same input twice gives the same result (no hidden state)")
+rt, f = rt_new()
+for aid in (["x"], {"a": 1}, None, 5, b"us", ""):
+    try: lay = P.apply_active(rt, r1, aid); err = None
+    except Exception as e: lay, err = None, e
+    T(err is None and lay is None and rt.layout_ok is False and rt.engine.mode == "OFF", f"apply_active with an active id {aid!r}: OFF, no exception ({err!r})")
+T(P.apply_active(rt, r1, "us") == "en" and P.apply_active(rt, r1, "us") == "en" and rt.engine.mode == "AUTO", "the same active source twice: the same answer, the tool works")
+class OnceIter(list):                                  # iterates once, then fails: the second pass over the same list would raise outside any guard
+    n = 0
+    def __iter__(self):
+        OnceIter.n += 1
+        if OnceIter.n > 1: raise OSError("injected")
+        return list.__iter__(self)
+OnceIter.n = 0
+try: r = P.select_pair(OnceIter([src("us", EN), src("ru", RU)])); err = None
+except Exception as e: r, err = None, e
+T(err is None and r.state == P.PAIR, f"the list is read once: an iterator that fails on a second pass changes nothing ({err!r})")
+class Duck:
+    id, entries = "us", EN
+T(P.select_pair([Duck(), src("ru", RU)]).state == P.NONE, "an object that only looks like a Source (same attributes) is not accepted")
 print(f"OK ({CHECKS} layout pair checks; synthetic tables; no operating-system call)")

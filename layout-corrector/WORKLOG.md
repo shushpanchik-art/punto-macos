@@ -252,3 +252,6 @@
 
 ## 2026-11-16 (twenty-sixth part)
 * 9c6281f published (CI success). Next stage: `Runtime.shutdown` runs every wipe step (first failure raised after all); `lfnotify` malformed input and tampering adapter fixed; runtime mutant analysed (evidence, no equivalence claim); the 8-byte check measured and its limits written down. Tests: runtime 74 → 82, notify 76 → 90, lifecycle 95 → 97, crypto 97 → 99. `lfengine.py` and `conformance.py` unchanged.
+
+## 2026-11-17 (twenty-seventh part)
+* 06e8a6e published (CI success). Application ids and support values (`lfruntime`, `lfsettings`) and layout-source objects (`lfpair`) with unfavourable adapter input: three confirmed defects fixed (see readings addendum). Tests: apps 794 → 839, pair 63 → 77. Hand mutations 15 of 15 killed. `lfengine.py` and `conformance.py` unchanged.

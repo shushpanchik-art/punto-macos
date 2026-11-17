@@ -135,14 +135,14 @@ class Settings:
         return self._set("start_at_login", on)
 
     def set_esc_undoes(self, app_id, on):
-        if not isinstance(app_id, str) or not app_id or not isinstance(on, bool):
+        if not R.valid_app_id(app_id) or not isinstance(on, bool):
             raise SettingsError("esc_undoes")
         self.rt.apps.setdefault(app_id, R.AppState("UNKNOWN")).esc_undoes = on
         self.state.apps = self.rt.prefs()
         return self._persist()
 
     def set_blacklist(self, app_id, on):
-        if not isinstance(app_id, str) or not app_id or not isinstance(on, bool):
+        if not R.valid_app_id(app_id) or not isinstance(on, bool):
             raise SettingsError("blacklist")
         self.rt.blacklist(app_id, on)
         self.state.apps = self.rt.prefs()

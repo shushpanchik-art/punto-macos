@@ -18,12 +18,22 @@ Contracts that this module enforces for the adapter (and that its tests check):
 U-1 (closed in the reference, 13.3 and 20.14): the undo after further typing passes `ahead_len=snapshot.after` to
 `run_transaction`: the characters typed since are read from the field, never written, and only M1 may do it.
 """
+import re
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "reference"))
 import lfengine as L  # noqa: E402
 
+
+
+_APP_ID = re.compile(r"[^\x00-\x1f\x7f]{1,512}")           # the same shape as the notification target (lfnotify): printable, 1..512 characters
+
+
+def valid_app_id(x) -> bool:
+    """An application id comes from an adapter or from the UI and becomes a dictionary key and a list row: a string of 1..512 characters without control
+    characters. MY READING (open): the specification fixes what identifies an application (13.7), not the limits of the string."""
+    return isinstance(x, str) and _APP_ID.fullmatch(x) is not None
 
 
 class AppState:
@@ -82,6 +92,8 @@ class Runtime:
     def on_focus(self, app_id: str, adapter, support: str = "UNKNOWN"):
         """Another element or application has the focus: nothing of the old one survives (RT-20, 13.2 step 1)."""
         try:
+            if not valid_app_id(app_id) or support not in L.SUPPORT_STATUS:
+                raise ValueError("focus")
             caps = frozenset(adapter.caps)
         except Exception:
             # The new element cannot be described: the old one must not stay active either. Nothing of it survives, the engine is OFF until a focus
@@ -175,6 +187,8 @@ class Runtime:
 
     def blacklist(self, app_id: str, on: bool = True):
         """The user switches an application off (or removes it from the list). Only `reenable` or this undoes it."""
+        if not valid_app_id(app_id):
+            return None                              # a malformed id never becomes an entry of the list
         self.apps.setdefault(app_id, AppState("UNKNOWN")).blacklisted = bool(on)
         if app_id == self.app_id:
             self.engine.on_event(L.Event("break"))
@@ -185,7 +199,7 @@ class Runtime:
         else: the support status is never changed, AUTO is returned only when every fact still allows it (`explain`), the
         incident counter stays, the focused application starts from a clean state (no word, no snapshot) and the next incident
         quarantines it again. Returns (mode, reasons), or None for an unknown application."""
-        a = self.apps.get(app_id)
+        a = self.apps.get(app_id) if valid_app_id(app_id) else None
         if a is None:
             return None
         a.quarantined = a.blacklisted = False
@@ -202,6 +216,8 @@ class Runtime:
 
     def load_prefs(self, apps: dict):
         for k, v in apps.items():
+            if not valid_app_id(k):
+                continue                             # a stored id that cannot be a key of the list is skipped, never raised
             a = self.apps.setdefault(k, AppState("UNKNOWN"))
             a.blacklisted, a.esc_undoes = bool(v["blacklist"]), bool(v["esc_undoes"])
         self.apply_mode()

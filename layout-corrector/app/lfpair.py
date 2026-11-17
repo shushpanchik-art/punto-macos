@@ -33,7 +33,10 @@ class Source:
 
 def classify(source):
     """'en', 'ru' or None. None for anything that is not exactly a supported table: a changed table, a dead-key table, a source that cannot be read, a wrong shape."""
-    e = source.entries
+    try:
+        e = source.entries
+    except Exception:
+        return None                          # an adapter object whose entries cannot be read is a source that cannot be read
     if e is None or not isinstance(e, (list, tuple)):
         return None
     try:
@@ -62,17 +65,22 @@ class PairResult:
 def select_pair(sources, chosen=None):
     """`sources`: list of Source. `chosen`: {'en': id, 'ru': id} from the user, used only when both ids are among the supported candidates. Returns a PairResult.
     A malformed list (too long, bad or repeated ids) is NONE: nothing is guessed."""
-    if not isinstance(sources, (list, tuple)) or len(sources) > MAX_SOURCES:
-        return PairResult(NONE)
-    ids = []
-    for s in sources:
-        if not isinstance(s, Source) or not isinstance(s.id, str) or not _ID.fullmatch(s.id) or s.id in ids:
+    try:
+        if not isinstance(sources, (list, tuple)) or len(sources) > MAX_SOURCES:
             return PairResult(NONE)
-        ids.append(s.id)
+        sources = list(sources)
+        ids = []
+        for s in sources:
+            sid = s.id if isinstance(s, Source) else None      # reading the id of an adapter object may fail
+            if not isinstance(sid, str) or not _ID.fullmatch(sid) or sid in ids:
+                return PairResult(NONE)
+            ids.append(sid)
+    except Exception:
+        return PairResult(NONE)
     cand, unsupported = {"en": [], "ru": []}, []
-    for s in sources:
+    for sid, s in zip(ids, sources):
         lay = classify(s)
-        (cand[lay] if lay else unsupported).append(s.id)
+        (cand[lay] if lay else unsupported).append(sid)
     if not cand["en"] or not cand["ru"]:
         return PairResult(NONE, candidates=cand, unsupported=unsupported)
     if len(cand["en"]) == 1 and len(cand["ru"]) == 1:

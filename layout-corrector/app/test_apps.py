@@ -114,4 +114,37 @@ rt.apps["A"].esc_undoes = True
 r = rt.on_esc(300)
 T(r is not None and r.outcome == "VERIFIED" and f.text == "ghbdtn ", "Esc with the opt-in undoes")
 T(rt.on_esc(400) is None, "Esc with nothing to undo does nothing")
+
+# ---- fault injection (audit 6): malformed application ids and support values from an adapter, a caller or a stored file
+def kept(rt):
+    return rt.app_id, rt.ad is not None, rt.engine.mode
+BADIDS = (("None", None), ("an int", 5), ("a list", ["x"]), ("empty", ""), ("a control character", "a\nb"), ("NUL", "a\x00b"), ("513 characters", "x" * 513), ("bytes", b"app"))
+for label, bad in BADIDS:
+    rt = new_rt(); fo = L.SimField("", M1); focus(rt, "old", fo); word(rt, fo, "he", 100)
+    try: r = rt.on_focus(bad, L.SimField("", M1), "AUTO"); err = None
+    except Exception as e: r, err = None, e
+    T(err is None and r is False and rt.app_id is None and rt.ad is None and rt.engine.mode == "OFF" and list(rt.apps) == ["old"], f"focus on an application id that is {label}: no exception, the old element is let go, engine OFF, no entry made ({err!r} {kept(rt)})")
+    T(rt.on_focus("ok.app", L.SimField("", M1), "AUTO") is True and rt.app_id == "ok.app", "and a later good focus recovers")
+rt = new_rt(); focus(rt, "old", L.SimField("", M1))
+try: r = rt.on_focus("new", L.SimField("", M1), "BOGUS"); err = None
+except Exception as e: r, err = None, e
+T(err is None and r is False and rt.app_id is None and rt.engine.mode == "OFF" and "new" not in rt.apps, f"focus with an unknown support status: fail-safe, no exception, no entry ({err!r})")
+T(R.valid_app_id("x" * 512) and R.valid_app_id("com.example.App") and R.valid_app_id("C:\\Program Files\\a.exe | sig") and not R.valid_app_id("x" * 513), "the limits of an application id: 1..512 printable characters")
+rt = new_rt(); focus(rt, "old", L.SimField("", M1)); before = (dict(rt.apps), rt.app_id)
+for label, bad in BADIDS:
+    try: a = rt.blacklist(bad, True); b = rt.reenable(bad); err = None
+    except Exception as e: a = b = err = e
+    T(err is None and a is None and b is None and (dict(rt.apps), rt.app_id) == before, f"blacklist and re-enable with an id that is {label}: no exception, nothing created or changed")
+T([r["app"] for r in rt.app_list()] == ["old"], "the application list stays printable and sortable")
+rt = new_rt(); rt.load_prefs({"good.app": {"blacklist": True, "esc_undoes": False}, "": {"blacklist": True, "esc_undoes": True}, "x" * 600: {"blacklist": True, "esc_undoes": True}, "a\nb": {"blacklist": True, "esc_undoes": True}})
+T(list(rt.apps) == ["good.app"] and rt.apps["good.app"].blacklisted, "stored preferences with ids that cannot be keys are skipped, the good one is loaded")
+import lfsettings as G
+sd = tempfile.mkdtemp(); st = S.Store(os.path.join(sd, "s.json"), S.TestOnlyCipher(b"k"), allow_test_cipher=True); state = st.load(); sx = G.Settings(st, state, new_rt())
+for label, bad in BADIDS:
+    for fn in (sx.set_blacklist, sx.set_esc_undoes):
+        try: fn(bad, True); got = None
+        except G.SettingsError as e: got = e
+        except Exception as e: got = e
+        T(isinstance(got, G.SettingsError), f"the settings setters reject an id that is {label} with SettingsError ({got!r})")
+T(state.apps == {}, "and nothing reached the state to be stored")
 print(f"OK ({CHECKS} application list and re-enable checks; simulated fields, temporary files)")
